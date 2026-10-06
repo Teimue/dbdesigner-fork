@@ -277,7 +277,7 @@ begin
       for i:=Tables.Count-1 downto 0 do
       begin
         theEERTbl:=Tables[i];
-        s:=s+theEERTbl.GetSQLDropCode(DropIfExists)+#13#10#13#10
+        s:=s+theEERTbl.GetSQLDropCode(DropIfExists, TargetDatabase)+#13#10#13#10
       end;
     end;
 
@@ -323,9 +323,9 @@ begin
           EdLastDeleteTriggerPrefix.Text
           )
           //SQLite: the table code is tidied, one empty line between tables
-          +IfThen(TargetDatabase = 'SQLite', #13#10, #13#10#13#10)
+          +IfThen((TargetDatabase = 'SQLite')or(TargetDatabase = 'FireBird'), #13#10, #13#10#13#10)
       else if(ScriptMode=1)then
-        s:=s+theEERTbl.GetSQLDropCode(DropIfExists)+#13#10#13#10
+        s:=s+theEERTbl.GetSQLDropCode(DropIfExists, TargetDatabase)+#13#10#13#10
       else if(ScriptMode=2)then
         s:=s+'OPTIMIZE TABLE '+theEERTbl.GetSQLTableName+';'+#13#10#13#10
       else if(ScriptMode=3)then
@@ -622,8 +622,8 @@ begin
   SetOption(HideOnDeleteUpdateNoActionCBox, False,
     (Target='Oracle')or(Target='PostgreSQL')or(Target='SQL Server'));
   SetOption(GOCB, False, Target='SQL Server');
-  SetOption(CommitCB, False, (Target='Oracle')or(Target='PostgreSQL'));
-  SetOption(CBDefaultBeforeNotNull, False, (Target='Oracle')or(Target='PostgreSQL'));
+  SetOption(CommitCB, False, (Target='Oracle')or(Target='PostgreSQL')or(Target='FireBird'));
+  SetOption(CBDefaultBeforeNotNull, False, (Target='Oracle')or(Target='PostgreSQL')or(Target='FireBird'));
 
   //Default per target, editable
   SetOption(IndiceFK, True,

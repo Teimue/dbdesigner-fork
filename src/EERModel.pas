@@ -688,9 +688,12 @@ type
                                        HideNullField:boolean = false; // indicate that things like "col1 char(1) null," will not apear. What will apear is "col1 char(1),"
                                        DefaultBeforeNotNull : boolean = false; // Defalut tag should appear before NOT NULL
                                        DatabaseType: string = 'My SQL'; //database type
-                                       OutputComments: boolean = false
+                                       OutputComments: boolean = false;
+                                       IdentityColumn: boolean = false //FireBird: auto increment as identity column instead of generator and trigger
                                        ): string;
-    function GetSQLDropCode(IfExists:boolean = false): string;
+    function GetSQLDropCode(IfExists:boolean = false; DatabaseType: string = 'My SQL'): string;
+    //The name of an object in the SQL code for the database type
+    function GetSQLName(const AName, DatabaseType: string): string;
     function GetSQLInsertCode: string;
 
     //Get an set the XML code of the Table
@@ -1199,7 +1202,7 @@ type
 
 implementation
 
-uses MainDM, EERDM;
+uses MainDM, EERDM, FirebirdSQL;
 
 // -----------------------------------------------
 // Implementation of the MAIN-Class
@@ -9217,9 +9220,25 @@ var s, s1: string;
   CommitStatementstr : string;
   TableName : string;
   LocalComment : string;
+  IsFirebird : boolean;
+
+  //A name in quotes as the target database needs it
+  function QN(const AName: string): string;
+  begin
+    if(IsFirebird)then
+      QN:=FirebirdName(AName, DMEER.EncloseNames)
+    else
+      QN:=DBQuote+AName+DBQuote;
+  end;
+
 begin
   FKIndexes := '';
-  TableName := GetSQLTableName;
+  IsFirebird := (DatabaseType = 'FireBird');
+  //Firebird has no schemas, so no table prefix
+  if(IsFirebird)then
+    TableName := FirebirdName(ObjName, DMEER.EncloseNames)
+  else
+    TableName := GetSQLTableName;
 
   GoStatementstr := IfThen(GoStatement,'GO'+#13#10,'');
   CommitStatementstr := IfThen(CommitStatement,'commit;'+#13#10,'');
@@ -9279,7 +9298,11 @@ begin
 
   //Make table temporary
   if(isTemporary)then
+  begin
+    if(IsFirebird)then
+      s:=s+'GLOBAL ';
     s:=s+'TEMPORARY ';
+  end;
 
   s:=s+'TABLE '+TableName+' ';
 
@@ -9295,7 +9318,10 @@ begin
       s:=s+#13#10;
     end;
 
-    s:=s+'  '+GetSQLColumnCreateDefCode(i,FieldOnGeneratorOrSequence,HideNullField, DefaultBeforeNotNull, DatabaseType, OutputComments);
+    //FireBird: without the generator and trigger option an auto increment
+    //column is an identity column (Firebird 3)
+    s:=s+'  '+GetSQLColumnCreateDefCode(i,FieldOnGeneratorOrSequence,HideNullField, DefaultBeforeNotNull, DatabaseType, OutputComments,
+      IsFirebird and (not CreateAutoInc));
 
   end;
 
@@ -9330,39 +9356,44 @@ begin
         continue;
     end;
 
-    indexPortable := PortableIndices and (TEERIndex(Indices[i]).IndexKind <> ik_PRIMARY);
+    //FireBird: the index of a foreign key belongs to the constraint
+    if(IsFirebird)and(DefineFK)and(TEERIndex(Indices[i]).FKRefDef_Obj_id>-1)then
+      continue;
+
+    //FireBird has no index definition inside CREATE TABLE
+    indexPortable := (PortableIndices or IsFirebird) and (TEERIndex(Indices[i]).IndexKind <> ik_PRIMARY);
     sIndex := '';
 
     if indexPortable then
     begin
       sIndex:= sIndex + 'CREATE ';
-      indexOnTable := ' ON '+ GetSQLTableName+' '
+      indexOnTable := ' ON '+ TableName+' '
     end
     else
     begin
       indexOnTable := '';
     end;
 
-    if(DatabaseType <> 'SQLite')then
+    if(DatabaseType <> 'SQLite')and(not IsFirebird)then
       s:=s+'  ';
     case TEERIndex(Indices[i]).IndexKind of
       ik_PRIMARY:
         sIndex:=sIndex+'PRIMARY KEY(';
       ik_INDEX:
-        sIndex:=sIndex+'INDEX '+DBQuote+TEERIndex(Indices[i]).IndexName+DBQuote+indexOnTable+'(';
+        sIndex:=sIndex+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
       ik_UNIQUE_INDEX:
-        sIndex:=sIndex+'UNIQUE INDEX '+DBQuote+TEERIndex(Indices[i]).IndexName+DBQuote+indexOnTable+'(';
+        sIndex:=sIndex+'UNIQUE INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
       ik_FULLTEXT_INDEX:
-        //FULLTEXT is MySQL syntax; SQLite gets a plain index
-        if(DatabaseType = 'SQLite')then
-          sIndex:=sIndex+'INDEX '+DBQuote+TEERIndex(Indices[i]).IndexName+DBQuote+indexOnTable+'('
+        //FULLTEXT is MySQL syntax; SQLite and FireBird get a plain index
+        if(DatabaseType = 'SQLite')or(IsFirebird)then
+          sIndex:=sIndex+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'('
         else
           sIndex:=sIndex+'FULLTEXT INDEX '+DBQuote+TEERIndex(Indices[i]).IndexName+DBQuote+indexOnTable+'(';
     end;
 
     for j:=0 to TEERIndex(Indices[i]).Columns.Count-1 do
     begin
-      sIndex:=sIndex+DBQuote+TEERColumn(GetColumnByID(StrToInt(TEERIndex(Indices[i]).Columns[j]))).ColName+DBQuote;
+      sIndex:=sIndex+QN(TEERColumn(GetColumnByID(StrToInt(TEERIndex(Indices[i]).Columns[j]))).ColName);
 
       //Index prefix length column(n) is MySQL syntax
       if(DatabaseType = 'My SQL')and
@@ -9388,7 +9419,7 @@ begin
     begin
       s:=s+',';
       s:=s+#13#10;
-      if(DatabaseType = 'SQLite')then
+      if(DatabaseType = 'SQLite')or(IsFirebird)then
         s:=s+'  ';
       s:=s + sIndex;
     end;
@@ -9410,7 +9441,7 @@ begin
         s1:='';
         for j:=0 to theRel.FKFields.Count-1 do
         begin
-          s1:=s1+DBQuote+theRel.FKFields.ValueFromIndex[j]+DBQuote;
+          s1:=s1+QN(theRel.FKFields.ValueFromIndex[j]);
           if(j<theRel.FKFields.Count-1)then
             s1:=s1+', ';
         end;
@@ -9419,23 +9450,23 @@ begin
         //s:=s+'  INDEX '+theRel.ObjName+'('+s1+'),'+#13#10; //Add this for INNODB
         if(DMEER.DoNotUseRelNameInRefDef)then
           s:=s+'  FOREIGN KEY('+s1+')'+#13#10
-        else if(DatabaseType = 'SQLite')then
-          //FOREIGN KEY name(...) is MySQL syntax; SQLite names it via CONSTRAINT
-          s:=s+'  CONSTRAINT '+DBQuote+theRel.ObjName+DBQuote+' FOREIGN KEY('+s1+')'+#13#10
+        else if(DatabaseType = 'SQLite')or(IsFirebird)then
+          //FOREIGN KEY name(...) is MySQL syntax; SQLite and FireBird name it via CONSTRAINT
+          s:=s+'  CONSTRAINT '+QN(theRel.ObjName)+' FOREIGN KEY('+s1+')'+#13#10
         else
           s:=s+'  FOREIGN KEY '+DBQuote+theRel.ObjName+DBQuote+'('+s1+')'+#13#10;
 
         FKIndexName := copy('IFK_'+DBQuote+theRel.ObjName+DBQuote,1,30);
         FKIndexes :=
           FKIndexes +
-          'CREATE INDEX '+FKIndexName+' ON '+GetSQLTableName+' ('+s1+');'+
+          'CREATE INDEX '+FKIndexName+' ON '+TableName+' ('+s1+');'+
           #13#10+GoStatementstr;
 
-        s:=s+'    REFERENCES '+DBQuote+TEERTable(theRel.SrcTbl).ObjName+DBQuote+'(';
+        s:=s+'    REFERENCES '+QN(TEERTable(theRel.SrcTbl).ObjName)+'(';
         //get the FK field list from source table
         for j:=0 to theRel.FKFields.Count-1 do
         begin
-          s:=s+DBQuote+theRel.FKFields.Names[j]+DBQuote;
+          s:=s+QN(theRel.FKFields.Names[j]);
           if(j<theRel.FKFields.Count-1)then
             s:=s+', ';
         end;
@@ -9447,7 +9478,8 @@ begin
           end;}
         if(theRel.RefDef.Values['OnDelete']<>'')then
           case StrToInt(theRel.RefDef.Values['OnDelete']) of
-            0: s:=s+#13#10+'      ON DELETE RESTRICT';
+            //FireBird has no RESTRICT keyword, it is what happens without a clause
+            0: if(not IsFirebird)then s:=s+#13#10+'      ON DELETE RESTRICT';
             1: s:=s+#13#10+'      ON DELETE CASCADE';
             2: s:=s+#13#10+'      ON DELETE SET NULL';
             3: s:=s+IfThen(not HideOnDeleteUpdateNoAction, #13#10+'      ON DELETE NO ACTION','');
@@ -9455,7 +9487,7 @@ begin
           end;
         if(theRel.RefDef.Values['OnUpdate']<>'')then
           case StrToInt(theRel.RefDef.Values['OnUpdate']) of
-            0: s:=s+#13#10+'      ON UPDATE RESTRICT';
+            0: if(not IsFirebird)then s:=s+#13#10+'      ON UPDATE RESTRICT';
             1: s:=s+#13#10+'      ON UPDATE CASCADE';
             2: s:=s+#13#10+'      ON UPDATE SET NULL';
             3: s:=s+IfThen(not HideOnDeleteUpdateNoAction,#13#10+'      ON UPDATE NO ACTION','');
@@ -9582,7 +9614,7 @@ begin
   if OutputComments then
   begin
     s:=s + #13#10 +
-       getSqlTableComment(GetSQLTableName, Comments, DatabaseType);
+       getSqlTableComment(TableName, Comments, DatabaseType);
   end;
 
   // should create indexes for FKs?
@@ -9593,7 +9625,7 @@ begin
 
   PkColumns.Free;
 
-  if(DatabaseType = 'SQLite')then
+  if(DatabaseType = 'SQLite')or(IsFirebird)then
     s:=TidySQLiteScript(s);
 
   GetSQLCreateCode:=s;
@@ -9604,7 +9636,8 @@ function TEERTable.GetSQLColumnCreateDefCode(i: integer;
                                              HideNullField:boolean = false;
                                              DefaultBeforeNotNull : boolean = false; // Defalut tag should appear before NOT NULL
                                              DatabaseType: string = 'My SQL';
-                                             OutputComments: boolean = false
+                                             OutputComments: boolean = false;
+                                             IdentityColumn: boolean = false
                                              ): string;
 var s: string;
   j: integer;
@@ -9616,7 +9649,14 @@ begin
   defaultTag:='';
   NullTag:='';
 
-  if(DMEER.EncloseNames)then
+  if(DatabaseType = 'FireBird')then
+  begin
+    //FireBird writes NOT NULL after the default and has no NULL keyword
+    HideNullField:=True;
+    DefaultBeforeNotNull:=True;
+    s:=FirebirdName(TEERColumn(Columns[i]).ColName, DMEER.EncloseNames)+' ';
+  end
+  else if(DMEER.EncloseNames)then
     s:=ParentEERModel.DBQuoteCharacter+TEERColumn(Columns[i]).ColName+
       ParentEERModel.DBQuoteCharacter+' '
   else
@@ -9634,6 +9674,14 @@ begin
     if(DatabaseType = 'SQLite')and(IsSQLiteAutoIncPK(i))then
       //SQLite: AUTOINCREMENT needs exactly INTEGER PRIMARY KEY, no params
       s:=s+'INTEGER'
+    else if(DatabaseType = 'FireBird')then
+    begin
+      //The model keeps the MySQL datatypes
+      s:=s+FirebirdDatatype(theDatatype.GetPhysicalTypeName,
+        TEERColumn(Columns[i]).DatatypeParams);
+      if(TEERColumn(Columns[i]).AutoInc)and(IdentityColumn)then
+        s:=s+' GENERATED BY DEFAULT AS IDENTITY';
+    end
     else
     begin
       //Datatype name (INTEGER)
@@ -9669,8 +9717,9 @@ begin
     end; // if not HideNullField
   end;
 
-  // default value
-  if(TEERColumn(Columns[i]).DefaultValue<>'')then
+  // default value (an identity column has none)
+  if(TEERColumn(Columns[i]).DefaultValue<>'')and
+    not((DatabaseType = 'FireBird')and(IdentityColumn)and(TEERColumn(Columns[i]).AutoInc))then
     if(Not(DMEER.AddQuotesToDefVals))then
       defaultTag:='DEFAULT '+TEERColumn(Columns[i]).DefaultValue
     else
@@ -9723,8 +9772,8 @@ begin
     end;
   end;
 
-  //SQLite: single blanks, no trailing blanks
-  if DatabaseType = 'SQLite' then
+  //SQLite, FireBird: single blanks, no trailing blanks
+  if (DatabaseType = 'SQLite') or (DatabaseType = 'FireBird') then
   begin
     while(Pos('  ', s)>0)do
       s:=StringReplace(s, '  ', ' ', [rfReplaceAll]);
@@ -9734,9 +9783,26 @@ begin
   GetSQLColumnCreateDefCode:=s;
 end;
 
-function TEERTable.GetSQLDropCode(IfExists:boolean = false): string;
+function TEERTable.GetSQLName(const AName, DatabaseType: string): string;
+begin
+  if(DatabaseType = 'FireBird')then
+    GetSQLName:=FirebirdName(AName, DMEER.EncloseNames)
+  else if(DMEER.EncloseNames)then
+    GetSQLName:=ParentEERModel.DBQuoteCharacter+AName+ParentEERModel.DBQuoteCharacter
+  else
+    GetSQLName:=AName;
+end;
+
+function TEERTable.GetSQLDropCode(IfExists:boolean = false; DatabaseType: string = 'My SQL'): string;
 var DBQuote: string;
 begin
+  //FireBird: no schemas, and no IF EXISTS before Firebird 6
+  if(DatabaseType = 'FireBird')then
+  begin
+    GetSQLDropCode:='DROP TABLE '+FirebirdName(ObjName, DMEER.EncloseNames)+';';
+    Exit;
+  end;
+
   if(DMEER.EncloseNames)then
     DBQuote:=ParentEERModel.DBQuoteCharacter
   else
@@ -14575,7 +14641,7 @@ begin
   result := '';
   RemoveCRFromString(Comment);
 
-  if (DatabaseType = 'Oracle') and (length(trim(Comment))>0) then
+  if ((DatabaseType = 'Oracle') or (DatabaseType = 'FireBird')) and (length(trim(Comment))>0) then
   begin
     result := 'COMMENT ON TABLE '+TableName+' IS '''+
      StringReplace (Comment, '''', '''''', [rfReplaceAll]) + // converts ' into ''
@@ -14587,6 +14653,8 @@ begin
 
     //Column Name
     ColName := TEERColumn(Columns[i]).ColName;
+    if(DatabaseType = 'FireBird')then
+      ColName := FirebirdName(ColName, DMEER.EncloseNames);
 
     //Column Comment
     ColComment := TEERColumn(Columns[i]).Comments;
@@ -14611,7 +14679,7 @@ begin
   result := '';
   RemoveCRFromString(Comment);
 
-  if DatabaseType = 'Oracle' then
+  if (DatabaseType = 'Oracle') or (DatabaseType = 'FireBird') then
   begin
     result := 'COMMENT ON COLUMN '+TableName+'.'+ColumnName+' IS '''+
       StringReplace (Comment, '''', '''''', [rfReplaceAll]) + // converts ' into ''
@@ -14630,6 +14698,7 @@ begin
   
   if DatabaseType = 'FireBird' then
   begin
+    Field := FirebirdName(Field, DMEER.EncloseNames);
     AuxTriggerBody.Add('BEGIN ');
     AuxTriggerBody.Add('  IF (NEW.' + Field + ' IS NULL) THEN ');
     AuxTriggerBody.Add('    NEW.' + Field + ' = GEN_ID('+SeqName+', 1); ');
@@ -14637,8 +14706,8 @@ begin
 
     getTriggerForSequences := GetTriggerSql(DatabaseType,
                                 AuxTriggerBody.Text,
-                                GetSQLTableName,
-                                Copy(PrefixName + GetSQLTableName, 1, 30),
+                                FirebirdName(ObjName, DMEER.EncloseNames),
+                                Copy(PrefixName + ObjName, 1, 30),
                                 'BEFORE INSERT  '
                               ); 
   end else
@@ -14690,19 +14759,21 @@ begin
   begin
     AuxTriggerBody.Add('BEGIN ');
     AuxTriggerBody.Add('New.' + ColumnName + ' = ');
-    AuxTriggerBody.Add('  substr(CURRENT_TIMESTAMP, 3,   4) || ');
-    AuxTriggerBody.Add('  substr(CURRENT_TIMESTAMP, 6,   7) || ');
-    AuxTriggerBody.Add('  substr(CURRENT_TIMESTAMP, 9,  10) || ');
-    AuxTriggerBody.Add('  substr(CURRENT_TIMESTAMP, 12, 13) || ');
-    AuxTriggerBody.Add('  substr(CURRENT_TIMESTAMP, 15, 16) || ');
-    AuxTriggerBody.Add('  substr(CURRENT_TIMESTAMP, 18, 19) || ');
-    AuxTriggerBody.Add('  substr(CURRENT_TIMESTAMP, 21, 23);   ');
+    //SUBSTRING is built in (substr was a UDF, which Firebird 4 dropped).
+    //Not CURRENT_TIMESTAMP: it has a time zone since Firebird 4
+    AuxTriggerBody.Add('  SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 3 FOR 2) || ');
+    AuxTriggerBody.Add('  SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 6 FOR 2) || ');
+    AuxTriggerBody.Add('  SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 9 FOR 2) || ');
+    AuxTriggerBody.Add('  SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 12 FOR 2) || ');
+    AuxTriggerBody.Add('  SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 15 FOR 2) || ');
+    AuxTriggerBody.Add('  SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 18 FOR 2) || ');
+    AuxTriggerBody.Add('  SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 21 FOR 3); ');
     AuxTriggerBody.Add('END! ');
 
     GetTriggersForLastChangeDate := GetTriggerSql(DBType,
                                        AuxTriggerBody.Text,
-                                       GetSQLTableName,
-                                       Copy(PrefixName + GetSQLTableName, 1, 30),
+                                       FirebirdName(ObjName, DMEER.EncloseNames),
+                                       Copy(PrefixName + ObjName, 1, 30),
                                        'BEFORE INSERT OR UPDATE '
                                      ); 
   end else
@@ -14821,13 +14892,13 @@ begin
     AuxTriggerBody.Add('Declare variable cnt integer;');
     AuxTriggerBody.Add('BEGIN');
     AuxTriggerBody.Add('  dt = ');
-    AuxTriggerBody.Add('       substr(CURRENT_TIMESTAMP, 3,   4) || ');
-    AuxTriggerBody.Add('       substr(CURRENT_TIMESTAMP, 6,   7) || ');
-    AuxTriggerBody.Add('       substr(CURRENT_TIMESTAMP, 9,  10) || ');
-    AuxTriggerBody.Add('       substr(CURRENT_TIMESTAMP, 12, 13) || ');
-    AuxTriggerBody.Add('       substr(CURRENT_TIMESTAMP, 15, 16) || ');
-    AuxTriggerBody.Add('       substr(CURRENT_TIMESTAMP, 18, 19) || ');
-    AuxTriggerBody.Add('       substr(CURRENT_TIMESTAMP, 21, 23);   ');
+    AuxTriggerBody.Add('       SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 3 FOR 2) || ');
+    AuxTriggerBody.Add('       SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 6 FOR 2) || ');
+    AuxTriggerBody.Add('       SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 9 FOR 2) || ');
+    AuxTriggerBody.Add('       SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 12 FOR 2) || ');
+    AuxTriggerBody.Add('       SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 15 FOR 2) || ');
+    AuxTriggerBody.Add('       SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 18 FOR 2) || ');
+    AuxTriggerBody.Add('       SUBSTRING(CAST(CAST(''NOW'' AS TIMESTAMP) AS VARCHAR(24)) FROM 21 FOR 3); ');
 
     AuxTriggerBody.Add('  select count(*) from '+TbName+' where table_name = '''+GetSQLTableName+''' into :cnt;');
 
@@ -14842,8 +14913,8 @@ begin
 
     GetTriggerForLastDeleteDate := GetTriggerSql(DBType,
                                        AuxTriggerBody.Text,
-                                       GetSQLTableName,
-                                       Copy(PrefixName + GetSQLTableName, 1, 30),
+                                       FirebirdName(ObjName, DMEER.EncloseNames),
+                                       Copy(PrefixName + ObjName, 1, 30),
                                        'AFTER DELETE '
                                      );
 

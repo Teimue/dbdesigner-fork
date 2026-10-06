@@ -5,7 +5,9 @@ program TestFirebirdSync;
 // engine: create all tables, sync again without changes, column changes,
 // a changed primary key and foreign key, a renamed table, and the reverse
 // engineering of the result into a new model, which has to sync without
-// changes again.
+// changes again. At the end the SQL create script for the FireBird target
+// (identity columns, then generator and triggers) is loaded into a fresh
+// database with isql, if isql lies next to the client library.
 //
 // Needs the application infrastructure (data modules, LCL) and the Firebird
 // client library with the embedded engine (the zip kit of Firebird 3 or
@@ -24,15 +26,15 @@ program TestFirebirdSync;
 uses
   {$IFDEF UNIX}cthreads,{$ENDIF}
   Interfaces, // LCL
-  Classes, SysUtils, Forms, Controls, DB, SQLDB,
+  Classes, SysUtils, Forms, Controls, DB, SQLDB, Process,
   MainDM, DBDM, EERDM, DBEERDM, DBEERFirebird, EERModel;
 
 var
   ParentForm: TForm;
-  Model, Model2: TEERModel;
+  Model, Model2, Model3: TEERModel;
   Conn: TDBConn;
   Log, theTables: TStringList;
-  DBPath, FBClient, FBHost, RowCount: string;
+  DBPath, FBClient, FBHost, RowCount, Isql, IsqlOut: string;
   Failures: integer = 0;
   Product, Cart: TEERTable;
   theColumn: TEERColumn;
@@ -118,6 +120,101 @@ begin
   LogHas:=(Pos(UpperCase(s), UpperCase(Log.Text))>0);
 end;
 
+//The index on info: Firebird has no index on a BLOB column (info is TEXT).
+//The standard inserts of onlineorder: date is a reserved word in Firebird
+procedure PrepareOrderModel(aModel: TEERModel);
+var aTable: TEERTable;
+  aColumn: TEERColumn;
+  k, m: integer;
+begin
+  aTable:=GetTable(aModel, 'product');
+  aColumn:=TEERColumn(aTable.GetColumnByName('info'));
+  for k:=0 to aTable.Indices.Count-1 do
+  begin
+    m:=TEERIndex(aTable.Indices[k]).Columns.IndexOf(IntToStr(aColumn.Obj_id));
+    if(m>=0)then
+      TEERIndex(aTable.Indices[k]).Columns.Delete(m);
+  end;
+
+  aTable:=GetTable(aModel, 'onlineorder');
+  aTable.StandardInserts.Text:=StringReplace(
+    aTable.StandardInserts.Text, ', date,', ', "DATE",', [rfReplaceAll]);
+end;
+
+//The SQL create script as the export dialog builds it for the FireBird
+//target. Triggers: auto increment by generator and trigger, last change and
+//last delete triggers; otherwise identity columns
+function ExportScript(aModel: TEERModel; Triggers: Boolean): string;
+var Tables: TList;
+  k: integer;
+begin
+  Result:='';
+  Tables:=TList.Create;
+  try
+    aModel.GetEERObjectList([EERTable], Tables);
+    aModel.SortEERObjectListByObjName(Tables);
+    aModel.SortEERTableListByForeignKeyReferences(Tables);
+
+    if(Triggers)then
+      Result:='CREATE GENERATOR GlobalSequence;'#13#10#13#10+
+        'CREATE TABLE DT_EXCLUSION (EX_DATE VARCHAR(15), TABLE_NAME VARCHAR(64) NOT NULL, '+
+        'PRIMARY KEY (TABLE_NAME));'#13#10#13#10;
+
+    for k:=0 to Tables.Count-1 do
+      if(Not(TEERTable(Tables[k]).IsLinkedObject))then
+        Result:=Result+TEERTable(Tables[k]).GetSQLCreateCode(
+          True, //DefinePK
+          True, //CreateIndices
+          True, //DefineFK
+          False, //TblOptions
+          True, //StdInserts
+          True, //OutputComments
+          True, //HideNullField
+          True, //PortableIndices
+          False, //HideOnDeleteUpdateNoAction
+          False, //GOStatement
+          True, //CommitStatement
+          False, //FKIndex
+          True, //DefaultBeforeNotNull
+          'FireBird', 'GlobalSequence', 'AINC_', Triggers,
+          Triggers, 'LAST_CHANGE_DATE', 'USERID', 'UPDT_',
+          Triggers, 'DT_EXCLUSION', 'EX_DATE', 'EXCDT_')+#13#10;
+  finally
+    Tables.Free;
+  end;
+end;
+
+//Run a script on a new database with isql, the output of isql
+function RunIsql(const Isql, Script, DBFile: string): string;
+var theLines: TStringList;
+  ScriptFile: string;
+begin
+  Result:='';
+  if(FileExists(DBFile))then
+    DeleteFile(DBFile);
+  ScriptFile:=ChangeFileExt(DBFile, '.sql');
+
+  theLines:=TStringList.Create;
+  try
+    theLines.Text:='CREATE DATABASE '''+DBFile+''' USER ''SYSDBA'' DEFAULT CHARACTER SET UTF8;'#13#10#13#10+
+      Script;
+    theLines.SaveToFile(ScriptFile);
+  finally
+    theLines.Free;
+  end;
+
+  //-m: errors go to the standard output as well
+  if(Not(RunCommand(Isql, ['-q', '-m', '-i', ScriptFile], Result)))then
+    Result:=Result+#13#10'Statement failed: isql could not be run';
+end;
+
+procedure CheckIsql(const Output, Title: string);
+begin
+  WriteLn(Output);
+  Check((Pos('Statement failed', Output)=0)and(Pos('SQL error', Output)=0)and
+    (Pos('Token unknown', Output)=0), Title+': no errors');
+end;
+
 procedure Sync(aModel: TEERModel; const Title: string);
 begin
   WriteLn;
@@ -172,19 +269,8 @@ begin
     Model.Parent:=ParentForm;
     Model.LoadFromFile('bin'+PathDelim+'Examples'+PathDelim+'order.xml');
 
-    //Firebird has no index on a BLOB column (info is a TEXT column)
+    PrepareOrderModel(Model);
     Product:=GetTable(Model, 'product');
-    theColumn:=TEERColumn(Product.GetColumnByName('info'));
-    for i:=0 to Product.Indices.Count-1 do
-    begin
-      j:=TEERIndex(Product.Indices[i]).Columns.IndexOf(IntToStr(theColumn.Obj_id));
-      if(j>=0)then
-        TEERIndex(Product.Indices[i]).Columns.Delete(j);
-    end;
-
-    //date is a reserved word in Firebird
-    GetTable(Model, 'onlineorder').StandardInserts.Text:=StringReplace(
-      GetTable(Model, 'onlineorder').StandardInserts.Text, ', date,', ', "DATE",', [rfReplaceAll]);
 
     //No host name: the embedded engine. The database file is created
     Conn.Name:='SyncTest';
@@ -393,6 +479,58 @@ begin
     CheckNoChanges;
 
     DMDB.SQLConn.Close;
+
+    //------------------------------------------------------------
+    WriteLn;
+    WriteLn('--- 12. SQL create script for the FireBird target');
+    Isql:=ExtractFilePath(FBClient)+{$IFDEF MSWINDOWS}'isql.exe'{$ELSE}'..'+PathDelim+'bin'+PathDelim+'isql'{$ENDIF};
+    if(Not(FileExists(Isql)))then
+      WriteLn('  skipped, no isql at ', Isql)
+    else
+    begin
+      Model3:=TEERModel.Create(ParentForm);
+      Model3.Parent:=ParentForm;
+      Model3.LoadFromFile('bin'+PathDelim+'Examples'+PathDelim+'order.xml');
+      PrepareOrderModel(Model3);
+
+      //COMMIT: the queries have to see the last table isql created
+      IsqlOut:=RunIsql(Isql, ExportScript(Model3, False)+'COMMIT;'#13#10+
+        'SELECT ''TABLES='' || COUNT(*) FROM RDB$RELATIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0;'#13#10+
+        'SELECT ''PRODUCTS='' || COUNT(*) FROM product;'#13#10+
+        'SELECT ''FKS='' || COUNT(*) FROM RDB$REF_CONSTRAINTS;'#13#10+
+        'SELECT ''IDENTITIES='' || COUNT(*) FROM RDB$RELATION_FIELDS WHERE RDB$IDENTITY_TYPE IS NOT NULL;'#13#10+
+        'SELECT ''INDEX='' || COUNT(*) FROM RDB$INDICES WHERE RDB$INDEX_NAME=''PRODUCT_EAN'' AND RDB$UNIQUE_FLAG=1;'#13#10+
+        'SELECT ''DATECOL='' || f.RDB$FIELD_TYPE FROM RDB$RELATION_FIELDS rf '+
+        'JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME=rf.RDB$FIELD_SOURCE '+
+        'WHERE rf.RDB$RELATION_NAME=''ONLINEORDER'' AND rf.RDB$FIELD_NAME=''DATE'';'#13#10,
+        GetTempDir+'dbdesigner_export_test.fdb');
+      CheckIsql(IsqlOut, 'identity columns');
+      Check(Pos('TABLES=12', IsqlOut)>0, '12 tables');
+      Check(Pos('PRODUCTS=3', IsqlOut)>0, 'standard inserts executed');
+      Check(Pos('FKS=2', IsqlOut)>0, '2 foreign keys');
+      Check(Pos('IDENTITIES=', IsqlOut)>0, 'identity columns');
+      Check(Pos('INDEX=1', IsqlOut)>0, 'unique index product_ean');
+      Check(Pos('DATECOL=35', IsqlOut)>0, 'DATETIME column "DATE" is a TIMESTAMP');
+
+      IsqlOut:=RunIsql(Isql, ExportScript(Model3, True)+'COMMIT;'#13#10+
+        'SELECT ''TABLES='' || COUNT(*) FROM RDB$RELATIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0;'#13#10+
+        'SELECT ''TRIGGERS='' || COUNT(*) FROM RDB$TRIGGERS WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0;'#13#10+
+        'UPDATE product SET name=name WHERE idproduct=1;'#13#10+
+        'SELECT ''STAMP='' || CHAR_LENGTH(LAST_CHANGE_DATE) FROM product WHERE idproduct=1;'#13#10+
+        //The standard inserts used the first numbers already
+        'SET GENERATOR GlobalSequence TO 1000;'#13#10+
+        'INSERT INTO productgroup (groupname) VALUES (''generated'');'#13#10+
+        'SELECT ''GENERATED='' || COUNT(*) FROM productgroup WHERE groupname=''generated'' AND idproductgroup IS NOT NULL;'#13#10+
+        'DELETE FROM product WHERE idproduct=3;'#13#10+
+        'SELECT ''EXCLUSION='' || TRIM(TABLE_NAME) || ''/'' || CHAR_LENGTH(EX_DATE) FROM DT_EXCLUSION;'#13#10,
+        GetTempDir+'dbdesigner_export_test2.fdb');
+      CheckIsql(IsqlOut, 'generator and triggers');
+      Check(Pos('TABLES=13', IsqlOut)>0, '13 tables');
+      Check(Pos('TRIGGERS=', IsqlOut)>0, 'triggers created');
+      Check(Pos('STAMP=15', IsqlOut)>0, 'last change trigger writes the time stamp');
+      Check(Pos('GENERATED=1', IsqlOut)>0, 'auto increment trigger');
+      Check(Pos('EXCLUSION=product/15', IsqlOut)>0, 'last delete trigger');
+    end;
   except
     on E: Exception do
     begin

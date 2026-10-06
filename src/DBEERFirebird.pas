@@ -10,8 +10,8 @@ unit DBEERFirebird;
 //   Reverse engineering and database synchronisation for Firebird (3.0 and
 //   newer), both through the system tables (RDB$...).
 //
-//   The model keeps the MySQL datatypes; FirebirdColumnType maps them to
-//   Firebird types and the reverse engineering maps them back.
+//   The model keeps the MySQL datatypes; FirebirdSQL.FirebirdDatatype maps
+//   them to Firebird types and the reverse engineering maps them back.
 //
 //   Synchronisation: the columns of a model table are created as a temporary
 //   table and compared with the existing table through the system tables, so
@@ -52,7 +52,7 @@ procedure FirebirdSyncTables(EERModel: TEERModel; ModelTables: TList;
 
 implementation
 
-uses DB, SQLDB, Forms, Dialogs, Controls, MainDM, DBDM, EERDM, DBEERDM;
+uses DB, SQLDB, Forms, Dialogs, Controls, MainDM, DBDM, EERDM, DBEERDM, FirebirdSQL;
 
 const
   UserTablesSQL = 'SELECT TRIM(RDB$RELATION_NAME) FROM RDB$RELATIONS '+
@@ -101,121 +101,26 @@ type
 //The name exactly as it is stored in the database
 function QId(const s: string): string;
 begin
-  QId:='"'+StringReplace(s, '"', '""', [rfReplaceAll])+'"';
+  QId:=FirebirdQuote(s);
 end;
 
-function IsRegularIdentifier(const s: string): Boolean;
-var i: integer;
-begin
-  Result:=(s<>'')and(s[1] in ['A'..'Z', 'a'..'z']);
-  for i:=2 to Length(s) do
-    if(Not(s[i] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$']))then
-      Result:=False;
-end;
-
-//The reserved words of Firebird 5: not usable as a name without quotes
-function IsReservedWord(const s: string): Boolean;
-const
-  Words = ',ADD,ADMIN,ALL,ALTER,AND,ANY,AS,AT,AVG,BEGIN,BETWEEN,BIGINT,BINARY,'+
-    'BIT_LENGTH,BLOB,BOOLEAN,BOTH,BY,CASE,CAST,CHAR,CHAR_LENGTH,CHARACTER,'+
-    'CHARACTER_LENGTH,CHECK,CLOSE,COLLATE,COLUMN,COMMENT,COMMIT,CONNECT,'+
-    'CONSTRAINT,CORR,COUNT,COVAR_POP,COVAR_SAMP,CREATE,CROSS,CURRENT,'+
-    'CURRENT_CONNECTION,CURRENT_DATE,CURRENT_ROLE,CURRENT_TIME,'+
-    'CURRENT_TIMESTAMP,CURRENT_TRANSACTION,CURRENT_USER,CURSOR,DATE,DAY,DEC,'+
-    'DECFLOAT,DECIMAL,DECLARE,DEFAULT,DELETE,DELETING,DETERMINISTIC,'+
-    'DISCONNECT,DISTINCT,DOUBLE,DROP,ELSE,END,ESCAPE,EXECUTE,EXISTS,EXTERNAL,'+
-    'EXTRACT,FALSE,FETCH,FILTER,FLOAT,FOR,FOREIGN,FROM,FULL,FUNCTION,GDSCODE,'+
-    'GLOBAL,GRANT,GROUP,HAVING,HOUR,IN,INDEX,INNER,INSENSITIVE,INSERT,'+
-    'INSERTING,INT,INT128,INTEGER,INTO,IS,JOIN,LATERAL,LEADING,LEFT,LIKE,'+
-    'LOCAL,LOCALTIME,LOCALTIMESTAMP,LONG,LOWER,MAX,MERGE,MIN,MINUTE,MONTH,'+
-    'NATIONAL,NATURAL,NCHAR,NO,NOT,NULL,NUMERIC,OCTET_LENGTH,OF,OFFSET,ON,'+
-    'ONLY,OPEN,OR,ORDER,OUTER,OVER,PARAMETER,PLAN,POSITION,POST_EVENT,'+
-    'PRECISION,PRIMARY,PROCEDURE,PUBLICATION,REAL,RECORD_VERSION,RECREATE,'+
-    'RECURSIVE,REFERENCES,REGR_AVGX,REGR_AVGY,REGR_COUNT,REGR_INTERCEPT,'+
-    'REGR_R2,REGR_SLOPE,REGR_SXX,REGR_SXY,REGR_SYY,RELEASE,RESETTING,RETURN,'+
-    'RETURNING_VALUES,RETURNS,REVOKE,RIGHT,ROLLBACK,ROW,ROW_COUNT,ROWS,'+
-    'SAVEPOINT,SCROLL,SECOND,SELECT,SENSITIVE,SET,SIMILAR,SMALLINT,SOME,'+
-    'SQLCODE,SQLSTATE,START,STDDEV_POP,STDDEV_SAMP,SUM,TABLE,THEN,TIME,'+
-    'TIMESTAMP,TIMEZONE_HOUR,TIMEZONE_MINUTE,TO,TRAILING,TRIGGER,TRIM,TRUE,'+
-    'UNBOUNDED,UNION,UNIQUE,UNKNOWN,UPDATE,UPDATING,UPPER,USER,USING,VALUE,'+
-    'VALUES,VAR_POP,VAR_SAMP,VARBINARY,VARCHAR,VARIABLE,VARYING,VIEW,WHEN,'+
-    'WHERE,WHILE,WINDOW,WITH,WITHOUT,YEAR,';
-begin
-  Result:=(Pos(','+UpperCase(s)+',', Words)>0)or(Copy(UpperCase(s), 1, 4)='RDB$');
-end;
-
-//The name the database stores for an object of the model. Firebird folds
-//names that are not quoted to upper case; quoted names are case sensitive.
-//Without "enclose names" the names are written without quotes
-function StoredName(const s: string): string;
-begin
-  if(DMEER.EncloseNames)or(Not(IsRegularIdentifier(s)))then
-    StoredName:=s
-  else
-    StoredName:=UpperCase(s);
-end;
-
-//A name of the model in a statement that creates the object. A reserved
-//word is quoted in upper case, i.e. the way every other name is stored
+//A name of the model in a statement that creates the object
 function NewId(const s: string): string;
 begin
-  if(DMEER.EncloseNames)or(Not(IsRegularIdentifier(s)))or(IsReservedWord(s))then
-    NewId:=QId(StoredName(s))
-  else
-    NewId:=s;
+  NewId:=FirebirdName(s, DMEER.EncloseNames);
 end;
 
-//'(10, 2)' -> '(10,2)'
-function TidyParams(const s: string): string;
+//The name the database stores for NewId(s)
+function StoredName(const s: string): string;
 begin
-  TidyParams:=StringReplace(Trim(s), ' ', '', [rfReplaceAll]);
+  StoredName:=FirebirdStoredName(s, DMEER.EncloseNames);
 end;
 
 function FirebirdColumnType(theModel: TEERModel; theColumn: TEERColumn): string;
-var n, p: string;
 begin
-  n:=UpperCase(Trim(TEERDatatype(theModel.GetDataType(theColumn.idDatatype)).GetPhysicalTypeName));
-  p:=TidyParams(theColumn.DatatypeParams);
-
-  if(n='TINYINT')or(n='SMALLINT')or(n='YEAR')or(n='BIT')then
-    Result:='SMALLINT'
-  else if(n='MEDIUMINT')or(n='INT')or(n='INTEGER')then
-    Result:='INTEGER'
-  else if(n='BIGINT')then
-    Result:='BIGINT'
-  else if(n='FLOAT')then
-    Result:='FLOAT'
-  else if(n='DOUBLE')or(n='DOUBLE_PRECISION')or(n='DOUBLE PRECISION')or(n='REAL')then
-    Result:='DOUBLE PRECISION'
-  else if(n='DECIMAL')or(n='NUMERIC')then
-    Result:=n+p
-  else if(n='DATETIME')or(n='TIMESTAMP')then
-    Result:='TIMESTAMP'
-  else if(n='DATE')or(n='TIME')then
-    Result:=n
-  else if(n='CHAR')then
-  begin
-    if(p='')then
-      p:='(1)';
-    Result:='CHAR'+p;
-  end
-  else if(n='VARCHAR')then
-  begin
-    if(p='')then
-      p:='(255)';
-    Result:='VARCHAR'+p;
-  end
-  else if(n='TINYTEXT')or(n='TEXT')or(n='MEDIUMTEXT')or(n='LONGTEXT')then
-    Result:='BLOB SUB_TYPE TEXT'
-  else if(n='TINYBLOB')or(n='BLOB')or(n='MEDIUMBLOB')or(n='LONGBLOB')then
-    Result:='BLOB SUB_TYPE BINARY'
-  else if(n='BOOL')or(n='BOOLEAN')then
-    Result:='BOOLEAN'
-  else if(n='ENUM')or(n='SET')then
-    Result:='VARCHAR(255)'
-  else
-    //Not a MySQL type: take it as it is (a Firebird type or a domain)
-    Result:=n+p;
+  Result:=FirebirdDatatype(
+    TEERDatatype(theModel.GetDataType(theColumn.idDatatype)).GetPhysicalTypeName,
+    theColumn.DatatypeParams);
 end;
 
 //The type of a column as SQL, from the values of RDB$FIELDS
