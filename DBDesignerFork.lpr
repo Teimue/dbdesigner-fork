@@ -98,6 +98,16 @@ uses
 {$R src/DBDesignerFork.res}
 
 begin
+  {$IFDEF MSWINDOWS}
+  //A GUI application has no console: send the WriteLn output of --selftest
+  //to the null device instead of raising EInOutError
+  if(Not(IsConsole))then
+  begin
+    AssignFile(Output, 'NUL');
+    Rewrite(Output);
+  end;
+  {$ENDIF}
+
   Application.Initialize;
   Application.Title := 'DBDesigner Fork';
 
