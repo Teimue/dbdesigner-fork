@@ -135,7 +135,7 @@ var
 
 implementation
 
-uses MainDM, EERDM, DBDM, DBEERDM;
+uses MainDM, EERDM, DBDM, DBEERDM, DBEERFirebird;
 
 {$R *.lfm}
 
@@ -170,6 +170,9 @@ begin
       RevEngTypeCBox.Items.Add('Use SQLite specific functions');
       RevEngTypeCBox.Items.Add('Use MSSQL specific functions');
     end;
+    //Not in the translation files (yet)
+    if(RevEngTypeCBox.Items.Count=5)then
+      RevEngTypeCBox.Items.Add('Use Firebird specific functions');
   finally
   end;
 end;
@@ -363,6 +366,8 @@ begin
         DMDBEER.EERSQLiteReverseEngineer(EERModel, DMDB.CurrentDBConn, theTables, xcount, BuildRelationsCBox.Checked, BuildRelPrimKeyRBtn.Checked, theSubst, StatusLbl, CreateStdInsertsCBox.Checked, i);
       4:
         DMDBEER.EERMSSQLReverseEngineer(EERModel, DMDB.CurrentDBConn, theTables, xcount, BuildRelationsCBox.Checked, BuildRelPrimKeyRBtn.Checked, theSubst, StatusLbl, CreateStdInsertsCBox.Checked, i, CollapseTablesCBox.Checked);
+      5:
+        FirebirdReverseEngineer(EERModel, theTables, xcount, BuildRelationsCBox.Checked, BuildRelPrimKeyRBtn.Checked, theSubst, StatusLbl, CreateStdInsertsCBox.Checked, i);
     end;
 
   finally
@@ -561,6 +566,8 @@ begin
         SubstCBox.ItemIndex:=3;
 
       end
+      else if(CompareText(DMDB.CurrentDBConn.DriverName, 'Firebird')=0)then
+        RevEngTypeCBox.ItemIndex:=5  //Firebird funcs
       else if(CompareText(DMDB.CurrentDBConn.DriverName, 'MSSQL')=0)then
       begin
         RevEngTypeCBox.ItemIndex:=4;  //MSSQL funcs

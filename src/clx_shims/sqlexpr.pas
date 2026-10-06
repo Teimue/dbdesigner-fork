@@ -2,7 +2,8 @@
 unit SqlExpr;
 {$mode delphi}
 interface
-uses Classes, DB, SQLDB, SysUtils, DBXpress, SQLite3Conn, SQLiteLib, MySQL80Conn, MySQLLib
+uses Classes, DB, SQLDB, SysUtils, DBXpress, SQLite3Conn, SQLiteLib, MySQL80Conn, MySQLLib,
+  IBConnection, FirebirdLib
   {$IFDEF LINUX}, ctypes, mysql80dyn{$ENDIF};
 
 {$IFDEF LINUX}
@@ -31,6 +32,7 @@ type
     procedure UpdateConnectorType;
     procedure ApplyParamsToConnection;
     function MySQLRealConnectError: string;
+    procedure PrepareFirebird;
   public
     constructor Create(AOwner: TComponent); override;
     procedure Open;
@@ -138,6 +140,11 @@ var
   i: Integer;
   ParamName, ParamValue: string;
 begin
+  // Firebird: no HostName means the embedded engine, so a host left over
+  // from the previous connection of this component must not survive
+  if ConnectorType = 'Firebird' then
+    HostName := '';
+
   // Map Delphi dbExpress-style Params to SQLDB connection properties
   for i := 0 to Params.Count - 1 do
   begin
@@ -193,6 +200,37 @@ begin
 {$ENDIF}
 end;
 
+// Firebird: load the client library (VendorLib may hold its full path), use
+// UTF8 as connection character set unless the connection names another one
+// and, with the embedded engine (no host), create a database file that does
+// not exist yet - the way SQLite does.
+procedure TSQLConnection.PrepareFirebird;
+var
+  Creator: TIBConnection;
+begin
+  LoadFirebirdLibrary(FVendorLib);
+
+  if Params.Values['ServerCharSet'] <> '' then
+    CharSet := Params.Values['ServerCharSet']
+  else
+    CharSet := 'UTF8';
+
+  if (HostName = '') and (ExtractFilePath(DatabaseName) <> '') and
+    (not FileExists(DatabaseName)) then
+  begin
+    Creator := TIBConnection.Create(nil);
+    try
+      Creator.DatabaseName := DatabaseName;
+      Creator.UserName := UserName;
+      Creator.Password := Password;
+      Creator.CharSet := CharSet;
+      Creator.CreateDB;
+    finally
+      Creator.Free;
+    end;
+  end;
+end;
+
 procedure TSQLConnection.Open;
 var
   RealMsg: string;
@@ -203,6 +241,9 @@ begin
 
   // Map Params to SQLDB connection properties
   ApplyParamsToConnection;
+
+  if ConnectorType = 'Firebird' then
+    PrepareFirebird;
 
   try
     inherited Open;
@@ -284,6 +325,22 @@ begin
   Database := Value;
 end;
 
+const
+  // Firebird: SQL name of a column type from RDB$FIELDS (alias f)
+  FirebirdTypeNameSQL =
+    'CASE f.RDB$FIELD_TYPE ' +
+    'WHEN 7 THEN CASE f.RDB$FIELD_SUB_TYPE WHEN 1 THEN ''NUMERIC'' WHEN 2 THEN ''DECIMAL'' ELSE ''SMALLINT'' END ' +
+    'WHEN 8 THEN CASE f.RDB$FIELD_SUB_TYPE WHEN 1 THEN ''NUMERIC'' WHEN 2 THEN ''DECIMAL'' ELSE ''INTEGER'' END ' +
+    'WHEN 16 THEN CASE f.RDB$FIELD_SUB_TYPE WHEN 1 THEN ''NUMERIC'' WHEN 2 THEN ''DECIMAL'' ELSE ''BIGINT'' END ' +
+    'WHEN 26 THEN CASE f.RDB$FIELD_SUB_TYPE WHEN 1 THEN ''NUMERIC'' WHEN 2 THEN ''DECIMAL'' ELSE ''INT128'' END ' +
+    'WHEN 10 THEN ''FLOAT'' WHEN 27 THEN ''DOUBLE PRECISION'' ' +
+    'WHEN 12 THEN ''DATE'' WHEN 13 THEN ''TIME'' WHEN 35 THEN ''TIMESTAMP'' ' +
+    'WHEN 28 THEN ''TIME WITH TIME ZONE'' WHEN 29 THEN ''TIMESTAMP WITH TIME ZONE'' ' +
+    'WHEN 14 THEN ''CHAR'' WHEN 37 THEN ''VARCHAR'' WHEN 40 THEN ''CSTRING'' ' +
+    'WHEN 261 THEN ''BLOB'' WHEN 23 THEN ''BOOLEAN'' ' +
+    'WHEN 24 THEN ''DECFLOAT'' WHEN 25 THEN ''DECFLOAT'' ' +
+    'ELSE ''UNKNOWN'' END';
+
 procedure TSQLDataSet.SetSchemaInfo(SchemaType: Integer; const SchemaObjectName, SchemaPattern: string);
 var
   Conn: TSQLConnection;
@@ -310,6 +367,14 @@ begin
       SQL.Text := 'SELECT NULL AS RECNO, NULL AS CATALOG_NAME, NULL AS SCHEMA_NAME, ' +
                   'name AS TABLE_NAME, type AS TABLE_TYPE FROM sqlite_master ' +
                   'WHERE type=''table'' ORDER BY name'
+    else if (Pos('firebird', LowerDriver) > 0) or (Pos('interbase', LowerDriver) > 0) then
+      // The names in the system tables are blank padded CHAR columns
+      SQL.Text := 'SELECT CAST(NULL AS INTEGER) AS RECNO, CAST(NULL AS VARCHAR(1)) AS CATALOG_NAME, ' +
+                  'CAST(NULL AS VARCHAR(1)) AS SCHEMA_NAME, ' +
+                  'TRIM(RDB$RELATION_NAME) AS TABLE_NAME, ''TABLE'' AS TABLE_TYPE ' +
+                  'FROM RDB$RELATIONS ' +
+                  'WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 AND RDB$VIEW_BLR IS NULL ' +
+                  'ORDER BY RDB$RELATION_NAME'
     else
       SQL.Text := 'SELECT NULL AS RECNO, NULL AS CATALOG_NAME, NULL AS SCHEMA_NAME, ' +
                   'TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES ORDER BY TABLE_NAME';
@@ -348,6 +413,20 @@ begin
                   'NULL AS COLUMN_LENGTH, NULL AS COLUMN_PRECISION, NULL AS COLUMN_SCALE, ' +
                   'CASE "notnull" WHEN 1 THEN 0 ELSE 1 END AS COLUMN_NULLABLE ' +
                   'FROM pragma_table_info(''' + QuotedName + ''')'
+    else if (Pos('firebird', LowerDriver) > 0) or (Pos('interbase', LowerDriver) > 0) then
+      SQL.Text := 'SELECT CAST(rf.RDB$FIELD_ID AS INTEGER) AS RECNO, CAST(NULL AS VARCHAR(1)) AS CATALOG_NAME, ' +
+                  'CAST(NULL AS VARCHAR(1)) AS SCHEMA_NAME, ' +
+                  'TRIM(rf.RDB$RELATION_NAME) AS TABLE_NAME, TRIM(rf.RDB$FIELD_NAME) AS COLUMN_NAME, ' +
+                  'rf.RDB$FIELD_POSITION + 1 AS COLUMN_POSITION, 0 AS COLUMN_TYPE, ' +
+                  'f.RDB$FIELD_TYPE AS COLUMN_DATATYPE, ' + FirebirdTypeNameSQL + ' AS COLUMN_TYPENAME, ' +
+                  'f.RDB$FIELD_SUB_TYPE AS COLUMN_SUBTYPE, ' +
+                  'COALESCE(f.RDB$CHARACTER_LENGTH, f.RDB$FIELD_LENGTH) AS COLUMN_LENGTH, ' +
+                  'f.RDB$FIELD_PRECISION AS COLUMN_PRECISION, -f.RDB$FIELD_SCALE AS COLUMN_SCALE, ' +
+                  'CASE WHEN COALESCE(rf.RDB$NULL_FLAG, f.RDB$NULL_FLAG, 0) = 1 THEN 0 ELSE 1 END AS COLUMN_NULLABLE ' +
+                  'FROM RDB$RELATION_FIELDS rf ' +
+                  'JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME = rf.RDB$FIELD_SOURCE ' +
+                  'WHERE rf.RDB$RELATION_NAME = ''' + QuotedName + ''' ' +
+                  'ORDER BY rf.RDB$FIELD_POSITION'
     else
       SQL.Text := 'SELECT NULL AS RECNO, NULL AS CATALOG_NAME, NULL AS SCHEMA_NAME, ' +
                   'TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION AS COLUMN_POSITION, ' +
@@ -392,6 +471,20 @@ begin
                   '''ASC'' AS SORT_ORDER, NULL AS FILTER ' +
                   'FROM pragma_index_list(''' + QuotedName + ''') il ' +
                   'JOIN pragma_index_info(il.name) ii ORDER BY il.name, ii.seqno'
+    else if (Pos('firebird', LowerDriver) > 0) or (Pos('interbase', LowerDriver) > 0) then
+      SQL.Text := 'SELECT CAST(NULL AS INTEGER) AS RECNO, CAST(NULL AS VARCHAR(1)) AS CATALOG_NAME, ' +
+                  'CAST(NULL AS VARCHAR(1)) AS SCHEMA_NAME, ' +
+                  'TRIM(i.RDB$RELATION_NAME) AS TABLE_NAME, TRIM(i.RDB$INDEX_NAME) AS INDEX_NAME, ' +
+                  'TRIM(s.RDB$FIELD_NAME) AS COLUMN_NAME, s.RDB$FIELD_POSITION + 1 AS COLUMN_POSITION, ' +
+                  'CASE WHEN rc.RDB$CONSTRAINT_TYPE = ''PRIMARY KEY'' THEN TRIM(i.RDB$INDEX_NAME) END AS PKEY_NAME, ' +
+                  'CASE WHEN i.RDB$UNIQUE_FLAG = 1 THEN ''UNIQUE'' ELSE ''INDEX'' END AS INDEX_TYPE, ' +
+                  'CASE WHEN i.RDB$INDEX_TYPE = 1 THEN ''DESC'' ELSE ''ASC'' END AS SORT_ORDER, ' +
+                  'CAST(NULL AS VARCHAR(1)) AS FILTER ' +
+                  'FROM RDB$INDICES i ' +
+                  'JOIN RDB$INDEX_SEGMENTS s ON s.RDB$INDEX_NAME = i.RDB$INDEX_NAME ' +
+                  'LEFT JOIN RDB$RELATION_CONSTRAINTS rc ON rc.RDB$INDEX_NAME = i.RDB$INDEX_NAME ' +
+                  'WHERE i.RDB$RELATION_NAME = ''' + QuotedName + ''' ' +
+                  'ORDER BY i.RDB$INDEX_NAME, s.RDB$FIELD_POSITION'
     else
       SQL.Text := 'SELECT NULL AS RECNO, NULL AS CATALOG_NAME, NULL AS SCHEMA_NAME, ' +
                   'TABLE_NAME, INDEX_NAME, COLUMN_NAME, ORDINAL_POSITION AS COLUMN_POSITION, ' +

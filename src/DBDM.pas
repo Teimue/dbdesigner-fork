@@ -514,6 +514,12 @@ begin
     ErrMsg := ErrMsg + '  You may try connecting thru ODBC.'+#13#10;
     ErrMsg := ErrMsg + '  DB Designer Fork is able to connect thru ODBC to SQLite 3.*, MySQL 5.* and Firebird 2.*.'+#13#10;
     ErrMsg := ErrMsg + '  When reverse engineering, ODBC functions are recommended.'+#13#10;
+  end else
+  if DriverName = 'Firebird' then
+  begin
+    ErrMsg := ErrMsg + 'Please check the host, port, database file or alias, user name and password.'+#13#10;
+    ErrMsg := ErrMsg + 'An empty host name uses the embedded engine of the client library.'+#13#10;
+    ErrMsg := ErrMsg + #13#10 + 'Server message:'+#13#10;
   end;
 
   ErrMsg := ErrMsg + #13#10;
@@ -770,6 +776,11 @@ begin
   end;
   if(DatabaseTypes.Count=0)then
     DatabaseTypes.Text:='MySQL'#10'Oracle'#10'ODBC'#10'SQLite'#10'MSSQL';
+
+  //The personal settings file is older than the Firebird support and is not
+  //replaced for it (that would reset all settings)
+  if(DatabaseTypes.IndexOf('Firebird')=-1)then
+    DatabaseTypes.Add('Firebird');
 end;
 
 procedure TDMDB.SaveSettingsToIniFile;

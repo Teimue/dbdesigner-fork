@@ -344,8 +344,9 @@ begin
     end;
   end;
 
-  //if the Host was not found, add new host
-  if(theDBHost=nil)and(HostIPEd.Text<>'')then
+  //if the Host was not found, add new host (the host tree lists MySQL hosts)
+  if(theDBHost=nil)and(HostIPEd.Text<>'')and
+    (CompareText(DBConn.DriverName, 'Firebird')<>0)then
   begin
     theDBHost:=TDBHost.Create;
     theDBHost.Caption:=DBConn.Params.Values['HostCaption'];
@@ -569,7 +570,21 @@ begin
     PortLbl.Enabled:=False;
     PortEd.Enabled:=False;
 
-    DatabaseLbl.Caption:=DMMain.GetTranslatedMessage('Database Name:', 140);    
+    DatabaseLbl.Caption:=DMMain.GetTranslatedMessage('Database Name:', 140);
+  end
+  else if(CompareText(
+    DatabaseTypesCBox.Items[DatabaseTypesCBox.ItemIndex], 'Firebird')=0)then
+  begin
+    //An empty host uses the embedded engine of the client library
+    HostIPLbl.Enabled:=True;
+    HostIPEd.Enabled:=True;
+    PortLbl.Enabled:=True;
+    PortEd.Enabled:=True;
+    if(PortEd.Text='')then
+      PortEd.Text:='3050';
+
+    //Database file or alias
+    DatabaseLbl.Caption:=DMMain.GetTranslatedMessage('Database File:', 143);
   end
   else
   begin

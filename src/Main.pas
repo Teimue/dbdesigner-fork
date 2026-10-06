@@ -81,7 +81,7 @@ const
   INIVersion_DBDesigner4_Settings=4;
   INIVersion_DBDesigner4_DatabaseInfo=8;
   INIVersion_DBDesigner4_Translations=19;
-  INIVersion_DBConn_DefaultSettings=4;
+  INIVersion_DBConn_DefaultSettings=5;
 
 type
   TMainForm = class(TForm)

@@ -19,7 +19,7 @@ DBDesigner Fork provides a full-featured graphical environment for designing and
 | **Fork versions** | Fork 1.0 (Sep 2006) → Fork 1.5 (Oct 2010) → Lazarus port (2026) |
 | **Original platforms** | Windows (Delphi 7) and Linux (Kylix 3) |
 | **Current platform** | Linux (Lazarus/FPC, GTK2) — Windows and macOS possible but untested |
-| **Databases** | MySQL 8 and SQLite 3 (others not ported yet) |
+| **Databases** | MySQL 8, SQLite 3 and Firebird 3+ (others not ported yet) |
 | **Codebase size** | ~150,000 lines of Pascal source code (main app + plugins) |
 
 ## Features
@@ -27,10 +27,10 @@ DBDesigner Fork provides a full-featured graphical environment for designing and
 - **Visual database modeling** — Design Entity-Relationship (EER) diagrams with tables, fields, relations (1:1, 1:n, n:m), regions, notes, and images.
 - **SQL script export** — Generate CREATE TABLE scripts (and drop / optimize / repair scripts) from the visual model.
 - **Reverse engineering** — Import existing MySQL or SQLite schemas into visual models, including relations from foreign keys.
-- **Database connectivity** — MySQL 8 and SQLite 3 through FPC's SQLDB, behind a DBExpress-compatible shim.
+- **Database connectivity** — MySQL 8, SQLite 3 and Firebird (server or embedded) through FPC's SQLDB, behind a DBExpress-compatible shim.
 - **XML model storage** — Models are saved as XML files; ERwin 4.1 import exists but is untested.
 - **Query editor** — Visual SQL query builder with drag-and-drop and a result grid.
-- **Synchronization** — Sync models with live MySQL and SQLite databases.
+- **Synchronization** — Sync models with live MySQL, SQLite and Firebird databases.
 - **PDF generation** — Embedded PDF export of diagrams (untested in the port).
 - **Plugin system** — Extensible via plugins (HTML Report, Data Importer, Simple Web Front-end, Demo).
 - **Multi-language support** — Translation files for internationalization.
@@ -129,6 +129,7 @@ Areas still requiring manual or integration testing:
 | `tests/TestSQLExprShim.pas` | The `sqlexpr` shim against SQLite: transactions, DML commit, idle lock release |
 | `tests/TestMySQLShim.pas` | The shim's MySQL schema queries against a live MySQL 8 server |
 | `tests/TestSQLiteSync.pas` | Database synchronisation against SQLite on the order example: create, ALTER TABLE changes, table rebuild, renamed table (`lazbuild tests/TestSQLiteSync.lpi`) |
+| `tests/TestFirebirdSync.pas` | Firebird on the order example, embedded engine or server: create, column / index / primary key / foreign key changes, renamed table, reverse engineering of the result (`lazbuild tests/TestFirebirdSync.lpi`, needs the Firebird client library) |
 | `tests/sqlite-roundtrip.sh` | Loads an exported SQL script into sqlite3 and prints a schema summary |
 | `tests/mysql-roundtrip.sh` | Same for MySQL (drops and recreates the given database) |
 
@@ -195,7 +196,7 @@ The port uses a **compatibility shim layer** ([`src/clx_shims/`](src/clx_shims/)
 
 - **CLX → LCL shims**: units like `QForms.pas`, `QControls.pas` that re-export LCL equivalents
 - **Qt shim** (`qt.pas`): maps Qt widget types and key constants to LCL equivalents
-- **Database shims** (`sqlexpr.pas`, `dbclient.pas`, `provider.pas`): wrap FPC's SQLDB (SQLite3 and MySQL 8 connectors) behind Delphi DBExpress-compatible interfaces; `sqlitelib.pas` and `mysqllib.pas` load the client libraries by their versioned names
+- **Database shims** (`sqlexpr.pas`, `dbclient.pas`, `provider.pas`): wrap FPC's SQLDB (SQLite3 and MySQL 8 connectors) behind Delphi DBExpress-compatible interfaces; `sqlitelib.pas` and `mysqllib.pas` load the client libraries by their versioned names, `firebirdlib.pas` looks for the Firebird client library (VendorLib of the connection, next to the program, an installed server)
 - **XML shims** (`xmlintf.pas`, `xmldoc.pas`, `xmldom.pas`): wrap `laz2_DOM` behind Delphi XML DOM interfaces
 
 The bundled Delphi-era SynEdit was replaced by the SynEdit package that ships with Lazarus.
@@ -230,7 +231,8 @@ The port builds, launches and has been through eleven rounds of run-and-click te
 
 **Known limitations:**
 
-- Only the **MySQL** and **SQLite** connectors are linked. Oracle, MS SQL Server and ODBC still appear in the driver list but cannot connect.
+- Only the **MySQL**, **SQLite** and **Firebird** connectors are linked. Oracle, MS SQL Server and ODBC still appear in the driver list but cannot connect.
+- **Firebird** (`src/DBEERFirebird.pas`, Firebird 3 or newer) has only been run through `tests/TestFirebirdSync.pas` (Firebird 5, embedded and over TCP), not through the dialogs. A connection without host name uses the embedded engine of the client library and creates a missing database file; `VendorLib` may hold the full path of `fbclient.dll`. The model keeps its MySQL datatypes, the synchronisation maps them (DATETIME to TIMESTAMP, TEXT to BLOB SUB_TYPE TEXT, AUTO_INCREMENT to an identity column, ...). Every DDL statement is committed on its own, a failing one is logged and the sync goes on. Firebird cannot rename a table (it is created anew, the rows are copied, the old one is dropped) and cannot turn an existing column into an identity column. The SQL export for the FireBird target is unchanged and still writes the MySQL type names.
 - **Synchronisation against SQLite** (`src/DBEERSQLiteSync.pas`) has only been run through `tests/TestSQLiteSync.pas`, not through the dialog. SQLite has no ALTER COLUMN: renamed, appended and plainly dropped columns use ALTER TABLE, every other change rebuilds the table (copy the rows, drop, rename, recreate indices and triggers) in one transaction per table. A rebuild is refused while `PRAGMA foreign_keys` is on for the connection.
 - Dragging a datatype from the palette onto the Table Editor grid does nothing while the editor is modal (it would need a non-modal Table Editor); use the "Set Datatype" popup submenu of the column grid instead.
 - SQL export writes no `ENGINE` clause for MyISAM tables (MySQL's default engine applies).

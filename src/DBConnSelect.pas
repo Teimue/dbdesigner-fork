@@ -140,7 +140,7 @@ type
     { Private-Deklarationen }
     mx, my: integer;
     Localhost,
-    MySqlNode, OracleNode, ODBCNode, SQLiteNode, MSSQLNode: TTreeNode;
+    MySqlNode, OracleNode, ODBCNode, SQLiteNode, MSSQLNode, FirebirdNode: TTreeNode;
     ModalResultIsOK: Boolean;
   public
     { Public-Deklarationen }
@@ -292,6 +292,20 @@ begin
   theChildTreeNode.SelectedIndex:=7;
   theChildTreeNode.SubItems.Add('DB');
   theChildTreeNode.SubItems.Add('SQLite');
+
+  //--------------------------------------------------------
+  //The Firebird Folder
+  theTreeNode:=DBConnTV.Items.Add(MySQLNode, 'Firebird');
+  theTreeNode.ImageIndex:=0;
+  theTreeNode.SelectedIndex:=1;
+  FirebirdNode:=theTreeNode;
+
+  //Make the Firebird Subs
+  theChildTreeNode:=DBConnTV.Items.AddChild(theTreeNode, 'NewFirebirdConn');
+  theChildTreeNode.ImageIndex:=7;
+  theChildTreeNode.SelectedIndex:=7;
+  theChildTreeNode.SubItems.Add('DB');
+  theChildTreeNode.SubItems.Add('Firebird');
 
   //--------------------------------------------------------
   //The Oracle Folder
@@ -1072,6 +1086,13 @@ begin
         DBConnLbl.Caption:=DMMain.GetTranslatedMessage('All Connections to SQLite Databases', 239);
 
         if(CompareText(TDBConn(DBConns[i]).DriverName, 'SQLite')<>0)then
+          continue;
+      end
+      else if(DBConnTV.Selected=FirebirdNode)then
+      begin
+        DBConnLbl.Caption:=DMMain.GetTranslatedMessage('All Connections to %s', 135, 'Firebird');
+
+        if(CompareText(TDBConn(DBConns[i]).DriverName, 'Firebird')<>0)then
           continue;
       end
       else if(DBConnTV.Selected=MSSQLNode)then

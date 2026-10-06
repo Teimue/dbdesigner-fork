@@ -105,7 +105,7 @@ var
 
 implementation
 
-uses MainDM, DBDM, EERDM, DBEERSQLiteSync;
+uses MainDM, DBDM, EERDM, DBEERSQLiteSync, DBEERFirebird;
 
 {$R *.lfm}
 
@@ -2196,7 +2196,7 @@ var EERModel: TEERModel;
   FieldOnGeneratorOrSequence:string;
   SyncErrors: TStringList;
   ErrCount: integer;
-  IsSQLite: Boolean;
+  IsSQLite, IsFirebird: Boolean;
   SQLiteCounters: TSQLiteSyncCounters;
 
   //Execute one statement; a failure is collected in SyncErrors (and logged)
@@ -2263,9 +2263,10 @@ begin
     EERModel.SortEERTableListByForeignKeyReferences(ModelTables);
 
     IsSQLite:=(CompareText(TDBConn(DBConn).DriverName, 'SQLite')=0);
+    IsFirebird:=(CompareText(TDBConn(DBConn).DriverName, 'Firebird')=0);
 
     //Disable Foreign Key checks (MySQL only)
-    if(Not(IsSQLite))then
+    if(Not(IsSQLite))and(Not(IsFirebird))then
       DMDB.ExecSQL('SET FOREIGN_KEY_CHECKS=0');
     try
       //Get Tables from DB
@@ -2277,6 +2278,8 @@ begin
         DMDB.SchemaSQLQuery.SQL.Text:='SELECT name FROM sqlite_master '+
           'WHERE type=''table'' AND name NOT LIKE ''sqlite_%'' '+
           'ORDER BY name'
+      else if(IsFirebird)then
+        DMDB.SchemaSQLQuery.SetSchemaInfo(stTables, '', '')
       else
         DMDB.SchemaSQLQuery.SQL.Text:='show tables';
       DMDB.SchemaSQLQuery.Open;
@@ -2284,6 +2287,14 @@ begin
       while(Not(DMDB.SchemaSQLQuery.EOF))do
       begin
         //Ignore DBDesigner4 table
+        if(IsFirebird)then
+        begin
+          //Schema info layout: the table name is the fourth column
+          if(CompareText(DMDB.SchemaSQLQuery.Fields[3].AsString,
+            'DBDesigner4')<>0)then
+            DbTables.Add(DMDB.SchemaSQLQuery.Fields[3].AsString);
+        end
+        else
         if(CompareText(DMDB.SchemaSQLQuery.Fields[0].AsString,
           'DBDesigner4')<>0)then
           DbTables.Add(DMDB.SchemaSQLQuery.Fields[0].AsString);
@@ -2299,6 +2310,25 @@ begin
       begin
         FillChar(SQLiteCounters, SizeOf(SQLiteCounters), 0);
         SQLiteSyncTables(EERModel, ModelTables, DbTables, Log, SyncErrors,
+          KeepExTbls, StdInsertsOnCreate, SQLiteCounters);
+
+        ColumnCompCounter:=SQLiteCounters.ColumnComp;
+        ColumnModCounter:=SQLiteCounters.ColumnMod;
+        ColumnDelCounter:=SQLiteCounters.ColumnDel;
+        ColumnAddCounter:=SQLiteCounters.ColumnAdd;
+        TableCreateCounter:=SQLiteCounters.TableCreate;
+        TableRenameCounter:=SQLiteCounters.TableRename;
+        TableDropCounter:=SQLiteCounters.TableDrop;
+        PKChangedCounter:=SQLiteCounters.PKChanged;
+        IndexDropCounter:=SQLiteCounters.IndexDrop;
+        IndexCreateCounter:=SQLiteCounters.IndexCreate;
+        IndexUpdateCounter:=SQLiteCounters.IndexUpdate;
+      end
+      else if(IsFirebird)then
+      begin
+        //Firebird DDL and system tables, see DBEERFirebird
+        FillChar(SQLiteCounters, SizeOf(SQLiteCounters), 0);
+        FirebirdSyncTables(EERModel, ModelTables, DbTables, Log, SyncErrors,
           KeepExTbls, StdInsertsOnCreate, SQLiteCounters);
 
         ColumnCompCounter:=SQLiteCounters.ColumnComp;
@@ -3057,7 +3087,7 @@ begin
 
     finally
       //Enable Foreign Key checks again (MySQL only)
-      if(Not(IsSQLite))then
+      if(Not(IsSQLite))and(Not(IsFirebird))then
         DMDB.ExecSQL('SET FOREIGN_KEY_CHECKS=1');
     end;
 
