@@ -325,7 +325,7 @@ implementation
 
 uses {$IFDEF LINUX}BaseUnix, Unix, {$ENDIF}
   {$IFDEF LCLGTK2}glib2, gdk2, {$ENDIF}
-  EditorString, StrUtils;
+  EditorString, StrUtils, LazUTF8, LConvEncoding;
 
 var
   WMChecked: Boolean = False;
@@ -1300,12 +1300,17 @@ procedure TDMMain.GetSectionFromTxtFile(filename, section: string; theStringList
 var tmpStringList: TStringList;
   i: integer;
   SectionReached: Boolean;
+  s: string;
 begin
   theStringList.Clear;
 
   tmpStringList:=TStringList.Create;
   try
     tmpStringList.LoadFromFile(filename);
+    //The translation files are Latin-1; the LCL needs UTF-8
+    s:=tmpStringList.Text;
+    if(FindInvalidUTF8Codepoint(PChar(s), Length(s))>=0)then
+      tmpStringList.Text:=CP1252ToUTF8(s);
     i:=0;
     SectionReached:=False;
     while(i<tmpStringList.Count)do

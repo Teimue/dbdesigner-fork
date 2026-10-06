@@ -254,7 +254,7 @@ var
 
 implementation
 
-uses MainDM;
+uses MainDM, LazUTF8, LConvEncoding;
 
 {$R *.lfm}
 
@@ -439,6 +439,7 @@ end;
 procedure TDMEER.LoadWorkToolLabelTextsFromIniFile;
 var theIni: TMemIniFile;
   i: integer;
+  s: string;
 begin
   //Read IniFile
   theIni:=TMemIniFile.Create(DMMain.SettingsPath+DMMain.ProgName+'_Translations.ini');
@@ -454,7 +455,11 @@ begin
       else
       begin
         //keep only translation
-        WorkToolLabelTexts[i]:=WorkToolLabelTexts.ValueFromIndex[i];
+        //The translations ini is Latin-1; the LCL needs UTF-8
+        s:=WorkToolLabelTexts.ValueFromIndex[i];
+        if(FindInvalidUTF8Codepoint(PChar(s), Length(s))>=0)then
+          s:=CP1252ToUTF8(s);
+        WorkToolLabelTexts[i]:=s;
 
         inc(i);
       end;
