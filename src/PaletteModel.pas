@@ -115,6 +115,7 @@ type
       Y: Integer);
     procedure ReorderTablesbyNameMIClick(Sender: TObject);
     procedure ReorderTablesbyRegionMIClick(Sender: TObject);
+    procedure LayoutTabs(Sender: TObject);
   private
     { Private declarations }
   public
@@ -127,7 +128,7 @@ var
 
 implementation
 
-uses EditorDatatype, Main, EditorTable, MainDM, EER, EERDM;
+uses Math, EditorDatatype, Main, EditorTable, MainDM, EER, EERDM, PaletteTabs;
 
 {$R *.lfm}
 
@@ -153,11 +154,33 @@ begin
   TablesTreeView.Items.Clear;
 
   TablesPBoxClick(Self);
+
+  //The application font instead of the fixed pixel fonts of the form
+  ApplyApplicationFont(MainPnl);
+  TabsPnl.OnResize:=LayoutTabs;
+  LayoutTabs(self);
+end;
+
+//The tab strip follows the width of the palette
+procedure TPaletteModelFrom.LayoutTabs(Sender: TObject);
+begin
+  LayoutPaletteTabs(TabsPnl, TabsImg, Tabs2Img, OptionsImg, TablesPBox, ModelPBox,
+    DMMain.GetTranslatedMessage('', TablesPBox.Tag),
+    DMMain.GetTranslatedMessage('', ModelPBox.Tag));
+
+  //The header "All Tables" with its buttons lies on top of the page, right
+  //below the tabs. The panel at the top of the sheet keeps its place free:
+  //with a height of 1 the first table of the tree was hidden behind it
+  TableTreeHeaderPnl.SetBounds(2, TabsPnl.Height+2, TabsPnl.Width-22,
+    Max(21, ApplicationFontHeight+6));
+  DeleteBtn.Left:=TableTreeHeaderPnl.Width-DeleteBtn.Width-2;
+  AddBtn.Left:=DeleteBtn.Left-AddBtn.Width-1;
+  Label1.Top:=(TableTreeHeaderPnl.Height-ApplicationFontHeight) div 2;
+  TableSheetTopPnl.Height:=TableTreeHeaderPnl.Height;
 end;
 
 procedure TPaletteModelFrom.FormResize(Sender: TObject);
 begin
-  OptionsImg.Left:=Width-OptionsImg.Width-1;
   OptionsImg.BringToFront;
 
   ModelTV.Height:=ModelSheet.Height+19;

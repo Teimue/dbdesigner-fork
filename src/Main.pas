@@ -205,7 +205,7 @@ type
     NavFooterPnl: TPanel;
     DatatypesFooterPnl: TPanel;
     ModelFooterPnl: TPanel;
-    PaletteDockSepPnl: TPanel;
+    PaletteDockSepPnl: TSplitter;
     EERPanel: TPanel;
     DatatypesSepPnl: TPanel;
     DatatypesLeftPnl: TPanel;
@@ -436,6 +436,7 @@ type
     procedure ExportMDBXMLFileMIClick(Sender: TObject);
     procedure EditMIClick(Sender: TObject);
     procedure FormShortCut(var Msg: TLMKey; var Handled: Boolean);
+    procedure LayoutStatusBarAndPaletteHeaders;
   private
     { Private declarations }
     SelfTestTmr: TTimer;
@@ -497,7 +498,7 @@ uses MainDM, ZoomSel, IniFiles,
   EERDM, EditorTable, EditorRelation, EditorRegion, EditorNote,
   EditorImage, GUIDM, DBDM, EditorQuery, EditorQueryDragTarget,
   Tips, EERPlaceModel, DBEERDM, EERExportImportDM, Math,
-  UITestRunner;
+  UITestRunner, PaletteTabs;
 
 procedure TMainForm.AppException(Sender: TObject; E: Exception);
 const
@@ -1831,12 +1832,18 @@ begin
     end;
   end;
 
+  //The status bar and the headers of the docked palettes in the
+  //application font
+  LayoutStatusBarAndPaletteHeaders;
+
   //Set DockPnls Height
-  NavPnl.Height:=173+20+4;
-  NavHeaderPnl.Font.Color:=$00AAAAAA;
-  DatatypesPnl.Height:=229+20+4;
-  DatatypesHeaderPnl.Font.Color:=$00AAAAAA;
-  ModelHeaderPnl.Font.Color:=$00AAAAAA;
+  NavPnl.Height:=173+NavHeaderPnl.Height+4;
+  DatatypesPnl.Height:=229+DatatypesHeaderPnl.Height+4;
+
+  //The docked palettes are as wide as the user left them
+  PaletteDockSepPnl.MinSize:=150;
+  if(DMGUI.PaletteDockWidth>=PaletteDockSepPnl.MinSize)then
+    PaletteDockPnl.Width:=DMGUI.PaletteDockWidth;
 
 
   ShowPalettesTmr.Enabled:=False;
@@ -3891,13 +3898,79 @@ end;
 
 procedure TMainForm.NavInfoPBoxPaint(Sender: TObject);
 begin
-  TPaintBox(Sender).Canvas.Font.Name:=Font.Name;
-  TPaintBox(Sender).Canvas.Font.Size:=Font.Size;
+  TPaintBox(Sender).Canvas.Font.Name:=DMMain.ApplicationFontName;
+  TPaintBox(Sender).Canvas.Font.Size:=DMMain.ApplicationFontSize;
 
-  //Paint Docked Palette Headers (for XTF smooth fonts)
-  TPaintBox(Sender).Canvas.Font.Color:=clGray;
+  //Paint Docked Palette Headers (for XTF smooth fonts). The header lies on
+  //clBtnShadow: clGray was nearly the same grey on a current Windows
+  TPaintBox(Sender).Canvas.Font.Color:=clBtnHighlight;
+  TPaintBox(Sender).Canvas.Brush.Style:=bsClear;
   TPaintBox(Sender).Canvas.TextOut(0, 0,
     DMMain.GetTranslatedMessage('', TPaintBox(Sender).Tag));
+end;
+
+//The status bar and the headers of the docked palettes were laid out for a
+//font of 9 pixels. Give them the application font and the height it needs
+procedure TMainForm.LayoutStatusBarAndPaletteHeaders;
+var th, h, shift: integer;
+
+  procedure CenterVert(aControl: TControl; AreaHeight: integer);
+  begin
+    aControl.Top:=1+(AreaHeight-1-aControl.Height) div 2;
+  end;
+
+  procedure LayoutHeader(HeaderPnl: TPanel; PBox: TPaintBox);
+  begin
+    HeaderPnl.Height:=Max(20, th+6);
+    PBox.SetBounds(4, (HeaderPnl.Height-th) div 2, HeaderPnl.Width-8, th);
+    PBox.Anchors:=[akLeft, akTop, akRight];
+  end;
+
+begin
+  th:=ApplicationFontHeight;
+
+  //Status bar
+  ApplyApplicationFont(StatusPnl);
+  h:=Max(16, th+3);
+  StatusPnl.Height:=h;
+
+  //The zoom box grows with the font, everything right of it moves on
+  shift:=Max(39, ApplicationFontTextWidth('100.00 %')+6)-ZoomShape.Width;
+  ZoomShape.SetBounds(2, 2, ZoomShape.Width+shift, h-2);
+  ZoomLbl.AutoSize:=False;
+  ZoomLbl.Layout:=tlCenter;
+  ZoomLbl.BoundsRect:=ZoomShape.BoundsRect;
+
+  Bevel1.Left:=Bevel1.Left+shift;
+  NotSavedImg.Left:=NotSavedImg.Left+shift;
+  SavedImg.Left:=SavedImg.Left+shift;
+  Save2DiskImg.Left:=Save2DiskImg.Left+shift;
+  Save2DiskDisabledImg.Left:=Save2DiskDisabledImg.Left+shift;
+  Save2DBImg.Left:=Save2DBImg.Left+shift;
+  Save2DBDisabledImg.Left:=Save2DBDisabledImg.Left+shift;
+  Bevel2.Left:=Bevel2.Left+shift;
+  StatusCaptionLbl.Left:=StatusCaptionLbl.Left+shift;
+
+  CenterVert(Bevel1, h);
+  CenterVert(NotSavedImg, h);
+  CenterVert(SavedImg, h);
+  CenterVert(Save2DiskImg, h);
+  CenterVert(Save2DiskDisabledImg, h);
+  CenterVert(Save2DBImg, h);
+  CenterVert(Save2DBDisabledImg, h);
+  CenterVert(Bevel2, h);
+  StatusCaptionLbl.Top:=1+(h-1-th) div 2;
+
+  //DBConnPnl lies below the white line at the top of the status bar
+  CenterVert(ConnectionSBtn, h-1);
+  CenterVert(Bevel3, h-1);
+  QueryStatusLbl.Top:=(h-1-th) div 2;
+  DBConnPnl.Width:=ApplicationFontTextWidth(QueryStatusLbl.Caption)+37;
+
+  //Headers of the docked palettes
+  LayoutHeader(NavHeaderPnl, NavInfoPBox);
+  LayoutHeader(DatatypesHeaderPnl, DatatypePBox);
+  LayoutHeader(ModelHeaderPnl, DBModelPBox);
 end;
 
 { The self-test must not start straight from the timer: a TTimer is a GLib

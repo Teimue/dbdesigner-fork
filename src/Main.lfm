@@ -2993,15 +2993,15 @@ object MainForm: TMainForm
       end
     end
   end
-  object PaletteDockSepPnl: TPanel
-    Left = 375
+  object PaletteDockSepPnl: TSplitter
+    Left = 374
     Top = 1
-    Width = 3
+    Width = 4
     Height = 321
     Align = alRight
-    BevelOuter = bvNone
     Color = clBtnShadow
-    TabOrder = 6
+    ParentColor = False
+    ResizeAnchor = akRight
     Visible = False
   end
   object EERPanel: TPanel

@@ -133,6 +133,7 @@ type
     procedure NavigatorPBoxPaint(Sender: TObject);
     procedure NavigatorPBoxClick(Sender: TObject);
     procedure InfoPBoxClick(Sender: TObject);
+    procedure LayoutTabs(Sender: TObject);
   private
     { Private declarations }
     ZoomTrackBarActive: Boolean;
@@ -156,7 +157,7 @@ var
 
 implementation
 
-uses MainDM, Main, EER;
+uses Math, MainDM, Main, EER, PaletteTabs;
 
 {$R *.lfm}
 
@@ -173,6 +174,32 @@ begin
   ModelBmp:=TBitmap.Create;
 
   PageControl.ActivePage:=NavSheet;
+
+  //The application font instead of the fixed pixel fonts of the form; the
+  //zoom box at the bottom has to be as high as the font
+  ApplyApplicationFont(MainPnl);
+  BottomPnl.Height:=Max(19, ApplicationFontHeight+5);
+  ZoomShape.SetBounds(2, 3, Max(39, ApplicationFontTextWidth('100.00%')+6), BottomPnl.Height-5);
+  Panel1.Width:=ZoomShape.Width+6;
+  ZoomLbl.AutoSize:=False;
+  ZoomLbl.Layout:=tlCenter;
+  ZoomLbl.BoundsRect:=ZoomShape.BoundsRect;
+  ZoomEd.AutoSize:=False;
+  ZoomEd.SetBounds(1, 1, Panel1.Width-2, BottomPnl.Height-2);
+
+  TabsPnl.OnResize:=LayoutTabs;
+  LayoutTabs(self);
+end;
+
+//The tab strip and the zoom bar follow the width of the palette
+procedure TPaletteNavForm.LayoutTabs(Sender: TObject);
+begin
+  LayoutPaletteTabs(TabsPnl, TabsImg, Tabs2Img, OptionsImg, NavigatorPBox, InfoPBox,
+    DMMain.GetTranslatedMessage('', NavigatorPBox.Tag),
+    DMMain.GetTranslatedMessage('', InfoPBox.Tag));
+
+  ZoomInSBtn.Left:=Max(60, TabsPnl.Width-Panel1.Width-ZoomInSBtn.Width-7);
+  ZoomTrackBar.Width:=ZoomInSBtn.Left-ZoomTrackBar.Left-7;
 end;
 
 procedure TPaletteNavForm.FormDestroy(Sender: TObject);
@@ -199,7 +226,6 @@ end;
 
 procedure TPaletteNavForm.FormResize(Sender: TObject);
 begin
-  OptionsImg.Left:=Width-OptionsImg.Width-1;
   OptionsImg.BringToFront;
 end;
 

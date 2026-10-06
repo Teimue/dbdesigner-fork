@@ -111,6 +111,7 @@ type
     procedure CommonDatatypesPBoxPaint(Sender: TObject);
     procedure CommonDatatypesPBoxClick(Sender: TObject);
     procedure AllDatatypesPBoxClick(Sender: TObject);
+    procedure LayoutTabs(Sender: TObject);
   private
     { Private declarations }
     CommonDataTypesListViewRowHeight: integer;
@@ -124,7 +125,7 @@ var
 
 implementation
 
-uses EditorDatatype, Main, MainDM, PaletteDataTypesReplace;
+uses EditorDatatype, Main, MainDM, PaletteDataTypesReplace, PaletteTabs;
 
 {$R *.lfm}
 
@@ -142,15 +143,31 @@ begin
 
   AllDataTypesTV.Top:=(theSize.cy+6)*-1;
   AllDataTypesTV.Height:=Height+19;
+
+  //The application font instead of the fixed pixel fonts of the form
+  ApplyApplicationFont(MainPnl);
+  TabsPnl.OnResize:=LayoutTabs;
+  LayoutTabs(self);
+end;
+
+//The tab strip and the tree follow the width of the palette (docked, the
+//palette is as wide as the dock panel of the main form)
+procedure TPaletteDataTypesForm.LayoutTabs(Sender: TObject);
+begin
+  LayoutPaletteTabs(TabsPnl, TabsImg, Tabs2Img, OptionsImg,
+    CommonDatatypesPBox, AllDatatypesPBox,
+    DMMain.GetTranslatedMessage('', CommonDatatypesPBox.Tag),
+    DMMain.GetTranslatedMessage('', AllDatatypesPBox.Tag));
+
+  AllDataTypesTV.Width:=TabsPnl.Width-10;
 end;
 
 procedure TPaletteDataTypesForm.FormResize(Sender: TObject);
 begin
-  OptionsImg.Left:=Width-OptionsImg.Width-1;
   OptionsImg.BringToFront;
 
   AllDataTypesTV.Height:=AllDataTypesSheet.Height+19;
-  AllDataTypesTV.Width:=Width-10;
+  AllDataTypesTV.Width:=TabsPnl.Width-10;
 end;
 
 procedure TPaletteDataTypesForm.DisplayDataTypes(theModel: TEERModel);

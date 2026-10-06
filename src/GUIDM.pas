@@ -88,6 +88,7 @@ type
     ReopenLastFile: Boolean;
 
     ShowPalettesDocked: Boolean;
+    PaletteDockWidth: integer; //Width of the docked palettes, 0 = default
 
     FormsOnTop: TList;
 
@@ -128,7 +129,7 @@ var
 
 implementation
 
-uses Main, MainDM, DBDM;
+uses Main, MainDM, DBDM, PaletteTabs;
 
 {$R *.lfm}
 
@@ -229,6 +230,7 @@ begin
     begin
       ShowPalettesDocked:=(StrToInt(theIni.ReadString('GeneralSettings', 'ShowPalettesDocked',
         '1'))=1);
+      PaletteDockWidth:=StrToIntDef(theIni.ReadString('GeneralSettings', 'PaletteDockWidth', '0'), 0);
 
       ShowTipsOnStartup:=(StrToInt(theIni.ReadString('GeneralSettings', 'ShowTipsOnStartup', '1'))=1);
       try
@@ -257,6 +259,7 @@ begin
     begin
       //Start with palettes docked when run first time
       ShowPalettesDocked:=True;
+      PaletteDockWidth:=0;
 
       ShowTipsOnStartup:=True;
       LastTipShown:=-1;
@@ -297,6 +300,10 @@ begin
 
     theIni.WriteString('GeneralSettings', 'ShowPalettesDocked',
       IntToStr(Ord(ShowPalettesDocked)));
+    if(Assigned(MainForm))then
+      if(MainForm.PaletteDockPnl.Visible)then
+        PaletteDockWidth:=MainForm.PaletteDockPnl.Width;
+    theIni.WriteString('GeneralSettings', 'PaletteDockWidth', IntToStr(PaletteDockWidth));
 
     theIni.WriteString('GeneralSettings', 'EditorsFloatOnTop', IntToStr(Ord(DMMain.NormalizeEditorForms)));
 
@@ -451,7 +458,9 @@ begin
         DMDB.CurrentDBConn.Params.Values['Database']);
   end;
 
-  MainForm.DBConnPnl.Width:=MainForm.QueryStatusLbl.Width+37;
+  //Measured, not QueryStatusLbl.Width: the label only gets its new width
+  //when it is laid out the next time
+  MainForm.DBConnPnl.Width:=ApplicationFontTextWidth(MainForm.QueryStatusLbl.Caption)+37;
 end;
 
 function TDMGUI.LoadTip: string;
