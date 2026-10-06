@@ -808,6 +808,9 @@ var theIni: TMemIniFile;
 {$IFDEF LINUX}
   theTimer: TTimer;
 {$ENDIF}
+{$IFDEF MSWINDOWS}
+  WasMaximized: Boolean;
+{$ENDIF}
   WinPos, WinSize: TPoint;
 begin
   winname:=win.name;
@@ -816,6 +819,16 @@ begin
   theIni:=TMemIniFile.Create(SettingsPath+ProgName+'_Settings.ini');
   try
     try
+{$IFDEF MSWINDOWS}
+      //A form designed maximized (the main form) stayed maximized whatever
+      //was saved, and the position and size below were applied to the
+      //maximized window. Leave that state first; it is set again below when
+      //it was saved (or, without a saved state, designed).
+      WasMaximized:=(DoSize)and(win.WindowState=wsMaximized);
+      if(WasMaximized)then
+        win.WindowState:=wsNormal;
+{$ENDIF}
+
       WinPos.X:=theIni.ReadInteger('WindowPositions', winname+'Left', 80);
       WinPos.Y:=theIni.ReadInteger('WindowPositions', winname+'Top', 140);
       if(WinPos.X>Screen.Width)then
@@ -880,9 +893,14 @@ begin
         win.Width:=WinSize.X;
         win.Height:=WinSize.Y;
         //Only maximize when a window manager can actually do it
+{$IFDEF MSWINDOWS}
+        if(theIni.ReadInteger('WindowPositions', winname+'State', Ord(WasMaximized))=1)then
+          win.WindowState:=wsMaximized;
+{$ELSE}
         if(theIni.ReadInteger('WindowPositions', winname+'State', 0)=1)and
           (HasWindowManager)then
           win.WindowState:=wsMaximized;
+{$ENDIF}
       end;
     except
       win.Left:=((Application.MainForm.Left+Application.MainForm.Width)-win.Width) div 2-40;

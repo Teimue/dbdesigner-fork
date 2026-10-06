@@ -42,3 +42,6 @@ tests/TestSQLExprShim
 tests/TestSQLite
 tests/TestModelLoad
 tests/TestSQLExport
+
+# Local test data
+Testdata/
