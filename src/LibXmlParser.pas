@@ -210,10 +210,12 @@ Date        Author Version Changes
                  (*$IFNDEF VER130 *)
                    (*$IFNDEF VER140 *)
                      (*$IFNDEF VER150 *)
+                     (*$IFNDEF FPC *)
                        If the compiler gets stuck here,
                        you are using a compiler version unknown to this code.
                        You will probably have to change this code accordingly.
                        At first, try to comment out these lines and see what will happen.
+                     (*$ENDIF *)
                      (*$ENDIF *)
                    (*$ENDIF *)
                  (*$ENDIF *)

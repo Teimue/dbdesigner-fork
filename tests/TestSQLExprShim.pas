@@ -50,7 +50,7 @@ begin
   WriteLn('=== SQLExpr Shim Test (Delphi-compatible API → SQLDB) ===');
   WriteLn;
 
-  DBPath := '/tmp/dbdesigner_shim_test.db';
+  DBPath := GetTempDir + 'dbdesigner_shim_test.db';
 
   // Remove old test DB
   if FileExists(DBPath) then

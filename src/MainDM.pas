@@ -184,10 +184,12 @@ type
     procedure ReverseList(ObjList: TList);
 
     {$IFDEF MSWINDOWS}
+    {$IFNDEF FPC}
     function GetWindowHandle(wTitle: String): HWnd;
     procedure SetWinPos(Handle, x, y, w, h: integer);
+    {$ENDIF}
 
-    //This procedure is used as a workaround of a CLX bug
+    //This procedure is used as a workaround of a CLX bug (no-op under the LCL)
     procedure OnOpenSaveDlgShow(Sender: TObject);
     {$ENDIF}
 
@@ -311,12 +313,13 @@ var
 // contents on its own (FPC sets CacheUpdates), so merely skipping UpdateFile
 // would not prevent the write.
 procedure UpdateIniFile(theIni: TMemIniFile);
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
+var
   global_winname: string;
 
 type
   PHWnd = ^HWnd;
-{$ENDIF}
+{$IFEND}
 
 implementation
 
@@ -756,12 +759,12 @@ var winname: string;
 begin
   winname:=win.name;
 
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
   P:=win.ClientToScreen(Point(0, 0));
 {$ELSE}
   P.X:=win.Left;
   P.Y:=win.Top;
-{$ENDIF}
+{$IFEND}
 
   //Write IniFile
   theIni:=TMemIniFile.Create(SettingsPath+ProgName+'_Settings.ini');
@@ -799,9 +802,9 @@ end;
 procedure TDMMain.RestoreWinPos(win: TForm; DoSize: Boolean);
 var theIni: TMemIniFile;
   winname: string;
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
   P: TPoint;
-{$ENDIF}
+{$IFEND}
 {$IFDEF LINUX}
   theTimer: TTimer;
 {$ENDIF}
@@ -820,7 +823,7 @@ begin
       if(WinPos.Y>Screen.Height)then
         WinPos.Y:=Screen.Height-50;
 
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
       win.Left:=WinPos.X-WinPosCorrection[Ord(win.BorderStyle)].X;
       win.Top:=WinPos.Y-WinPosCorrection[Ord(win.BorderStyle)].Y;
 
@@ -836,13 +839,15 @@ begin
 
       if(win.Top<0)then
         win.Top:=0;
-{$ENDIF}
-{$IFDEF LINUX}
+{$IFEND}
+{$IFDEF FPC}
       win.Left:=WinPos.X;
       if(WinPos.Y>0)then
         win.Top:=WinPos.Y
       else
         win.Top:=0;
+{$ENDIF}
+{$IFDEF LINUX}
 
       //Workaround from Linux bug
       //A Form has wrong Left/Top Coordinates after it is shown
@@ -1613,7 +1618,7 @@ end;
 // get a Window handle
 // uses global global_winname
 
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
 function GetText(Wnd: HWND): string;
 var
   textlength: Integer; 
@@ -1660,13 +1665,19 @@ begin
   SetWindowPos(Handle, HWND_NOTOPMOST, x, y, w, h, SWP_SHOWWINDOW);
 end;
 
-{$ENDIF}
+{$IFEND}
 
 
 {$IFDEF MSWINDOWS}
 //Because of a Delphi Bug, the Open Dlg is always
 //displayed on the left upper corner
 //To fix this, catch OnShow Event and reposition the Dlg
+{$IFDEF FPC}
+//The LCL uses the native Win32 dialogs, which position themselves
+procedure TDMMain.OnOpenSaveDlgShow(Sender: TObject);
+begin
+end;
+{$ELSE}
 procedure TDMMain.OnOpenSaveDlgShow(Sender: TObject);
 var theWinHandle: integer;
   theTitle: string;
@@ -1704,6 +1715,7 @@ begin
       Application.MainForm.Top+Application.MainForm.Height div 2-dlg_height div 2,
       dlg_width, dlg_height);
 end;
+{$ENDIF}
 {$ENDIF}
 
 procedure TDMMain.SaveBitmap(Bmp: {$IFDEF FPC}TBitmap{$ELSE}QPixmapH{$ENDIF}; FileName: string; FileType: string; JPGQuality: integer = 75);
@@ -1832,11 +1844,11 @@ end;
 //Workaround Code because of Delphi BUG
 
 procedure TDMMain.NormalizeStayOnTopForm(theForm: TForm);
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
 var P: TPoint;
-{$ENDIF}
+{$IFEND}
 begin
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
   QOpenWidget_clearWFlags(QOpenWidgetH(theForm.Handle),
     Cardinal(WidgetFlags_WStyle_StaysOnTop));
 
@@ -1850,15 +1862,15 @@ begin
       QOpenWidgetH(theForm.ParentWidget),
       QOpenWidget_getWFlags(QOpenWidgetH(theForm.Handle)),
       @P, True);
-{$ENDIF}
+{$IFEND}
 end;
 
 procedure TDMMain.MakeFormStayOnTop(theForm: TForm);
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
 var P: TPoint;
-{$ENDIF}
+{$IFEND}
 begin
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
   QOpenWidget_setWFlags(QOpenWidgetH(TForm(theForm).Handle),
     Cardinal(WidgetFlags_WStyle_StaysOnTop));
 
@@ -1872,29 +1884,29 @@ begin
       QOpenWidgetH(TForm(theForm).ParentWidget),
       QOpenWidget_getWFlags(QOpenWidgetH(TForm(theForm).Handle)),
       @P, True);
-{$ENDIF}
+{$IFEND}
 end;
 
 function TDMMain.IsFormStayingOnTop(theForm: TForm): Boolean;
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
 var theWFlags: Cardinal;
-{$ENDIF}
+{$IFEND}
 begin
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
   theWFlags:=QOpenWidget_getWFlags(QOpenWidgetH(theForm.Handle));
 
   IsFormStayingOnTop:=(theWFlags and Cardinal(WidgetFlags_WStyle_StaysOnTop))=Cardinal(WidgetFlags_WStyle_StaysOnTop);
 {$ELSE}
   IsFormStayingOnTop:=True;
-{$ENDIF}
+{$IFEND}
 end;
 
 procedure TDMMain.NormalizeStayOnTopForms;
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
 var i: integer;
-{$ENDIF}
+{$IFEND}
 begin
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
   LockFormDeactivateTracking:=True;
 
   TopMostForm:=Screen.ActiveForm;
@@ -1911,15 +1923,15 @@ begin
     end;
 
   LockFormDeactivateTracking:=False;
-{$ENDIF}
+{$IFEND}
 end;
 
 procedure TDMMain.RestoreStayOnTopForms;
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
 var pos: integer;
-{$ENDIF}
+{$IFEND}
 begin
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS) AND NOT DEFINED(FPC)}
   for pos:=0 to StayOnTopForms.Count-1 do
     if(pos<StayOnTopForms.Count)then
       DMMain.MakeFormStayOnTop(StayOnTopForms[pos]);
@@ -1931,7 +1943,7 @@ begin
   end;
 
   StayOnTopForms.Clear;
-{$ENDIF}
+{$IFEND}
 end;
 
 

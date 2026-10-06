@@ -16,7 +16,7 @@ begin
   WriteLn('=== SQLite Connection Test ===');
   WriteLn;
 
-  DBPath := '/tmp/dbdesigner_test.db';
+  DBPath := GetTempDir + 'dbdesigner_test.db';
 
   // Remove old test DB
   if FileExists(DBPath) then

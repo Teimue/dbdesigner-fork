@@ -381,7 +381,7 @@ begin
     try
   {$IFDEF MSWINDOWS}
       //On Windows use native Win32 Open Dlg
-      theSaveDialog.UseNativeDialog:=True;
+      {$IFNDEF FPC}theSaveDialog.UseNativeDialog:=True;{$ENDIF}
       theSaveDialog.OnShow:=DMMain.OnOpenSaveDlgShow;
   {$ENDIF}
 

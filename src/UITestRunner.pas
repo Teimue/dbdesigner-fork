@@ -1086,13 +1086,13 @@ var
   StartTime: TDateTime;
 begin
   if LogFileName = '' then
-    ActualLogFile := '/tmp/UITestResults.log'
+    ActualLogFile := GetTempDir + 'UITestResults.log'
   else
     ActualLogFile := LogFileName;
 
   LogDir := ExtractFilePath(ActualLogFile);
   if LogDir = '' then
-    LogDir := '/tmp/';
+    LogDir := GetTempDir;
 
   LastCreatedEERForm := nil;
   TestLog := TStringList.Create;

@@ -2836,7 +2836,7 @@ begin
 
       saveFilename := IncludeTrailingPathDelimiter(saveDir)+'images'+PathDelim+'icons'+PathDelim+TmpView.IconFilename;
 
-      DMMain.SaveBitmap(TmpView.Icon.Bitmap.Handle, saveFilename, ExtractFileExt(saveFilename));
+      DMMain.SaveBitmap(TmpView.Icon.Bitmap{$IFNDEF FPC}.Handle{$ENDIF}, saveFilename, ExtractFileExt(saveFilename));
 
 
 
