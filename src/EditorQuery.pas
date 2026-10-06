@@ -293,6 +293,7 @@ type
     function GetSQLMemoText: string;
     procedure PrintRecordstoPDFMIClick(Sender: TObject);
   private
+    HasBeenShown: Boolean;
     { Private declarations }
     theEERTable: TEERTable;
     theEERModel: TEERModel;
@@ -431,7 +432,10 @@ end;
 
 procedure TEditorQueryForm.FormDestroy(Sender: TObject);
 begin
-  if(Visible)then
+  //Only the floating editor has a window position; the docked instance is
+  //never shown itself. Visible cannot tell them apart here: the LCL hides
+  //a form before OnDestroy, so the position was never saved.
+  if(HasBeenShown)then
     DMMain.SaveWinPos(self, True);
 
   //Free the Hint Window
@@ -457,6 +461,8 @@ end;
 
 procedure TEditorQueryForm.FormShow(Sender: TObject);
 begin
+  HasBeenShown:=True;
+
   DMMain.RestoreWinPos(self, True);
 
   FormResize(self);
