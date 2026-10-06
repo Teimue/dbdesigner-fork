@@ -105,7 +105,7 @@ var
 
 implementation
 
-uses MainDM, DBDM, EERDM;
+uses MainDM, DBDM, EERDM, DBEERSQLiteSync;
 
 {$R *.lfm}
 
@@ -2197,6 +2197,7 @@ var EERModel: TEERModel;
   SyncErrors: TStringList;
   ErrCount: integer;
   IsSQLite: Boolean;
+  SQLiteCounters: TSQLiteSyncCounters;
 
   //Execute one statement; a failure is collected in SyncErrors (and logged)
   //instead of raising / showing a message box, so the sync goes on and the
@@ -2291,19 +2292,29 @@ begin
       end;
       DMDB.SchemaSQLQuery.Close;
 
-      //Everything from here on is MySQL DDL (CREATE with table options,
-      //SHOW FULL FIELDS, ALTER TABLE ... MODIFY/CHANGE, SHOW INDEX). Stop
-      //with a clear message instead of failing statement by statement
-      //(sqlite-bug-catalog #8, model-edit-bug-catalog #25).
+      //Everything in the else branch is MySQL DDL (CREATE with table options,
+      //SHOW FULL FIELDS, ALTER TABLE ... MODIFY/CHANGE, SHOW INDEX); SQLite
+      //has its own table comparison (sqlite-bug-catalog #8)
       if(IsSQLite)then
       begin
-        Log.Add(IntToStr(DbTables.Count)+' table(s) found in the SQLite database: '+
-          DbTables.CommaText);
-        raise Exception.Create('Synchronisation with a SQLite database is not '+
-          'supported yet: comparing and altering the tables uses MySQL-only '+
-          'statements (SHOW FULL FIELDS, ALTER TABLE ... MODIFY). '+
-          'Use File > Export > SQL Create Script with the SQLite target instead.');
-      end;
+        FillChar(SQLiteCounters, SizeOf(SQLiteCounters), 0);
+        SQLiteSyncTables(EERModel, ModelTables, DbTables, Log, SyncErrors,
+          KeepExTbls, StdInsertsOnCreate, SQLiteCounters);
+
+        ColumnCompCounter:=SQLiteCounters.ColumnComp;
+        ColumnModCounter:=SQLiteCounters.ColumnMod;
+        ColumnDelCounter:=SQLiteCounters.ColumnDel;
+        ColumnAddCounter:=SQLiteCounters.ColumnAdd;
+        TableCreateCounter:=SQLiteCounters.TableCreate;
+        TableRenameCounter:=SQLiteCounters.TableRename;
+        TableDropCounter:=SQLiteCounters.TableDrop;
+        PKChangedCounter:=SQLiteCounters.PKChanged;
+        IndexDropCounter:=SQLiteCounters.IndexDrop;
+        IndexCreateCounter:=SQLiteCounters.IndexCreate;
+        IndexUpdateCounter:=SQLiteCounters.IndexUpdate;
+      end
+      else
+      begin
 
       //---------------------------------------------------------------
       //Compare Tables
@@ -3030,6 +3041,8 @@ begin
         end;
       end;
 
+      end; //not SQLite
+
       //---------------------
       //Compare Std. Inserts
       if(StdInsertsSync)then
@@ -3043,8 +3056,9 @@ begin
       end;
 
     finally
-      //Disable Foreign Key checks
-      DMDB.ExecSQL('SET FOREIGN_KEY_CHECKS=1');
+      //Enable Foreign Key checks again (MySQL only)
+      if(Not(IsSQLite))then
+        DMDB.ExecSQL('SET FOREIGN_KEY_CHECKS=1');
     end;
 
 

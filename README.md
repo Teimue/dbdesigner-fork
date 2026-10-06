@@ -30,7 +30,7 @@ DBDesigner Fork provides a full-featured graphical environment for designing and
 - **Database connectivity** — MySQL 8 and SQLite 3 through FPC's SQLDB, behind a DBExpress-compatible shim.
 - **XML model storage** — Models are saved as XML files; ERwin 4.1 import exists but is untested.
 - **Query editor** — Visual SQL query builder with drag-and-drop and a result grid.
-- **Synchronization** — Sync models with live MySQL databases.
+- **Synchronization** — Sync models with live MySQL and SQLite databases.
 - **PDF generation** — Embedded PDF export of diagrams (untested in the port).
 - **Plugin system** — Extensible via plugins (HTML Report, Data Importer, Simple Web Front-end, Demo).
 - **Multi-language support** — Translation files for internationalization.
@@ -128,6 +128,7 @@ Areas still requiring manual or integration testing:
 | `tests/TestSQLite.pas` | Direct SQLDB SQLite3 connectivity |
 | `tests/TestSQLExprShim.pas` | The `sqlexpr` shim against SQLite: transactions, DML commit, idle lock release |
 | `tests/TestMySQLShim.pas` | The shim's MySQL schema queries against a live MySQL 8 server |
+| `tests/TestSQLiteSync.pas` | Database synchronisation against SQLite on the order example: create, ALTER TABLE changes, table rebuild, renamed table (`lazbuild tests/TestSQLiteSync.lpi`) |
 | `tests/sqlite-roundtrip.sh` | Loads an exported SQL script into sqlite3 and prints a schema summary |
 | `tests/mysql-roundtrip.sh` | Same for MySQL (drops and recreates the given database) |
 
@@ -230,7 +231,7 @@ The port builds, launches and has been through eleven rounds of run-and-click te
 **Known limitations:**
 
 - Only the **MySQL** and **SQLite** connectors are linked. Oracle, MS SQL Server and ODBC still appear in the driver list but cannot connect.
-- **Synchronisation against SQLite** is not implemented (SQLite has no ALTER COLUMN); it now stops cleanly with a message on top of a closable dialog. Reverse engineering and export work.
+- **Synchronisation against SQLite** (`src/DBEERSQLiteSync.pas`) has only been run through `tests/TestSQLiteSync.pas`, not through the dialog. SQLite has no ALTER COLUMN: renamed, appended and plainly dropped columns use ALTER TABLE, every other change rebuilds the table (copy the rows, drop, rename, recreate indices and triggers) in one transaction per table. A rebuild is refused while `PRAGMA foreign_keys` is on for the connection.
 - Dragging a datatype from the palette onto the Table Editor grid does nothing while the editor is modal (it would need a non-modal Table Editor); use the "Set Datatype" popup submenu of the column grid instead.
 - SQL export writes no `ENGINE` clause for MyISAM tables (MySQL's default engine applies).
 - Placing a model from file (Add/Link Model) is not undoable, as in the original.
