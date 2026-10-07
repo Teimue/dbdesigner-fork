@@ -451,7 +451,7 @@ begin
     try
       NewForm := TEERForm.Create(AMainForm);
       NewForm.EERModel.LoadFromFile(TestFile, True, False, True, False);
-      NewForm.WindowState := wsMaximized;
+      //not maximized: the model window is embedded in the main window (alClient)
       LastCreatedEERForm := NewForm;
       Application.ProcessMessages;
       Sleep(500);
@@ -478,7 +478,7 @@ begin
 
   try
     NewForm := TEERForm.Create(AMainForm);
-    NewForm.WindowState := wsMaximized;
+    //not maximized: the model window is embedded in the main window (alClient)
     LastCreatedEERForm := NewForm;
     Application.ProcessMessages;
     Sleep(200);

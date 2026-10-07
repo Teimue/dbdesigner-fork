@@ -813,7 +813,7 @@ begin
   if(AppendModel)and(FActiveEERForm<>nil)then
     DeleteFile(fname);
 
-  theEERForm.WindowState:=wsMaximized;
+  //not maximized: the model window is embedded in the main window (alClient)
 
   //Because of Delphi Bug -> MainMenu is aligned right
   //Refresh Menu (because of CLX bug)
@@ -846,7 +846,7 @@ var theForm: TForm;
 begin
   theForm:=NewEERModel;
 
-  theForm.WindowState:=wsMaximized;
+  //not maximized: the model window is embedded in the main window (alClient)
 end;
 
 function TMainForm.NewEERModel: TForm;
@@ -1730,7 +1730,7 @@ begin
       theEERForm:=TEERForm(NewEERModel);
   end;
 
-  theEERForm.WindowState:=wsMaximized;
+  //not maximized: the model window is embedded in the main window (alClient)
 
   //HidePalettes;
 
@@ -1983,7 +1983,7 @@ begin
     begin
       //or create new
       theEERForm:=NewEERModel;
-      theEERForm.WindowState:=wsMaximized;
+      //not maximized: the model window is embedded in the main window (alClient)
     end;
   end;
 

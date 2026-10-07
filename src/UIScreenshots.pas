@@ -40,7 +40,7 @@ uses
   PaletteDataTypesReplace, ZoomSel, DBConnSelect, DBConnEditor, DBConnLogin,
   EERReverseEngineering, EERSynchronisation, EERStoreInDatabase,
   EERPlaceModel, EditorString, EditorDatatype, EditorTableFieldParam,
-  Tips, Splash, EditorQueryDragTarget, EditorImage;
+  Tips, Splash, EditorQueryDragTarget, EditorImage, UIScale;
 
 {$IFDEF MSWINDOWS}
 function PrintWindow(hwnd: HWND; hdcBlt: HDC; nFlags: UINT): BOOL; stdcall;
@@ -553,7 +553,7 @@ begin
     TestFile:=ExtractFilePath(Application.ExeName)+'Examples'+PathDelim+'order.xml';
     EERFrm:=TEERForm.Create(AMainForm);
     EERFrm.EERModel.LoadFromFile(TestFile, True, False, True, False);
-    EERFrm.WindowState:=wsMaximized;
+    //not maximized: the model window is embedded in the main window (alClient)
     Model:=EERFrm.EERModel;
     Pump(800);
 
@@ -569,6 +569,19 @@ begin
     except
       on x: Exception do
         Report.Add('QueryMode'#9'EXCEPTION '+x.Message);
+    end;
+
+    //The window made smaller and maximized again: the model has to fill it
+    try
+      AMainForm.WindowState:=wsNormal;
+      AMainForm.SetBounds(100, 100, ScaleDPI(700), ScaleDPI(500));
+      Pump(500);
+      AMainForm.WindowState:=wsMaximized;
+      Pump(700);
+      SaveForm(AMainForm, OutDir+'MainForm_Remaximized.png');
+    except
+      on x: Exception do
+        Report.Add('Remaximized'#9'EXCEPTION '+x.Message);
     end;
 
     SaveCursors(OutDir+'Cursors.png');
