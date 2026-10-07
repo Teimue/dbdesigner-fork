@@ -660,7 +660,20 @@ var i,j,k: integer;
     rs : String;  //our result string
     newTxt :String;
     replace : Boolean;
+    ansi : String;
 begin
+  //A character above 126 is written as the number of its byte. DBDesigner 4
+  //wrote the Windows code page (ª for u umlaut), the LCL has UTF-8. Write
+  //the code page byte as well, so that the file stays readable for
+  //DBDesigner 4; a text with characters outside of the code page keeps its
+  //UTF-8 bytes. DecodeXMLText reads both
+  if(FindInvalidUTF8Codepoint(PChar(s), Length(s))<0)then
+  begin
+    ansi:=UTF8ToCP1252(s);
+    if(CP1252ToUTF8(ansi)=s)then
+      s:=ansi;
+  end;
+
   //theoretically each char could be of ord() > 126
   SetLength(rs, Length(s)* 4);
 
@@ -749,7 +762,16 @@ begin
   end;
 
   //DecodeXMLText:=AnsiLeftStr(rs,j-1);
-  DecodeXMLText:=Copy(rs, 0, j-1);
+  rs:=Copy(rs, 0, j-1);
+
+  //The bytes are those of the Windows code page (a file of DBDesigner 4, or
+  //one written by EncodeText4XML) unless they are valid UTF-8 (a text with
+  //characters outside of the code page). The LCL needs UTF-8: a code page
+  //byte handed on as it is was shown as "?"
+  if(FindInvalidUTF8Codepoint(PChar(rs), Length(rs))>=0)then
+    rs:=CP1252ToUTF8(rs);
+
+  DecodeXMLText:=rs;
 end;
 
 procedure TDMMain.SaveWinPos(win: TForm; DoSize: Boolean);
