@@ -49,7 +49,7 @@ procedure LayoutPaletteTabs(TabsPnl: TPanel; TabsImg, Tabs2Img, OptionsImg: TIma
 
 implementation
 
-uses Math, MainDM;
+uses Math, MainDM, UIScale;
 
 type
   TControlCracker = class(TControl);
@@ -63,6 +63,8 @@ begin
   with TControlCracker(aControl).Font do
   begin
     Name:=DMMain.ApplicationFontName;
+    //in the DPI of the display the main window is on
+    PixelsPerInch:=CurrentDPI;
     Size:=DMMain.ApplicationFontSize;
     Style:=DMMain.ApplicationFontStyle;
   end;
@@ -102,7 +104,7 @@ end;
 procedure SetApplicationFont(aCanvas: TCanvas);
 begin
   aCanvas.Font.Name:=DMMain.ApplicationFontName;
-  aCanvas.Font.Size:=DMMain.ApplicationFontSize;
+  SetFontPoints(aCanvas.Font, DMMain.ApplicationFontSize, CurrentDPI);
   aCanvas.Font.Style:=DMMain.ApplicationFontStyle;
 end;
 

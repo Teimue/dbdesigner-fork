@@ -66,6 +66,8 @@ uses
   GlobalSysFunctions;
 
 type
+  TFormDPIChangedEvent = procedure(theForm: TCustomForm; OldDPI, NewDPI: integer) of object;
+
   TDMMain = class(TDataModule)  // SQLDataSet to get Schema Info.
 
     //Constructor of the DataModule
@@ -79,7 +81,11 @@ type
     //Fit the layout of a dialog to the application font, see InitForm
     procedure FitFormLayout(theForm: TForm);
     //A number of pixels of the dialog design in the scale of FitFormLayout
-    function ScaleForFont(Value: integer): integer;
+    //With a form: in the DPI the form has now (after its creation)
+    function ScaleForFont(Value: integer; theForm: TCustomForm = nil): integer;
+    //A form whose controls live in another window (a docked palette) has
+    //been scaled with that window: its bitmaps and its own size follow
+    procedure FollowDPI(theForm: TCustomForm; NewDPI: integer);
 
     procedure LoadApplicationFont;
     //The file of the translations, see LoadTranslatedMessages
@@ -276,6 +282,9 @@ type
     FitDialogsToFont: Boolean;
     //A plugin sets this too: its main window is a dialog like the others
     MainFormIsDialog: Boolean;
+    //A form has come to a display with another DPI; the LCL has scaled its
+    //bounds and fonts and its bitmaps are scaled too
+    OnFormDPIChanged: TFormDPIChangedEvent;
 
     ApplicationFontName: string;
     ApplicationFontSize: integer;
@@ -337,7 +346,7 @@ implementation
 
 uses {$IFDEF LINUX}BaseUnix, Unix, {$ENDIF}
   {$IFDEF LCLGTK2}glib2, gdk2, {$ENDIF}
-  EditorString, StrUtils, LazUTF8, LConvEncoding, UIScale;
+  EditorString, StrUtils, LazUTF8, LConvEncoding, UIScale, LMessages;
 
 type
   //Font and ParentFont are protected in TControl
@@ -348,6 +357,15 @@ type
   TLayoutMarker = class(TComponent)
   public
     DesignWidth, DesignHeight: integer;
+    //The DPI the form is scaled to; the LCL changes PixelsPerInch of the
+    //form when it comes to another display
+    DPI: integer;
+    Form: TCustomForm;
+    OldWndProc: TWndMethod;
+    InChange: Boolean;
+    destructor Destroy; override;
+    procedure Watch(theForm: TCustomForm; theDPI: integer);
+    procedure WndProc(var TheMessage: TLMessage);
   end;
 
 const
@@ -509,8 +527,8 @@ var NW, NH, DstRow, x, y, sx, sy: integer;
 
 begin
   Result:=0;
-  NW:=ScaleDPI(W);
-  NH:=ScaleDPI(H);
+  NW:=ScaleCur(W);
+  NH:=ScaleCur(H);
   //the rows of a device dependent bitmap are aligned to words
   DstRow:=((NW+15) div 16)*2;
 
@@ -538,8 +556,8 @@ begin
     Exit;
   try
     Info.fIcon:=False;
-    Info.xHotspot:=ScaleDPI(XSpot);
-    Info.yHotspot:=ScaleDPI(YSpot);
+    Info.xHotspot:=ScaleCur(XSpot);
+    Info.yHotspot:=ScaleCur(YSpot);
     Info.hbmMask:=hBmp;
     Info.hbmColor:=0;
     Result:=CursorCreateIconIndirect(Info);
@@ -930,9 +948,9 @@ begin
 
       if(DoSize)then
       begin
-        theIni.WriteInteger('WindowPositions', winname+'Width', UnscaleDPI(win.Width));
+        theIni.WriteInteger('WindowPositions', winname+'Width', MulDiv(win.Width, DesignDPI, FormDPI(win)));
 
-        theIni.WriteInteger('WindowPositions', winname+'Height', UnscaleDPI(win.Height));
+        theIni.WriteInteger('WindowPositions', winname+'Height', MulDiv(win.Height, DesignDPI, FormDPI(win)));
       end;
     end;
 
@@ -1023,8 +1041,12 @@ begin
         // the current screen: the geometry was saved on another display and a
         // window larger than the screen makes LCL/GTK2 fight over the size
         // (endless resize loop, see docs/ui-bug-catalog.md #5).
-        WinSize.X:=ScaleDPI(theIni.ReadInteger('WindowPositions', winname+'Width', UnscaleDPI(win.Width)));
-        WinSize.Y:=ScaleDPI(theIni.ReadInteger('WindowPositions', winname+'Height', UnscaleDPI(win.Height)));
+        //the size in the DPI the window has now, the position in that of
+        //the primary display as it is stored
+        WinSize.X:=MulDiv(theIni.ReadInteger('WindowPositions', winname+'Width',
+          MulDiv(win.Width, DesignDPI, FormDPI(win))), FormDPI(win), DesignDPI);
+        WinSize.Y:=MulDiv(theIni.ReadInteger('WindowPositions', winname+'Height',
+          MulDiv(win.Height, DesignDPI, FormDPI(win))), FormDPI(win), DesignDPI);
         if(WinSize.X>Screen.Width-win.Left)then
           WinSize.X:=Screen.Width-win.Left;
         if(WinSize.Y>Screen.Height-win.Top)then
@@ -1414,6 +1436,82 @@ end;
 // - The controls in a group box are placed relative to its frame, in the LCL
 //   they are placed relative to the area below the caption. They lie lower
 //   by the height of the caption and the last ones are cut off.
+//From now on the LCL scales the form to the display it is on
+//(TCustomForm.Scaled); the marker follows with the bitmaps
+procedure TLayoutMarker.Watch(theForm: TCustomForm; theDPI: integer);
+begin
+  DPI:=theDPI;
+  Form:=theForm;
+  if(Not(Application.Scaled))then
+    Exit;
+
+  TCustomDesignControl(theForm).PixelsPerInch:=theDPI;
+  TCustomDesignControl(theForm).Scaled:=True;
+
+  OldWndProc:=theForm.WindowProc;
+  theForm.WindowProc:=WndProc;
+end;
+
+destructor TLayoutMarker.Destroy;
+begin
+  if(Form<>nil)and(Assigned(OldWndProc))then
+    Form.WindowProc:=OldWndProc;
+  inherited;
+end;
+
+procedure TLayoutMarker.WndProc(var TheMessage: TLMessage);
+var OldDPI, NewDPI: integer;
+begin
+  OldWndProc(TheMessage);
+
+  if(InChange)or(csDestroying in Form.ComponentState)then
+    Exit;
+  NewDPI:=TCustomDesignControl(Form).PixelsPerInch;
+  if(NewDPI=DPI)or(NewDPI<=0)then
+    Exit;
+
+  InChange:=True;
+  try
+    OldDPI:=DPI;
+    DPI:=NewDPI;
+    DesignWidth:=MulDiv(DesignWidth, NewDPI, OldDPI);
+    DesignHeight:=MulDiv(DesignHeight, NewDPI, OldDPI);
+
+    RescaleFormGraphics(Form, NewDPI);
+
+    if(Assigned(DMMain))and(Assigned(DMMain.OnFormDPIChanged))then
+      DMMain.OnFormDPIChanged(Form, OldDPI, NewDPI);
+  finally
+    InChange:=False;
+  end;
+end;
+
+procedure TDMMain.FollowDPI(theForm: TCustomForm; NewDPI: integer);
+var Marker: TLayoutMarker;
+begin
+  if(theForm=nil)or(Not(theForm.FindComponent(LayoutDoneName) is TLayoutMarker))then
+    Exit;
+  Marker:=TLayoutMarker(theForm.FindComponent(LayoutDoneName));
+  if(Marker.DPI=NewDPI)or(Marker.InChange)then
+    Exit;
+
+  Marker.InChange:=True;
+  try
+    RescaleFormGraphics(theForm, NewDPI);
+
+    //the form itself is not shown
+    theForm.SetBounds(theForm.Left, theForm.Top,
+      MulDiv(theForm.Width, NewDPI, Marker.DPI), MulDiv(theForm.Height, NewDPI, Marker.DPI));
+    Marker.DesignWidth:=MulDiv(Marker.DesignWidth, NewDPI, Marker.DPI);
+    Marker.DesignHeight:=MulDiv(Marker.DesignHeight, NewDPI, Marker.DPI);
+    Marker.DPI:=NewDPI;
+    if(TCustomDesignControl(theForm).Scaled)then
+      TCustomDesignControl(theForm).PixelsPerInch:=NewDPI;
+  finally
+    Marker.InChange:=False;
+  end;
+end;
+
 //Height of a line of text in the application font
 function ApplicationTextHeight: integer;
 var bmp: Graphics.TBitmap;
@@ -1429,7 +1527,7 @@ begin
   end;
 end;
 
-function TDMMain.ScaleForFont(Value: integer): integer;
+function TDMMain.ScaleForFont(Value: integer; theForm: TCustomForm = nil): integer;
 var TextH: integer;
 begin
   Result:=Value;
@@ -1438,6 +1536,10 @@ begin
     TextH:=ApplicationTextHeight;
     if(TextH>0)then
       Result:=MulDiv(Value, TextH, DesignTextHeight);
+
+    //the text height is that of the primary display
+    if(theForm<>nil)then
+      Result:=MulDiv(Result, FormDPI(theForm), UIDPI);
   end;
 end;
 
@@ -1549,20 +1651,24 @@ begin
     Marker:=TLayoutMarker.Create(theForm);
     Marker.Name:=LayoutDoneName;
 
-    if(UIDPI<>DesignDPI)then
+    //They live in the main window (the palettes, the query editor): in the
+    //DPI of the display the main window is on now
+    TextH:=CurrentDPI;
+    if(TextH<>DesignDPI)then
     begin
       theForm.HandleNeeded;
       theForm.DisableAutoSizing;
       try
-        ScaleLayout(theForm, UIDPI/DesignDPI);
+        ScaleLayout(theForm, TextH/DesignDPI);
       finally
         theForm.EnableAutoSizing;
       end;
-      ScaleFormGraphics(theForm);
     end;
+    RescaleFormGraphics(theForm, TextH);
 
     Marker.DesignWidth:=theForm.Width;
     Marker.DesignHeight:=theForm.Height;
+    Marker.Watch(theForm, TextH);
     Exit;
   end;
 
@@ -1632,6 +1738,9 @@ begin
 
   Marker.DesignWidth:=theForm.Width;
   Marker.DesignHeight:=theForm.Height;
+  //laid out for the primary display; the LCL scales it when it is shown on
+  //another one
+  Marker.Watch(theForm, UIDPI);
 end;
 
 procedure TDMMain.InitForm(theForm: TForm; SetFloatOnTop: Boolean = False; Translate: Boolean = True);

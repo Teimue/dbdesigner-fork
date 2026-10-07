@@ -212,6 +212,7 @@ procedure TShooter.OnTimer(Sender: TObject);
 var i, n: integer;
   F: TCustomForm;
   Shown: TList;
+  DPIRect: TRect;
 begin
   ShotTimer.Enabled:=False;
   if(ShotFired)then
@@ -240,6 +241,16 @@ begin
           SaveFormPages(F, ShotName)
         else
           SaveFormPages(F, ShotName+'_'+F.ClassName);
+        {$IFDEF MSWINDOWS}
+        //... and as it looks on a display of 96 DPI
+        if(n=0)and(Screen.PixelsPerInch<>96)and(F.Parent=nil)then
+        begin
+          DPIRect:=F.BoundsRect;
+          Windows.SendMessage(F.Handle, $02E0, MakeWParam(96, 96), LPARAM(@DPIRect));
+          Pump(250);
+          SaveForm(F, OutDir+'DPI96_'+ShotName+'.png');
+        end;
+        {$ENDIF}
         inc(n);
       except
         on x: Exception do
@@ -529,6 +540,8 @@ end;
 procedure SaveDialogScreenshots(AMainForm: TForm);
 var i, k, Open: integer;
   AName, TestFile, DBFile: string;
+  DPIRect: TRect;
+  SystemDPI: integer;
   EERFrm: TEERForm;
   t: QWord;
 begin
@@ -583,6 +596,27 @@ begin
       on x: Exception do
         Report.Add('Remaximized'#9'EXCEPTION '+x.Message);
     end;
+
+    //The main window on a display of 96 DPI and back, as Windows tells it
+    {$IFDEF MSWINDOWS}
+    try
+      DPIRect:=AMainForm.BoundsRect;
+      SystemDPI:=Screen.PixelsPerInch;
+      Windows.SendMessage(AMainForm.Handle, $02E0, MakeWParam(96, 96), LPARAM(@DPIRect));
+      Pump(800);
+      SaveForm(AMainForm, OutDir+'MainForm_DPI96.png');
+      TMainForm(AMainForm).SetWorkMode(wmQuery);
+      Pump(500);
+      SaveForm(AMainForm, OutDir+'MainForm_DPI96_QueryMode.png');
+      TMainForm(AMainForm).SetWorkMode(wmDesign);
+      Windows.SendMessage(AMainForm.Handle, $02E0, MakeWParam(SystemDPI, SystemDPI), LPARAM(@DPIRect));
+      Pump(800);
+      SaveForm(AMainForm, OutDir+'MainForm_DPIback.png');
+    except
+      on x: Exception do
+        Report.Add('DPI change'#9'EXCEPTION '+x.Message);
+    end;
+    {$ENDIF}
 
     SaveCursors(OutDir+'Cursors.png');
 

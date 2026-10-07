@@ -18,6 +18,13 @@ unit UIScale;
 //   - the bitmaps of the buttons, images and image lists of every form are
 //     enlarged by the DPI of the display (ScaleFormGraphics).
 //
+//   Displays with different DPI (the manifest says "per monitor"): a form is
+//   laid out for the DPI of the primary display (UIDPI) when it is created.
+//   The LCL scales its bounds and fonts when it comes to a display with
+//   another DPI (TCustomForm.Scaled, switched on by TDMMain.FitFormLayout);
+//   RescaleFormGraphics does the same for the bitmaps. Everything that lives
+//   in the main window follows the DPI of the main window (CurrentDPI).
+//
 //----------------------------------------------------------------------------------------------------------------------
 
 {$I DBDesigner4.inc}
@@ -30,13 +37,26 @@ const
   //The DPI the forms and bitmaps are made for
   DesignDPI = 96;
 
-//The DPI of the display the program scales itself to
+//The DPI of the primary display: a form is laid out for it when it is
+//created
 function UIDPI: integer;
 
-//A number of pixels of the design in the pixels of the display
+//A number of pixels of the design in the pixels of the primary display
 function ScaleDPI(Value: integer): integer;
 //... and back: sizes are stored in the settings in the pixels of the design
 function UnscaleDPI(Value: integer): integer;
+
+//The DPI of the display the main window is on, for everything that lives
+//in the main window (the palettes, the query editor, the model)
+function CurrentDPI: integer;
+function ScaleCur(Value: integer): integer;
+function UnscaleCur(Value: integer): integer;
+
+//The DPI a form is scaled to
+function FormDPI(theForm: TCustomForm): integer;
+
+//A font of that many points on a display of that DPI
+procedure SetFontPoints(theFont: TFont; Points, DPI: integer);
 
 //An enlarged copy of a bitmap. The colour of the pixel at the bottom left
 //stands for transparent pixels when Transparent is set, as the LCL takes it
@@ -46,17 +66,84 @@ function ScaledBitmap(Src: TCustomBitmap; Cells: integer; Transparent: Boolean;
   Mul, Divisor: integer): TBitmap;
 
 //Enlarge the glyphs, images and image lists of a form by the DPI of the
-//display. Once per form
+//primary display. Once per form
 procedure ScaleFormGraphics(theForm: TCustomForm);
 
-procedure ScaleImageList(theList: TCustomImageList; Mul, Divisor: integer);
+//... and to another DPI later. The bitmaps of the design are kept, a bitmap
+//that the program has changed since is scaled from what it is now
+procedure RescaleFormGraphics(theForm: TCustomForm; DPI: integer);
 
 implementation
 
-uses Buttons, ExtCtrls, ComCtrls, IntfGraphics, GraphType, FPimage, LCLType;
+uses Buttons, ExtCtrls, ComCtrls, IntfGraphics, GraphType, FPimage, LCLType,
+  Contnrs, crc;
 
 const
   GraphicsDoneName = 'DBDGraphicsDone';
+
+type
+  //A bitmap of a form as it was designed (or last set by the program)
+  TGraphicItem = class
+    Comp: TComponent;
+    Orig: TBitmap;
+    OrigDPI: integer;
+    Hash: Cardinal;       //of the bitmap that was made from Orig
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+  TImageListItem = class
+    List: TCustomImageList;
+    Origs: TObjectList;   //the pictures in the size of the design
+    OrigW, OrigH: integer;
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+  TGraphicsHolder = class(TComponent)
+  public
+    Items, Lists: TObjectList;
+    DPI: integer;
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+  end;
+
+constructor TGraphicItem.Create;
+begin
+  Orig:=TBitmap.Create;
+end;
+
+destructor TGraphicItem.Destroy;
+begin
+  Orig.Free;
+  inherited;
+end;
+
+constructor TImageListItem.Create;
+begin
+  Origs:=TObjectList.Create(True);
+end;
+
+destructor TImageListItem.Destroy;
+begin
+  Origs.Free;
+  inherited;
+end;
+
+constructor TGraphicsHolder.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  Items:=TObjectList.Create(True);
+  Lists:=TObjectList.Create(True);
+  DPI:=DesignDPI;
+end;
+
+destructor TGraphicsHolder.Destroy;
+begin
+  Items.Free;
+  Lists.Free;
+  inherited;
+end;
 
 function UIDPI: integer;
 begin
@@ -73,6 +160,36 @@ end;
 function UnscaleDPI(Value: integer): integer;
 begin
   Result:=MulDiv(Value, DesignDPI, UIDPI);
+end;
+
+function FormDPI(theForm: TCustomForm): integer;
+begin
+  if(theForm<>nil)and(theForm.FindComponent('DBDLayoutDone')<>nil)and
+    (TCustomDesignControl(theForm).Scaled)then
+    Result:=TCustomDesignControl(theForm).PixelsPerInch
+  else
+    Result:=UIDPI;
+end;
+
+function CurrentDPI: integer;
+begin
+  Result:=FormDPI(Application.MainForm);
+end;
+
+function ScaleCur(Value: integer): integer;
+begin
+  Result:=MulDiv(Value, CurrentDPI, DesignDPI);
+end;
+
+function UnscaleCur(Value: integer): integer;
+begin
+  Result:=MulDiv(Value, DesignDPI, CurrentDPI);
+end;
+
+procedure SetFontPoints(theFont: TFont; Points, DPI: integer);
+begin
+  theFont.PixelsPerInch:=DPI;
+  theFont.Size:=Points;
 end;
 
 function ScaledBitmap(Src: TCustomBitmap; Cells: integer; Transparent: Boolean;
@@ -198,25 +315,86 @@ begin
   end;
 end;
 
-procedure ScaleImageList(theList: TCustomImageList; Mul, Divisor: integer);
-var Bmps: TList;
+function BitmapHash(bmp: TCustomBitmap): Cardinal;
+var ms: TMemoryStream;
+begin
+  Result:=0;
+  if(bmp=nil)or(bmp.Empty)then
+    Exit;
+  ms:=TMemoryStream.Create;
+  try
+    bmp.SaveToStream(ms);
+    Result:=crc32(0, ms.Memory, ms.Size);
+    if(Result=0)then
+      Result:=1;
+  finally
+    ms.Free;
+  end;
+end;
+
+//The bitmap of a button or an image, nil when it has none that is scaled
+function ComponentBitmap(C: TComponent; out Cells: integer; out Transp: Boolean): TCustomBitmap;
+begin
+  Result:=nil;
+  Cells:=1;
+  Transp:=True;
+  if(C is TCustomSpeedButton)then
+  begin
+    Result:=TSpeedButton(C).Glyph;
+    Cells:=TSpeedButton(C).NumGlyphs;
+  end
+  else if(C is TCustomBitBtn)then
+  begin
+    Result:=TBitBtn(C).Glyph;
+    Cells:=TBitBtn(C).NumGlyphs;
+  end
+  else if(C is TImage)then
+  begin
+    if(Not(TImage(C).Stretch))and(TImage(C).Picture.Graphic is TCustomBitmap)then
+      Result:=TCustomBitmap(TImage(C).Picture.Graphic);
+    Transp:=TImage(C).Transparent;
+  end;
+
+  if(Result<>nil)and(Result.Empty)then
+    Result:=nil;
+end;
+
+procedure SetComponentBitmap(C: TComponent; bmp: TBitmap);
+begin
+  if(C is TCustomSpeedButton)then
+    TSpeedButton(C).Glyph.Assign(bmp)
+  else if(C is TCustomBitBtn)then
+    TBitBtn(C).Glyph.Assign(bmp)
+  else if(C is TImage)then
+    TImage(C).Picture.Bitmap.Assign(bmp);
+end;
+
+procedure ApplyImageList(Item: TImageListItem; DPI: integer);
+var Tmp: TImageList;
+  Res: TCustomImageListResolution;
+  Bmps: TObjectList;
   bmp: TBitmap;
   i, NewW, NewH: integer;
-  Res: TCustomImageListResolution;
 begin
-  if(theList.Count=0)or(Mul=Divisor)then
+  NewW:=MulDiv(Item.OrigW, DPI, DesignDPI);
+  NewH:=MulDiv(Item.OrigH, DPI, DesignDPI);
+  if(Item.List.Width=NewW)and(Item.List.Height=NewH)then
     Exit;
 
-  NewW:=MulDiv(theList.Width, Mul, Divisor);
-  NewH:=MulDiv(theList.Height, Mul, Divisor);
-
-  Bmps:=TList.Create;
+  Bmps:=TObjectList.Create(True);
+  Tmp:=TImageList.Create(nil);
   try
+    Tmp.Width:=Item.OrigW;
+    Tmp.Height:=Item.OrigH;
+    for i:=0 to Item.Origs.Count-1 do
+      Tmp.Add(TBitmap(Item.Origs[i]), nil);
+
     //The list makes the pictures of another width itself
-    Res:=theList.ResolutionByIndex[theList.ResolutionCount-1];
-    if(Res.Width<>NewW)then
-      Res:=theList.Resolution[NewW];
-    for i:=0 to theList.Count-1 do
+    if(NewW=Item.OrigW)then
+      Res:=Tmp.ResolutionByIndex[0]
+    else
+      Res:=Tmp.Resolution[NewW];
+    for i:=0 to Tmp.Count-1 do
     begin
       bmp:=TBitmap.Create;
       Res.GetBitmap(i, bmp);
@@ -224,69 +402,117 @@ begin
     end;
 
     //clears the list
-    theList.Width:=NewW;
-    theList.Height:=NewH;
+    Item.List.Width:=NewW;
+    Item.List.Height:=NewH;
     for i:=0 to Bmps.Count-1 do
-      theList.Add(TBitmap(Bmps[i]), nil);
+      Item.List.Add(TBitmap(Bmps[i]), nil);
   finally
-    for i:=0 to Bmps.Count-1 do
-      TBitmap(Bmps[i]).Free;
+    Tmp.Free;
     Bmps.Free;
   end;
 end;
 
-procedure ScaleFormGraphics(theForm: TCustomForm);
-var i, Mul: integer;
-  Marker, C: TComponent;
-  bmp: TBitmap;
+function GraphicsHolder(theForm: TCustomForm): TGraphicsHolder;
+var i, k, Cells: integer;
+  Transp: Boolean;
+  C: TComponent;
+  bmp: TCustomBitmap;
+  Item: TGraphicItem;
+  LItem: TImageListItem;
+  b: TBitmap;
 begin
-  Mul:=UIDPI;
-  if(Mul=DesignDPI)or(theForm.FindComponent(GraphicsDoneName)<>nil)then
+  Result:=TGraphicsHolder(theForm.FindComponent(GraphicsDoneName));
+  if(Result<>nil)then
     Exit;
 
-  Marker:=TComponent.Create(theForm);
-  Marker.Name:=GraphicsDoneName;
+  //The bitmaps of the design
+  Result:=TGraphicsHolder.Create(theForm);
+  Result.Name:=GraphicsDoneName;
 
   for i:=0 to theForm.ComponentCount-1 do
   begin
     C:=theForm.Components[i];
-    bmp:=nil;
-    try
-      if(C is TCustomSpeedButton)then
+    if(C is TCustomImageList)then
+    begin
+      if(TCustomImageList(C).Count=0)then
+        continue;
+      LItem:=TImageListItem.Create;
+      LItem.List:=TCustomImageList(C);
+      LItem.OrigW:=LItem.List.Width;
+      LItem.OrigH:=LItem.List.Height;
+      for k:=0 to LItem.List.Count-1 do
       begin
-        with TSpeedButton(C) do
-          if(Not(Glyph.Empty))then
-          begin
-            bmp:=ScaledBitmap(Glyph, NumGlyphs, True, Mul, DesignDPI);
-            Glyph.Assign(bmp);
-          end;
-      end
-      else if(C is TCustomBitBtn)then
-      begin
-        with TBitBtn(C) do
-          if(Not(Glyph.Empty))then
-          begin
-            bmp:=ScaledBitmap(Glyph, NumGlyphs, True, Mul, DesignDPI);
-            Glyph.Assign(bmp);
-          end;
-      end
-      else if(C is TImage)then
-      begin
-        with TImage(C) do
-          if(Not(Stretch))and(Picture.Graphic is TCustomBitmap)and
-            (Not(Picture.Graphic.Empty))then
-          begin
-            bmp:=ScaledBitmap(TCustomBitmap(Picture.Graphic), 1, Transparent,
-              Mul, DesignDPI);
-            Picture.Bitmap.Assign(bmp);
-          end;
-      end
-      else if(C is TCustomImageList)then
-        ScaleImageList(TCustomImageList(C), Mul, DesignDPI);
-    finally
-      bmp.Free;
+        b:=TBitmap.Create;
+        LItem.List.GetBitmap(k, b);
+        LItem.Origs.Add(b);
+      end;
+      Result.Lists.Add(LItem);
+    end
+    else
+    begin
+      bmp:=ComponentBitmap(C, Cells, Transp);
+      if(bmp=nil)then
+        continue;
+      Item:=TGraphicItem.Create;
+      Item.Comp:=C;
+      Item.Orig.Assign(bmp);
+      Item.OrigDPI:=DesignDPI;
+      Item.Hash:=0;
+      Result.Items.Add(Item);
     end;
   end;
+end;
+
+procedure RescaleFormGraphics(theForm: TCustomForm; DPI: integer);
+var Holder: TGraphicsHolder;
+  i, Cells: integer;
+  Transp: Boolean;
+  Item: TGraphicItem;
+  bmp: TCustomBitmap;
+  NewBmp: TBitmap;
+begin
+  if(DPI<DesignDPI)then
+    DPI:=DesignDPI;
+
+  Holder:=GraphicsHolder(theForm);
+  if(Holder.DPI=DPI)then
+    Exit;
+
+  for i:=0 to Holder.Items.Count-1 do
+  begin
+    Item:=TGraphicItem(Holder.Items[i]);
+    bmp:=ComponentBitmap(Item.Comp, Cells, Transp);
+    if(bmp=nil)then
+      continue;
+
+    //The program has given the component another bitmap: that is the one
+    //to scale from now on
+    if(Item.Hash<>0)and(BitmapHash(bmp)<>Item.Hash)then
+    begin
+      Item.Orig.Assign(bmp);
+      Item.OrigDPI:=Holder.DPI;
+    end;
+
+    if(DPI=Item.OrigDPI)then
+      SetComponentBitmap(Item.Comp, Item.Orig)
+    else
+    begin
+      NewBmp:=ScaledBitmap(Item.Orig, Cells, Transp, DPI, Item.OrigDPI);
+      try
+        SetComponentBitmap(Item.Comp, NewBmp);
+      finally
+        NewBmp.Free;
+      end;
+    end;
+
+    bmp:=ComponentBitmap(Item.Comp, Cells, Transp);
+    Item.Hash:=BitmapHash(bmp);
+  end;
+
+  for i:=0 to Holder.Lists.Count-1 do
+    ApplyImageList(TImageListItem(Holder.Lists[i]), DPI);
+
+  Holder.DPI:=DPI;
 
   //A row of a tree is as high as its pictures at least
   for i:=0 to theForm.ComponentCount-1 do
@@ -295,6 +521,11 @@ begin
         if(Images<>nil)then
           if(DefaultItemHeight<Images.Height+2)then
             DefaultItemHeight:=Images.Height+2;
+end;
+
+procedure ScaleFormGraphics(theForm: TCustomForm);
+begin
+  RescaleFormGraphics(theForm, UIDPI);
 end;
 
 end.

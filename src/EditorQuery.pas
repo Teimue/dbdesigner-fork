@@ -572,19 +572,19 @@ begin
       (theColumn.Field.DataType=ftWord)or
       (theColumn.Field.DataType=ftLargeint)or
       (theColumn.Field.DataType=ftAutoInc)then
-      theColumn.Width:=ScaleDPI(60)
+      theColumn.Width:=ScaleCur(60)
     else if(theColumn.Field.DataType=ftString)or
       (theColumn.Field.DataType=ftFixedChar)or
       (theColumn.Field.DataType=ftWideString)then
-      theColumn.Width:=ScaleDPI(120)
+      theColumn.Width:=ScaleCur(120)
     else if(theColumn.Field.DataType=ftDateTime)or
       (theColumn.Field.DataType=ftTimeStamp)then
-      theColumn.Width:=ScaleDPI(110)
+      theColumn.Width:=ScaleCur(110)
     else if(theColumn.Field.DataType=ftDate)or
       (theColumn.Field.DataType=ftTime)then
-      theColumn.Width:=ScaleDPI(80)
+      theColumn.Width:=ScaleCur(80)
     else
-      theColumn.Width:=ScaleDPI(50);
+      theColumn.Width:=ScaleCur(50);
 
     if(theColumn.Width<theSize.Cx+5)then
       theColumn.Width:=theSize.Cx+5;
@@ -2638,9 +2638,9 @@ begin
     SQLSplitter.Height:=3;
     SQLSplitter.Top:=1000;
 
-    SQLFuncPnl.Width:=ScaleDPI(76);
+    SQLFuncPnl.Width:=ScaleCur(76);
     TempSQLStorePnl.Top:=0;
-    TempSQLStorePnl.Left:=ScaleDPI(42);
+    TempSQLStorePnl.Left:=ScaleCur(42);
 
     //Adjust the StoredSQLPnl
     if(StoredSQLPnl.Visible<>DMGUI.DockedQueryPnlStoredSQLTreeVisibleM2)then
@@ -2679,9 +2679,9 @@ begin
     SQLSplitter.Width:=3;
     SQLSplitter.Left:=1000;
 
-    SQLFuncPnl.Width:=ScaleDPI(29);
-    TempSQLStorePnl.Top:=ScaleDPI(151);
-    TempSQLStorePnl.Left:=ScaleDPI(4);
+    SQLFuncPnl.Width:=ScaleCur(29);
+    TempSQLStorePnl.Top:=ScaleCur(151);
+    TempSQLStorePnl.Left:=ScaleCur(4);
 
     //Adjust the StoredSQLPnl
     if(StoredSQLPnl.Visible<>DMGUI.DockedQueryPnlStoredSQLTreeVisibleM1)then

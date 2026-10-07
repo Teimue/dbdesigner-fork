@@ -437,6 +437,8 @@ type
     procedure EditMIClick(Sender: TObject);
     procedure FormShortCut(var Msg: TLMKey; var Handled: Boolean);
     procedure LayoutStatusBarAndPaletteHeaders;
+    //The main window has come to a display with another DPI
+    procedure FormDPIChanged(theForm: TCustomForm; OldDPI, NewDPI: integer);
   private
     { Private declarations }
     SelfTestTmr: TTimer;
@@ -609,6 +611,7 @@ begin
 
   //The dialogs are scaled to the application font (not the plugins')
   DMMain.FitDialogsToFont:=True;
+  DMMain.OnFormDPIChanged:=FormDPIChanged;
 
   DMMain.InitForm(self);
 
@@ -636,8 +639,8 @@ begin
   PluginList:=TStringList.Create;
 
   //Restore original size of ToolsPnls
-  DesignToolsPnl.Height:=ScaleDPI(487);
-  QueryToolsPnl.Height:=ScaleDPI(254);
+  DesignToolsPnl.Height:=ScaleCur(487);
+  QueryToolsPnl.Height:=ScaleCur(254);
 
 {$IFDEF LINUX}
   CheckLinuxDesktopFile;
@@ -1155,23 +1158,23 @@ begin
   if not Assigned(PaletteDataTypesForm) then Exit;
   if not Assigned(PaletteModelFrom) then Exit;
 
-  PaletteToolsForm.Top:=ScaleDPI(60);
-  PaletteToolsForm.Left:=ScaleDPI(8);
+  PaletteToolsForm.Top:=ScaleCur(60);
+  PaletteToolsForm.Left:=ScaleCur(8);
 
-  PaletteNavForm.Width:=ScaleDPI(221);
-  PaletteNavForm.Height:=ScaleDPI(173);
-  PaletteDataTypesForm.Width:=ScaleDPI(221);
-  PaletteDataTypesForm.Height:=ScaleDPI(229);
-  PaletteModelFrom.Width:=ScaleDPI(221);
-  PaletteModelFrom.Height:=ScaleDPI(192);
+  PaletteNavForm.Width:=ScaleCur(221);
+  PaletteNavForm.Height:=ScaleCur(173);
+  PaletteDataTypesForm.Width:=ScaleCur(221);
+  PaletteDataTypesForm.Height:=ScaleCur(229);
+  PaletteModelFrom.Width:=ScaleCur(221);
+  PaletteModelFrom.Height:=ScaleCur(192);
 
-  PaletteNavForm.Top:=ScaleDPI(45);
+  PaletteNavForm.Top:=ScaleCur(45);
   PaletteNavForm.Left:=Left+Width-PaletteNavForm.Width-25;
 
-  PaletteDataTypesForm.Top:=ScaleDPI(244);
+  PaletteDataTypesForm.Top:=ScaleCur(244);
   PaletteDataTypesForm.Left:=Left+Width-PaletteDataTypesForm.Width-25;
 
-  PaletteModelFrom.Top:=ScaleDPI(499);
+  PaletteModelFrom.Top:=ScaleCur(499);
   PaletteModelFrom.Left:=Left+Width-PaletteModelFrom.Width-25;
 
   DMMain.SaveWinPos(PaletteToolsForm, False);
@@ -1839,8 +1842,8 @@ begin
   LayoutStatusBarAndPaletteHeaders;
 
   //Set DockPnls Height
-  NavPnl.Height:=ScaleDPI(173)+NavHeaderPnl.Height+4;
-  DatatypesPnl.Height:=ScaleDPI(229)+DatatypesHeaderPnl.Height+4;
+  NavPnl.Height:=ScaleCur(173)+NavHeaderPnl.Height+4;
+  DatatypesPnl.Height:=ScaleCur(229)+DatatypesHeaderPnl.Height+4;
 
   //The docked palettes are as wide as the user left them
   PaletteDockSepPnl.MinSize:=150;
@@ -1857,8 +1860,8 @@ begin
   //Create Main Palette
   try
     PaletteToolsForm:=TPaletteToolsForm.Create(self);
-    PaletteToolsForm.Top:=ScaleDPI(50);
-    PaletteToolsForm.Left:=ScaleDPI(15);
+    PaletteToolsForm.Top:=ScaleCur(50);
+    PaletteToolsForm.Left:=ScaleCur(15);
   except
     on E: Exception do
       StartupErrors.Add('PaletteToolsForm: ' + E.Message);
@@ -1869,7 +1872,7 @@ begin
   //Create NavInfoPalette
   try
     PaletteNavForm:=TPaletteNavForm.Create(self);
-    PaletteNavForm.Top:=ScaleDPI(44);
+    PaletteNavForm.Top:=ScaleCur(44);
     PaletteNavForm.Left:=Screen.Width-PaletteNavForm.Width-25;
   except
     on E: Exception do
@@ -1879,7 +1882,7 @@ begin
   //Create DatatypesPalette
   try
     PaletteDataTypesForm:=TPaletteDataTypesForm.Create(self);
-    PaletteDataTypesForm.Top:=ScaleDPI(60);
+    PaletteDataTypesForm.Top:=ScaleCur(60);
     PaletteDataTypesForm.Left:=Screen.Width-PaletteDataTypesForm.Width-25;
   except
     on E: Exception do
@@ -1889,7 +1892,7 @@ begin
   //Create ModelPalette
   try
     PaletteModelFrom:=TPaletteModelFrom.Create(self);
-    PaletteModelFrom.Top:=ScaleDPI(380);
+    PaletteModelFrom.Top:=ScaleCur(380);
     PaletteModelFrom.Left:=Screen.Width-PaletteModelFrom.Width-25;
   except
     on E: Exception do
@@ -1931,7 +1934,7 @@ begin
 
     //Hide Right Pnl
     RightPnl.Visible:=False;
-    LeftPnl.Width:=ScaleDPI(34);
+    LeftPnl.Width:=ScaleCur(34);
 
     SetLayout(DMGUI.DockedQueryPnlMode, False);
   end;
@@ -2594,7 +2597,7 @@ begin
     else
     begin
       DatatypesPnl.Visible:=True;
-      DatatypesPnl.Top:=ScaleDPI(74);
+      DatatypesPnl.Top:=ScaleCur(74);
     end;
   end;
 
@@ -3903,7 +3906,7 @@ end;
 procedure TMainForm.NavInfoPBoxPaint(Sender: TObject);
 begin
   TPaintBox(Sender).Canvas.Font.Name:=DMMain.ApplicationFontName;
-  TPaintBox(Sender).Canvas.Font.Size:=DMMain.ApplicationFontSize;
+  SetFontPoints(TPaintBox(Sender).Canvas.Font, DMMain.ApplicationFontSize, CurrentDPI);
 
   //Paint Docked Palette Headers (for XTF smooth fonts). The header lies on
   //clBtnShadow: clGray was nearly the same grey on a current Windows
@@ -3915,6 +3918,66 @@ end;
 
 //The status bar and the headers of the docked palettes were laid out for a
 //font of 9 pixels. Give them the application font and the height it needs
+//The LCL has scaled the bounds and the fonts of the main window and of
+//everything that is docked in it, and TDMMain its bitmaps. What is left:
+procedure TMainForm.FormDPIChanged(theForm: TCustomForm; OldDPI, NewDPI: integer);
+var i: integer;
+
+  //a form whose main panel is docked in the main window
+  procedure Follow(F: TForm; MainPnl: TWinControl);
+  begin
+    if(F<>nil)and(MainPnl<>nil)and(GetParentForm(MainPnl)=self)then
+      DMMain.FollowDPI(F, NewDPI);
+  end;
+
+  function Scaled(Value: integer): integer;
+  begin
+    Result:=MulDiv(Value, NewDPI, OldDPI);
+  end;
+
+begin
+  if(theForm<>self)or(OldDPI<=0)then
+    Exit;
+
+  if(Assigned(PaletteNavForm))then
+    Follow(PaletteNavForm, PaletteNavForm.MainPnl);
+  if(Assigned(PaletteDataTypesForm))then
+    Follow(PaletteDataTypesForm, PaletteDataTypesForm.MainPnl);
+  if(Assigned(PaletteModelFrom))then
+    Follow(PaletteModelFrom, PaletteModelFrom.MainPnl);
+  if(Assigned(DockedEditorQueryForm))then
+    Follow(DockedEditorQueryForm, TEditorQueryForm(DockedEditorQueryForm).QueryDockPnl);
+
+  //the tab strips of the palettes are painted with the font
+  if(Assigned(PaletteNavForm))then
+    PaletteNavForm.LayoutTabs(self);
+  if(Assigned(PaletteDataTypesForm))then
+    PaletteDataTypesForm.LayoutTabs(self);
+  if(Assigned(PaletteModelFrom))then
+    PaletteModelFrom.LayoutTabs(self);
+
+  //sizes that are kept in the pixels of the main window
+  with DMGUI do
+  begin
+    PaletteDockWidth:=Scaled(PaletteDockWidth);
+    DockedQueryPnlHeightM1:=Scaled(DockedQueryPnlHeightM1);
+    DockedQueryPnlHeightM2:=Scaled(DockedQueryPnlHeightM2);
+    DockedQueryPnlStoredSQLTreeWidthM1:=Scaled(DockedQueryPnlStoredSQLTreeWidthM1);
+    DockedQueryPnlStoredSQLTreeWidthM2:=Scaled(DockedQueryPnlStoredSQLTreeWidthM2);
+    DockedQueryPnlBLOBPnlWidthM1:=Scaled(DockedQueryPnlBLOBPnlWidthM1);
+    DockedQueryPnlBLOBPnlWidthM2:=Scaled(DockedQueryPnlBLOBPnlWidthM2);
+    DockedQueryPnlSQLPnlSizeM1:=Scaled(DockedQueryPnlSQLPnlSizeM1);
+    DockedQueryPnlSQLPnlSizeM2:=Scaled(DockedQueryPnlSQLPnlSizeM2);
+  end;
+
+  //the models keep their zoom factor, the cursors their size
+  for i:=0 to FEERFormList.Count-1 do
+    TEERForm(FEERFormList[i]).EERModel.DisplayDPIChanged;
+  DMEER.LoadCursors;
+
+  Invalidate;
+end;
+
 procedure TMainForm.LayoutStatusBarAndPaletteHeaders;
 var th, h, shift: integer;
 

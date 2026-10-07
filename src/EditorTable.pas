@@ -290,21 +290,21 @@ begin
   //Column Icon
   ColumnGrid.ColWidths[0]:=DatatypesImgList.Width+4;
   //Column Name
-  ColumnGrid.ColWidths[1]:=DMMain.ScaleForFont(104);
+  ColumnGrid.ColWidths[1]:=DMMain.ScaleForFont(104, self);
   //Datatype Icon
   ColumnGrid.ColWidths[2]:=DatatypesImgList.Width+4;
   //Datatype
-  ColumnGrid.ColWidths[3]:=DMMain.ScaleForFont(115);
+  ColumnGrid.ColWidths[3]:=DMMain.ScaleForFont(115, self);
   //Not Null
   ColumnGrid.ColWidths[4]:=DatatypesImgList.Width+4;
   //Auto Inc
   ColumnGrid.ColWidths[5]:=DatatypesImgList.Width+4;
   //Options
-  ColumnGrid.ColWidths[6]:=DMMain.ScaleForFont(160);
+  ColumnGrid.ColWidths[6]:=DMMain.ScaleForFont(160, self);
   //Default Val
-  ColumnGrid.ColWidths[7]:=DMMain.ScaleForFont(80);
+  ColumnGrid.ColWidths[7]:=DMMain.ScaleForFont(80, self);
   //Comments
-  ColumnGrid.ColWidths[8]:=DMMain.ScaleForFont(100);
+  ColumnGrid.ColWidths[8]:=DMMain.ScaleForFont(100, self);
 
   ColumnGrid.Col:=1;
   ColumnGrid.Row:=1;
@@ -331,8 +331,8 @@ begin
 
   //The stored height may be from a smaller application font
   OptionsPnl.Height:=DMEER.TableSplitterPos;
-  if(OptionsPnl.Height<DMMain.ScaleForFont(172))then
-    OptionsPnl.Height:=DMMain.ScaleForFont(172);
+  if(OptionsPnl.Height<DMMain.ScaleForFont(172, self))then
+    OptionsPnl.Height:=DMMain.ScaleForFont(172, self);
   OptionSplitterMoved(self);
 
   BottomPnl.Top:=1000;
@@ -2087,30 +2087,30 @@ end;
 procedure TEditorTableForm.FormResize(Sender: TObject);
 begin
   //TableNameEd
-  TableNameEd.Width:=Width-DMMain.ScaleForFont(702-164);
+  TableNameEd.Width:=Width-DMMain.ScaleForFont(702-164, self);
 
   //Column Name
-  ColumnGrid.ColWidths[1]:=(Width-DMMain.ScaleForFont(702)) div 4+DMMain.ScaleForFont(104);
+  ColumnGrid.ColWidths[1]:=(Width-DMMain.ScaleForFont(702, self)) div 4+DMMain.ScaleForFont(104, self);
   //Column Comments
   //The numbers are pixels of the form design (702 wide), which
   //DMMain.FitFormLayout scales to the application font
-  ColumnGrid.ColWidths[8]:=(Width-DMMain.ScaleForFont(702)) div 4*3+DMMain.ScaleForFont(100);
+  ColumnGrid.ColWidths[8]:=(Width-DMMain.ScaleForFont(702, self)) div 4*3+DMMain.ScaleForFont(100, self);
 
 
   //PageControlTitle
-  PageControlTitleShape.Width:=Width-DMMain.ScaleForFont(702-533);
-  PageControlTitlePnl.Width:=Width-DMMain.ScaleForFont(702-531);
+  PageControlTitleShape.Width:=Width-DMMain.ScaleForFont(702-533, self);
+  PageControlTitlePnl.Width:=Width-DMMain.ScaleForFont(702-531, self);
 
   //PageControl
-  TablePageControl.Width:=Width-DMMain.ScaleForFont(702-541);
+  TablePageControl.Width:=Width-DMMain.ScaleForFont(702-541, self);
 
   //Index page
-  IndexListBox.Width:=Width-DMMain.ScaleForFont(702-121);
-  NewIndexBtn.Left:=Width-DMMain.ScaleForFont(702-121);
-  DelIndexBtn.Left:=Width-DMMain.ScaleForFont(702-121);
-  IndexGroupbox.Left:=Width-DMMain.ScaleForFont(702-156);
-  IndexColumnsLbl.Left:=Width-DMMain.ScaleForFont(702-322);
-  IndexDragHintLbl.Left:=Width-DMMain.ScaleForFont(702-366);
+  IndexListBox.Width:=Width-DMMain.ScaleForFont(702-121, self);
+  NewIndexBtn.Left:=Width-DMMain.ScaleForFont(702-121, self);
+  DelIndexBtn.Left:=Width-DMMain.ScaleForFont(702-121, self);
+  IndexGroupbox.Left:=Width-DMMain.ScaleForFont(702-156, self);
+  IndexColumnsLbl.Left:=Width-DMMain.ScaleForFont(702-322, self);
+  IndexDragHintLbl.Left:=Width-DMMain.ScaleForFont(702-366, self);
 end;
 
 procedure TEditorTableForm.ClearAllSQLInsertsMIClick(Sender: TObject);
@@ -2120,14 +2120,14 @@ end;
 
 procedure TEditorTableForm.OptionSplitterMoved(Sender: TObject);
 begin
-  PageControlTreeView.Height:=OptionsPnl.Height-DMMain.ScaleForFont(172-155);
-  TablePageControl.Height:=OptionsPnl.Height-DMMain.ScaleForFont(172-135);
+  PageControlTreeView.Height:=OptionsPnl.Height-DMMain.ScaleForFont(172-155, self);
+  TablePageControl.Height:=OptionsPnl.Height-DMMain.ScaleForFont(172-135, self);
 end;
 
 procedure TEditorTableForm.OptionSplitterCanResize(Sender: TObject;
   var NewSize: Integer; var Accept: Boolean);
 begin
-  if(NewSize<DMMain.ScaleForFont(172))then
+  if(NewSize<DMMain.ScaleForFont(172, self))then
     Accept:=False;
 end;
 

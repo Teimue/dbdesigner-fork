@@ -109,6 +109,9 @@ begin
   end;
   {$ENDIF}
 
+  //The forms are scaled when they come to a display with another DPI
+  //(they switch that on themselves, see TDMMain.FitFormLayout)
+  Application.Scaled:=True;
   Application.Initialize;
   Application.Title := 'DBDesigner Fork';
 
