@@ -541,9 +541,8 @@ begin
       begin
         theFileName:=theSaveDialog.Filename;
         if(FileExists(theFileName))then
-          if(MessageDlg('The file ['+ExtractFileName(theFileName)+'] '+
-            'already exists. '#13#10+
-            'Do you want to overwrite this file?', mtInformation,
+          if(MessageDlg(DMMain.GetTranslatedMessage('The file [%s] already exists.'+#13#10+
+            'Do you want to overwrite this file?', 92, ExtractFileName(theFileName)), mtInformation,
             [mbYes, mbNo], 0)=mrNo)then
             Exit;
 

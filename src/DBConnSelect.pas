@@ -1457,8 +1457,8 @@ begin
                 except
                   on x: Exception do
                   begin
-                    MessageDlg('Database could not be dropped.'+#13#10#13#10+
-                      x.Message, mtError, [mbOK], 0);
+                    MessageDlg(DMMain.GetTranslatedMessage('Database could not be dropped.'+#13#10#13#10+
+                      '%s', 278, x.Message), mtError, [mbOK], 0);
                     Abort;
                   end;
                 end;

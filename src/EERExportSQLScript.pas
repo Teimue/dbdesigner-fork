@@ -182,7 +182,7 @@ begin
   end;
 
   RegionsListBox.Items.Clear;
-  RegionsListBox.Items.Add('All Tables');
+  RegionsListBox.Items.Add(DMMain.GetTranslatedMessage('All Tables', 281));
   EERModel.GetEERObjectList([EERRegion], theRegions, False);
   for i:=0 to theRegions.Count-1 do
     RegionsListBox.Items.Add(TEERRegion(theRegions[i]).ObjName);
@@ -648,9 +648,9 @@ begin
   end;
 
   if(Target='FireBird')then
-    LbAutoIncrementSeqName.Caption:='Generator name: '
+    LbAutoIncrementSeqName.Caption:=DMMain.GetTranslatedMessage('Generator name:', 282)+' '
   else
-    LbAutoIncrementSeqName.Caption:='Sequence name: ';
+    LbAutoIncrementSeqName.Caption:=DMMain.GetTranslatedMessage('Sequence name:', 283)+' ';
 end;
 
 function TEERExportSQLScriptFrom.GetSqlGeneratorOrSequence(

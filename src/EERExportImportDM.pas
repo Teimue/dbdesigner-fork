@@ -307,8 +307,8 @@ begin
         except
           on x: Exception do
           begin
-            ShowMessage('An Error occurred while reading Tables from XML File:'+#13#10#13#10+
-              'Error: '+x.Message);
+            ShowMessage(DMMain.GetTranslatedMessage('An Error occurred while reading Tables from XML File:'+#13#10#13#10+
+              'Error: %s', 280, x.Message));
           end;
         end;
       finally

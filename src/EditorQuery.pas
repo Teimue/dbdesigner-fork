@@ -634,11 +634,11 @@ begin
         OutputClientDataSet.ApplyUpdates(0);
       except
         on x: Exception do
-          MessageDlg('ERROR while applying the changes to the database: '+#13#10#13#10+
-            x.Message, mtError, [mbOk], 0);
+          MessageDlg(DMMain.GetTranslatedMessage('ERROR while applying the changes to the database:'+#13#10#13#10+
+            '%s', 287, x.Message), mtError, [mbOk], 0);
       end;
-      DMGUI.SetStatusCaption('Changes applied. '+
-        FormatFloat('##,###,##0', OutputClientDataSet.ChangeCount)+' pending change(s).');
+      DMGUI.SetStatusCaption(DMMain.GetTranslatedMessage('Changes applied. %s pending change(s).', 299,
+        FormatFloat('##,###,##0', OutputClientDataSet.ChangeCount)));
     end
     else
       DMGUI.SetStatusCaption('No changes to apply.');
@@ -1143,10 +1143,10 @@ begin
         end
         else
         begin
-          MessageDlg('ERROR while executing Query: '+#13#10#13#10+
-            Trim(OutputQry.SQL.Text)+#13#10#13#10+
-            'ERROR Message: '+#13#10+
-            x.Message, mtError, [mbOk], 0);
+          MessageDlg(DMMain.GetTranslatedMessage('ERROR while executing Query:'+#13#10#13#10+
+            '%s'+#13#10#13#10+
+            'ERROR Message:'+#13#10+
+            '%s', 288, Trim(OutputQry.SQL.Text), x.Message), mtError, [mbOk], 0);
 
           Exit;
         end;

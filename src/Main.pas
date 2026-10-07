@@ -80,7 +80,7 @@ uses
 const
   INIVersion_DBDesigner4_Settings=4;
   INIVersion_DBDesigner4_DatabaseInfo=8;
-  INIVersion_DBDesigner4_Translations=19;
+  INIVersion_DBDesigner4_Translations=20;
   INIVersion_DBConn_DefaultSettings=5;
 
 type
@@ -550,7 +550,7 @@ begin
 
     AbortBtn:=TButton.Create(Dlg);
     AbortBtn.Parent:=Dlg;
-    AbortBtn.Caption:='Abort';
+    AbortBtn.Caption:=DMMain.GetTranslatedMessage('Abort', 291);
     AbortBtn.ModalResult:=mrAbort;
     AbortBtn.SetBounds(Margin+TextWidth-90, OkBtn.Top, 90, 28);
 
@@ -993,9 +993,10 @@ begin
         //Nothing selected (Ctrl+Del bypasses the OnShow-time check that
         //disables the menu item): no confirmation with an empty list
         if(ObjectList.Count>0)then
-          if(MessageDlg('Are you sure you want to delete the selected Objects?'+#13#10+
+          if(MessageDlg(DMMain.GetTranslatedMessage(
+            'Are you sure you want to delete the selected Objects?'+#13#10+
             'The following Objects will be deleted:'+#13#10#13#10+
-            s, mtConfirmation, [mbYes, mbNo], 0)=mrYes)then
+            '%s', 292, s), mtConfirmation, [mbYes, mbNo], 0)=mrYes)then
             TEERForm(FActiveEERForm).EERModel.DeleteSelectedObjs;
       finally
         ObjectList.Free;
@@ -1420,7 +1421,7 @@ begin
 
         DeleteFile(DMMain.SettingsPath+'clipboard.xml');
 
-        DMGUI.SetStatusCaption(DMMain.GetTranslatedMessage('%s Object(s) copied to clipboard.', -1, IntToStr(anz)));
+        DMGUI.SetStatusCaption(DMMain.GetTranslatedMessage('%s Object(s) copied to clipboard.', 293, IntToStr(anz)));
       end;
 end;
 
@@ -1542,7 +1543,7 @@ begin
 
         DeleteFile(DMMain.SettingsPath+'clipboard.xml');
 
-        DMGUI.SetStatusCaption(DMMain.GetTranslatedMessage('%s Object(s) pasted from clipboard.', -1, IntToStr(anz)));
+        DMGUI.SetStatusCaption(DMMain.GetTranslatedMessage('%s Object(s) pasted from clipboard.', 294, IntToStr(anz)));
       end;
 end;
 
@@ -3255,7 +3256,7 @@ begin
         begin
           TEERForm(FActiveEERForm).EERModel.SetPositionMarker(Key-Key_0);
 
-          StatusCaptionLbl.Caption:='Position Marker '+IntToStr(Key-Key_0)+' set.';
+          StatusCaptionLbl.Caption:=DMMain.GetTranslatedMessage('Position Marker %s set.', 295, IntToStr(Key-Key_0));
 
           Handled:=True;
         end;
@@ -3741,7 +3742,7 @@ begin
     //TClipboard.Assign(TBitmap) publishes the image as image/bmp (pcfBitmap)
     Clipboard.Assign(ModelBmp);
 
-    DMGUI.SetStatusCaption(DMMain.GetTranslatedMessage('Selected Object(s) copied to clipboard as image.', -1));
+    DMGUI.SetStatusCaption(DMMain.GetTranslatedMessage('Selected Object(s) copied to clipboard as image.', 296));
   finally
     ModelBmp.Free;
   end;
@@ -4065,7 +4066,7 @@ begin
         theSaveDialog.OnShow:=DMMain.OnOpenSaveDlgShow;
 {$ENDIF}
 
-        theSaveDialog.Title:=DMMain.GetTranslatedMessage('Export Model as MDB XML File ...', -1);
+        theSaveDialog.Title:=DMMain.GetTranslatedMessage('Export Model as MDB XML File ...', 297);
         theSaveDialog.Width:=600;
         theSaveDialog.Height:=450;
         theSaveDialog.DefaultExt:='schema';
@@ -4075,7 +4076,7 @@ begin
         else
           theSaveDialog.InitialDir:='';
 
-        theSaveDialog.Filter:=DMMain.GetTranslatedMessage('MDB XML files (*.schema)', -1);
+        theSaveDialog.Filter:=DMMain.GetTranslatedMessage('MDB XML files (*.schema)', 298);
 
         if(theSaveDialog.Execute)then
         begin

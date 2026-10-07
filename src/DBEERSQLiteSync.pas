@@ -774,7 +774,7 @@ begin
       DoDropTables:=(MessageDlg(
         DMMain.GetTranslatedMessage('The following %s table(s) are not in the model '+
           'and will be DROPPED from the database (all their data is lost):'+#13#10#13#10+
-          '%s'+#13#10#13#10+'Drop these tables?', -1,
+          '%s'+#13#10#13#10+'Drop these tables?', 279,
           IntToStr(DropTables.Count), DropTables.CommaText),
         mtConfirmation, [mbYes, mbNo], 0)=mrYes);
 

@@ -1307,6 +1307,12 @@ end;
 procedure TDMMain.SaveLanguageToIniFile;
 var theIni: TMemIniFile;
 begin
+  //The language is loaded by the main form only. A program that never
+  //loaded it (a plugin, a test program) must not store its empty language:
+  //that reset the main program to English at its next start
+  if(LanguageCode='')then
+    Exit;
+
   //Open IniFile
   theIni:=TMemIniFile.Create(SettingsPath+'Language.ini');
   try
@@ -1363,10 +1369,27 @@ begin
   end;
 end;
 
+type
+  //Caption is protected in TControl
+  TTranslateControl = class(TControl);
+
 procedure TDMMain.TranslateForm(theForm: TForm);
 var theStringList: TStringList;
-  i: integer;
-  trans_caption, trans_hint, s1: string;
+  i, j: integer;
+  trans_caption, trans_hint, s1, s2: string;
+
+  procedure TranslateItems(theItems: TStrings; const key: string);
+  var k: integer;
+    s: string;
+  begin
+    for k:=0 to theItems.Count-1 do
+    begin
+      s:=theStringList.Values[key+Format('%.2d', [k+1])];
+      if(s<>'')then
+        theItems[k]:=s;
+    end;
+  end;
+
 begin
   if(Not(FileExists(SettingsPath+ProgName+'_Translations.txt')))then
     Exit;
@@ -1404,7 +1427,13 @@ begin
         else if(theForm.Components[i].ClassNameIs('TCheckBox'))then
           TCheckBox(theForm.Components[i]).Caption:=trans_caption
         else if(theForm.Components[i].ClassNameIs('TRadioButton'))then
-          TRadioButton(theForm.Components[i]).Caption:=trans_caption;
+          TRadioButton(theForm.Components[i]).Caption:=trans_caption
+        //Every other control with a caption (TButton, TRadioGroup, ...).
+        //Not edits and combo boxes: their caption is their text
+        else if(theForm.Components[i] is TControl)and
+          (Not(theForm.Components[i] is TCustomEdit))and
+          (Not(theForm.Components[i] is TCustomComboBox))then
+          TTranslateControl(theForm.Components[i]).Caption:=trans_caption;
       end;
 
       if(trans_hint<>'')then
@@ -1428,8 +1457,32 @@ begin
         else if(theForm.Components[i].ClassNameIs('TCheckBox'))then
           TCheckBox(theForm.Components[i]).Hint:=trans_hint
         else if(theForm.Components[i].ClassNameIs('TRadioButton'))then
-          TRadioButton(theForm.Components[i]).Hint:=trans_hint;
+          TRadioButton(theForm.Components[i]).Hint:=trans_hint
+        //Every other control (TImage, TEdit, TButton, ...)
+        else if(theForm.Components[i] is TControl)then
+          TControl(theForm.Components[i]).Hint:=trans_hint;
       end;
+
+      //The items of combo boxes, list boxes and radio groups
+      //(..._Item01, ..._Item02, ...) and the columns of list views
+      //(..._Column01, ...). Only the entries the file has are replaced
+      if(theForm.Components[i] is TCustomComboBox)then
+      begin
+        j:=TCustomComboBox(theForm.Components[i]).ItemIndex;
+        TranslateItems(TCustomComboBox(theForm.Components[i]).Items, s1+'_Item');
+        TCustomComboBox(theForm.Components[i]).ItemIndex:=j;
+      end
+      else if(theForm.Components[i] is TCustomListBox)then
+        TranslateItems(TCustomListBox(theForm.Components[i]).Items, s1+'_Item')
+      else if(theForm.Components[i] is TCustomRadioGroup)then
+        TranslateItems(TCustomRadioGroup(theForm.Components[i]).Items, s1+'_Item')
+      else if(theForm.Components[i] is TListView)then
+        for j:=0 to TListView(theForm.Components[i]).Columns.Count-1 do
+        begin
+          s2:=theStringList.Values[s1+'_Column'+Format('%.2d', [j+1])];
+          if(s2<>'')then
+            TListView(theForm.Components[i]).Columns[j].Caption:=s2;
+        end;
     end;
   finally
     theStringList.Free;

@@ -6050,7 +6050,7 @@ begin
     at_EditObj:
       GetActionName:=DMMain.GetTranslatedMessage('Edit Object', 54);
     at_PasteObj:
-      GetActionName:=DMMain.GetTranslatedMessage('Paste Object(s)', -1);
+      GetActionName:=DMMain.GetTranslatedMessage('Paste Object(s)', 284);
   end;
 end;
 

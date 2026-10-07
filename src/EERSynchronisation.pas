@@ -239,9 +239,9 @@ begin
     begin
       ProgressMemo.Lines.Add('');
       ProgressMemo.Lines.Add('ERROR: '+x.Message);
-      ProgressMemo.Lines.Add('Synchronisation aborted.');
+      ProgressMemo.Lines.Add(DMMain.GetTranslatedMessage('Synchronisation aborted.', 286));
       ProgressMemo.Lines.Add('');
-      MessageDlg('Synchronisation aborted.'+#13#10#13#10+
+      MessageDlg(DMMain.GetTranslatedMessage('Synchronisation aborted.', 286)+#13#10#13#10+
         x.Message, mtError, [mbOK], 0);
     end;
   end;

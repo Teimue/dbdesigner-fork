@@ -490,7 +490,7 @@ begin
   ReadOnlyLbl.Visible:=TableReadOnly;
   if(EERModel.ReadOnly)then
     ReadOnlyLbl.Caption:=DMMain.GetTranslatedMessage(
-      'The model is read only - changes cannot be applied.', -1)
+      'The model is read only - changes cannot be applied.', 289)
   else if(EERTable.IsLinkedObject)then
   begin
     theLinkedModel:=EERModel.GetPlacedModelByID(EERTable.IDLinkedModel);
@@ -499,7 +499,7 @@ begin
     else
       s:='?';
     ReadOnlyLbl.Caption:=DMMain.GetTranslatedMessage(
-      'Linked object from model "%s" - read only, changes cannot be applied.', -1, s);
+      'Linked object from model "%s" - read only, changes cannot be applied.', 290, s);
   end;
   TableNameEd.ReadOnly:=TableReadOnly;
 end;

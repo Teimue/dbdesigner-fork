@@ -214,7 +214,7 @@ begin
     //the active model may have been opened through a relative path)
     if(ExpandFileName(fname)=ExpandFileName(EERModel.ModelFilename))then
     begin
-      MessageDlg(DMMain.GetTranslatedMessage('You must not place a Model on itself.', -1),
+      MessageDlg(DMMain.GetTranslatedMessage('You must not place a Model on itself.', 244),
         mtError, [mbOK], 0);
       Exit;
     end;
@@ -240,7 +240,7 @@ begin
     except
       on E: Exception do
       begin
-        MessageDlg(DMMain.GetTranslatedMessage('An Error occurred while reading the Model from XML File:', -1)+
+        MessageDlg(DMMain.GetTranslatedMessage('An Error occurred while reading the Model from XML File:', 285)+
           #13#10+fname+#13#10#13#10+E.Message, mtError, [mbOK], 0);
         Model2Place.Free;
         Model2Place:=nil;
