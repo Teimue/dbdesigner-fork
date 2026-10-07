@@ -93,7 +93,8 @@ uses
   EERPlaceModel in 'src/EERPlaceModel.pas',
   // RegExpr, // using system regexpr
   GlobalSysFunctions in 'src/GlobalSysFunctions.pas',
-  UITestRunner in 'src/UITestRunner.pas';
+  UITestRunner in 'src/UITestRunner.pas',
+  UIScreenshots in 'src/UIScreenshots.pas';
 
 {$R src/DBDesignerFork.res}
 
@@ -114,16 +115,20 @@ begin
   //Initialize Application Font
   LoadApplicationFont;
 
-  //Show Splash Form
-  //SplashForm:=TSplashForm.Create(Application);
-  //SplashForm.VersionLbl.Caption:='1.5';
-  //SplashForm.Show;
-  //SplashForm.Update;
+  //Show Splash Form while the program is loading (not in the test modes)
+  if(Not(HasSelfTestParam))and(Not(HasScreenshotParam))then
+  begin
+    SplashForm:=TSplashForm.Create(Application);
+    SplashForm.VersionLbl.Caption:='Version 1.5';
+    SplashForm.Show;
+    SplashForm.Update;
+  end;
 
   Application.ShowMainForm := False;
   Application.CreateForm(TMainForm, MainForm);
   //Bring Splash Screen back to top again...
-  //SplashForm.BringToFront;
+  if(Assigned(SplashForm))then
+    SplashForm.BringToFront;
 
   Application.Run;
 end.

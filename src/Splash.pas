@@ -67,9 +67,11 @@ type
     procedure FormClick(Sender: TObject);
   private
     { Private declarations }
-    SplashImg: TBitmap;
+    SplashImg: TPicture;
   public
     { Public declarations }
+    //Close the start picture after it was shown for that long
+    procedure CloseAfter(Milliseconds: integer);
   end;
 
 var
@@ -77,7 +79,7 @@ var
 
 implementation
 
-uses Main;
+uses Main, UIScale;
 
 {$R *.lfm}
 
@@ -88,31 +90,50 @@ begin
   Font.Size:=10;
   {$ENDIF}
 
-  SplashImg:=TBitmap.Create;
-  SplashImg.LoadFromFile(ExtractFilePath(Application.ExeName)+
-    'Gfx'+PathDelim+'splashscreen.png');
+  //started by CloseAfter
+  CloseTimer.Enabled:=False;
 
-  VersionLbl.Left:=650;
-  VersionLbl.Top:=298;
+  //The picture is a PNG file. Without it the window stays grey
+  SplashImg:=TPicture.Create;
+  try
+    SplashImg.LoadFromFile(ExtractFilePath(Application.ExeName)+
+      'Gfx'+PathDelim+'splashscreen.png');
+  except
+  end;
 
-  Width:=700;
-  Height:=358;
-
-  Top:=(Screen.Height-Height) div 2;
-  //2 Monitors
-  if(Screen.Width=(Screen.Height/0.75)*2)or
-    (Screen.Width=(Screen.Height*1.25)*2)then
-    Left:=((Screen.Width div 2)-Width) div 2
+  //In the size of the picture, in the scale of the display. The window has
+  //no border; ClientWidth is not reliable before the form has a handle
+  if(SplashImg.Width>0)then
+  begin
+    Width:=ScaleDPI(SplashImg.Width);
+    Height:=ScaleDPI(SplashImg.Height);
+  end
   else
-    Left:=(Screen.Width-Width) div 2;
-  //2 Monitors, different resolutions 1280+1152
-  if(Screen.Width=1280+1152)then
-    Left:=(1280-Width) div 2;
+  begin
+    Width:=ScaleDPI(697);
+    Height:=ScaleDPI(358);
+  end;
+
+  Position:=poScreenCenter;
+end;
+
+procedure TSplashForm.CloseAfter(Milliseconds: integer);
+begin
+  if(Milliseconds<=0)then
+    Close
+  else
+  begin
+    CloseTimer.Interval:=Milliseconds;
+    CloseTimer.Enabled:=True;
+  end;
 end;
 
 procedure TSplashForm.FormDestroy(Sender: TObject);
 begin
   SplashImg.Free;
+
+  if(SplashForm=self)then
+    SplashForm:=nil;
 end;
 
 procedure TSplashForm.FormClose(Sender: TObject; var Action: TCloseAction);
@@ -142,15 +163,21 @@ var i: integer;
 begin
   if(Assigned(SplashImg))then
   begin
-    Canvas.Draw(0, 0, SplashImg);
+    if(SplashImg.Graphic<>nil)and(Not(SplashImg.Graphic.Empty))then
+    begin
+      Canvas.AntialiasingMode:=amOn;
+      Canvas.StretchDraw(ClientRect, SplashImg.Graphic);
+    end;
 
 {$IFDEF LINUX}
     Canvas.Font.Name:='Nimbus Sans L';
-    Canvas.Font.Height:=9;
 {$ELSE}
     Canvas.Font.Name:='Microsoft Sans Serif';
-    Canvas.Font.Height:=9;
 {$ENDIF}
+    Canvas.Font.Height:=ScaleDPI(13);
+    //on the dark band at the bottom of the picture
+    Canvas.Font.Color:=clWhite;
+    Canvas.Brush.Style:=bsClear;
 
 //    for i:=1 to 7 do
 //    begin
@@ -161,7 +188,8 @@ begin
 //      end;
 //    end;
 
-    Canvas.TextOut(VersionLbl.Left, VersionLbl.Top, VersionLbl.Caption);
+    Canvas.TextOut(ClientWidth-ScaleDPI(14)-Canvas.TextWidth(VersionLbl.Caption),
+      ScaleDPI(318), VersionLbl.Caption);
   end;
 end;
 

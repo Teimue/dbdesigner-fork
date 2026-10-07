@@ -718,14 +718,12 @@ end;
 
 procedure TMainForm.AboutMIClick(Sender: TObject);
 begin
-  {SplashForm:=TSplashForm.Create(self);
-  try
-    SplashForm.VersionLbl.Caption:=Version;
-    SplashForm.ShowModal;
-  finally
-    //SplashForm.Free;
-  end; }
-  DMMain.BrowsePage('https://sourceforge.net/projects/dbdesigner-fork/');
+  //The start picture, until it is clicked. The form frees itself
+  with TSplashForm.Create(self) do
+  begin
+    VersionLbl.Caption:='Version '+Version;
+    ShowModal;
+  end;
 end;
 
 procedure TMainForm.FormShow(Sender: TObject);
@@ -1996,7 +1994,9 @@ begin
   //Workaround Code because of Delphi BUG END
   //-----------------------------------------
 
-  //SplashForm.Close;
+  //The start picture stays for the time that is set in the options
+  if(Assigned(SplashForm))then
+    SplashForm.CloseAfter(DMGUI.DelaySplashScreen);
 
   Cursor:=crArrow;
 
