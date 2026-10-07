@@ -272,6 +272,8 @@ type
     //The dialogs are laid out for a font of 8 points. The main program sets
     //this to have InitForm scale them to the application font
     FitDialogsToFont: Boolean;
+    //A plugin sets this too: its main window is a dialog like the others
+    MainFormIsDialog: Boolean;
 
     ApplicationFontName: string;
     ApplicationFontSize: integer;
@@ -1447,7 +1449,7 @@ begin
 
   //The main window, the palettes and the docked query editor fit themselves
   //to the font. They are laid out in the pixels of a display of 96 DPI
-  if(theForm.ClassNameIs('TMainForm'))or
+  if((theForm.ClassNameIs('TMainForm'))and(Not(MainFormIsDialog)))or
     (theForm.ClassNameIs('TPaletteNavForm'))or(theForm.ClassNameIs('TPaletteDataTypesForm'))or
     (theForm.ClassNameIs('TPaletteModelFrom'))or(theForm.ClassNameIs('TPaletteToolsForm'))or
     (theForm.ClassNameIs('TEditorQueryForm'))or(theForm.ClassNameIs('TSplashForm'))then
@@ -1473,7 +1475,7 @@ begin
   end;
 
   //the application font is not known before the main window is there
-  if(Application.MainForm=nil)then
+  if(Application.MainForm=nil)and(Not(MainFormIsDialog))then
     Exit;
 
   Marker:=TLayoutMarker.Create(theForm);
@@ -2465,8 +2467,12 @@ procedure TDMMain.LoadApplicationFont;
 var theIni: TMemIniFile;
   s: string;
 begin
-  //Read IniFile
-  theIni:=TMemIniFile.Create(SettingsPath+ProgName+'_Settings.ini');
+  //Read IniFile. A plugin has no settings of its own: it takes the font of
+  //the main program
+  s:=SettingsPath+ProgName+'_Settings.ini';
+  if(Not(FileExists(s)))and(FileExists(SettingsPath+'DBDesignerFork_Settings.ini'))then
+    s:=SettingsPath+'DBDesignerFork_Settings.ini';
+  theIni:=TMemIniFile.Create(s);
   try
     try
 {$IFDEF LINUX}

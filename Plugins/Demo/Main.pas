@@ -109,6 +109,9 @@ var i: Integer;
 begin
   //Create Main DataModule, containing general functions
   DMMain:=TDMMain.Create(self);
+  //The dialogs are scaled to the application font and the DPI
+  DMMain.FitDialogsToFont:=True;
+  DMMain.MainFormIsDialog:=True;
   //Create EER DateModule, containing additional functions for the EERModel
   DMEER:=TDMEER.Create(self);
 

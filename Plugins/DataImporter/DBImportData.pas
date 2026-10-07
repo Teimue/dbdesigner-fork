@@ -210,6 +210,8 @@ end;
 
 procedure TDBImportDataForm.FormCreate(Sender: TObject);
 begin
+  DMMain.InitForm(self);
+
   Version:='1.0.0.24';
 
   SourceDir:='';

@@ -34,6 +34,9 @@ procedure TMainForm.FormCreate(Sender: TObject);
 var i: integer;
 begin
   DMMain:=TDMMain.Create(self);
+  //The dialogs are scaled to the application font and the DPI
+  DMMain.FitDialogsToFont:=True;
+  DMMain.MainFormIsDialog:=True;
 
   DMDB:=TDMDB.Create(self);
 
