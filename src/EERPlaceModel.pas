@@ -63,7 +63,8 @@ type
     function SetData(EERModel: TEERModel; P: TPoint; PlaceFrom: integer): Boolean;
 
     function GetFileNameByOpenDialog: string;
-    function LoadModelfromFile: Boolean;
+    //Asks for the file when there is no name
+    function LoadModelfromFile(fname: string = ''): Boolean;
     procedure LoadModelfromFileMIClick(Sender: TObject);
     function LoadModelfromDB: Boolean;
     function LoadModelfromLibrary: Boolean;
@@ -121,8 +122,8 @@ begin
   Model2Place:=nil;
   IsStoredInDB:=False;
 
-  Width:=700;
-  Height:=550;
+  Width:=DMMain.ScaleForFont(700);
+  Height:=DMMain.ScaleForFont(550);
 end;
 
 procedure TEERPlaceModelForm.FormDestroy(Sender: TObject);
@@ -201,12 +202,12 @@ begin
   end;
 end;
 
-function TEERPlaceModelForm.LoadModelfromFile: Boolean;
-var fname: string;
+function TEERPlaceModelForm.LoadModelfromFile(fname: string = ''): Boolean;
 begin
   LoadModelfromFile:=False;
 
-  fname:=GetFileNameByOpenDialog;
+  if(fname='')then
+    fname:=GetFileNameByOpenDialog;
 
   if(fname<>'')then
   begin
@@ -652,13 +653,15 @@ var i, j: integer;
 begin
   self.EERModel:=EERModel;
 
-  Caption:='Linked Models';
+  Caption:=PageControlTitleLbl.Caption;
 
   Menu:=nil;
   LMPnl.Visible:=True;
 
-  Width:=LMPnl.Width;
-  Height:=LMPnl.Height;
+  //The size of the design: the panel is anchored to all sides and has
+  //followed the size FormCreate has set for the placement of a model
+  ClientWidth:=DMMain.ScaleForFont(662);
+  ClientHeight:=DMMain.ScaleForFont(351);
 
   DriverNameCBox.Items.Text:=DMDB.DatabaseTypes.Text;
 

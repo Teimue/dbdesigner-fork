@@ -15,7 +15,7 @@ unit UIScreenshots;
 //   The program opens the order example, shows one dialog after the other,
 //   writes <dialog>[_<page>].png into the directory and ends. Like --selftest
 //   it runs with read-only settings. The dialogs that need a database are
-//   shown without a connection, i.e. empty.
+//   shown with a SQLite database of two tables.
 //
 //----------------------------------------------------------------------------------------------------------------------
 
@@ -34,7 +34,7 @@ implementation
 
 uses
   {$IFDEF MSWINDOWS}Windows,{$ENDIF}
-  LCLType, LCLIntf, Controls, Graphics, ExtCtrls, ComCtrls, Contnrs,
+  LCLType, LCLIntf, Controls, Graphics, ExtCtrls, ComCtrls, Contnrs, FileUtil,
   Main, MainDM, DBDM, EER, EERModel, EERDM,
   Options, OptionsModel, EERExportSQLScript, EERPageSetup,
   PaletteDataTypesReplace, ZoomSel, DBConnSelect, DBConnEditor, DBConnLogin,
@@ -62,6 +62,7 @@ var
   Existing: TList;      //the forms that existed before the action
   Model: TEERModel;
   Conn: TDBConn;        //a SQLite database for the dialogs that need one
+  PlaceFile: string;    //a copy of the model, for the dialog that places one
   Report: TStringList;
 
 function ScreenshotDir: string;
@@ -369,10 +370,16 @@ begin
         Modal(TEERStoreInDatabaseForm.Create(Application.MainForm));
     end;
     12: begin
-      //Empty: its content is the model that is placed
+      //A copy of the model is placed in the model
       AName:='PlaceModel';
       if(Run)then
-        Modal(TEERPlaceModelForm.Create(Application.MainForm));
+      begin
+        F:=TEERPlaceModelForm.Create(Application.MainForm);
+        TEERPlaceModelForm(F).SetData(Model, Classes.Point(50, 50), 0);
+        if(FileExists(PlaceFile))then
+          TEERPlaceModelForm(F).LoadModelfromFile(PlaceFile);
+        Modal(F);
+      end;
     end;
     13: begin
       AName:='EditorString';
@@ -454,6 +461,15 @@ begin
           Obj.ShowEditor(nil);
       end;
     end;
+    24: begin
+      AName:='LinkedModels';
+      if(Run)then
+      begin
+        F:=TEERPlaceModelForm.Create(Application.MainForm);
+        TEERPlaceModelForm(F).DisplayLinkedModels(Model);
+        Modal(F);
+      end;
+    end;
     23: begin
       AName:='EditorImage';
       if(Run)then
@@ -500,6 +516,21 @@ begin
     Pump(800);
 
     SaveForm(AMainForm, OutDir+'MainForm.png');
+
+    //The query mode with the docked query editor
+    try
+      TMainForm(AMainForm).SetWorkMode(wmQuery);
+      Pump(600);
+      SaveForm(AMainForm, OutDir+'MainForm_QueryMode.png');
+      TMainForm(AMainForm).SetWorkMode(wmDesign);
+      Pump(300);
+    except
+      on x: Exception do
+        Report.Add('QueryMode'#9'EXCEPTION '+x.Message);
+    end;
+
+    PlaceFile:=GetTempDir+'dbdesigner_screenshots.xml';
+    CopyFile(TestFile, PlaceFile);
 
     //A SQLite database with two tables for the dialogs that need a
     //connection (reverse engineering, synchronisation)

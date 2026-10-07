@@ -95,6 +95,7 @@ type
     { Private declarations }
     BackgroundBmp: TBitmap;
     SelColPnlBGBmp: TBitmap;
+    LayoutDone: Boolean;
 
     theEERModel: TEERModel;
   public
@@ -106,7 +107,7 @@ var
 
 implementation
 
-uses EditorQuery, EERDM;
+uses EditorQuery, EERDM, MainDM;
 
 
 {$R *.lfm}
@@ -141,6 +142,14 @@ var P, PMain: TPoint;
   BrightBmp: TBitmap;
   i, j: integer;
 begin
+  //Not in FormCreate: the form is created with the main form, before the
+  //application font is known
+  if(Not(LayoutDone))then
+  begin
+    LayoutDone:=True;
+    DMMain.InitForm(self);
+  end;
+
   Left:=Mouse.CursorPos.X-Width div 2;
   if(Left<5)then
     Left:=5;

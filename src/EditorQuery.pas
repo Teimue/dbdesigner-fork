@@ -393,6 +393,8 @@ begin
   SQLSynEdit:=TSynEdit.Create(self);
   SQLSynEdit.Parent:=SQLPnl;
   SQLSynEdit.Name:='SQLSynEdit';
+  //the name has become the text
+  SQLSynEdit.Lines.Clear;
 
   SQLSynEdit.Highlighter:=SQLSynEditHighlighter;
   SQLSynEdit.ScrollBars:=ssAutoBoth;

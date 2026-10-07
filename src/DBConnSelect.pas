@@ -167,7 +167,11 @@ begin
 
   DBHosts:=TObjectList.Create;
 
-  Left:=Application.MainForm.Left+(Application.MainForm.Width-746) div 2;
+  //The rows are painted by DBConnTVCustomDrawItem
+  DBConnTV.Color:=clWindow;
+  DBConnTV.BackgroundColor:=clWindow;
+
+  Left:=Application.MainForm.Left+(Application.MainForm.Width-Width) div 2;
 end;
 
 procedure TDBConnSelectForm.FormDestroy(Sender: TObject);
@@ -1010,8 +1014,9 @@ begin
 
   with Canvas do
   begin
-    Brush.Color:=clWhite;
-    FillRect(Rect);
+    //The whole row: nothing else paints it when DefaultDraw is off
+    Brush.Color:=clWindow;
+    FillRect(Node.DisplayRect(False));
     
     if(Item.ImageIndex>-1)then
     begin
@@ -1034,10 +1039,10 @@ begin
 
 
     if(Item.Selected)then
-      Font.Color:=clWhite
+      Font.Color:=clHighlightText
     else
-      Font.Color:=clBlack;
-    TextOut(x, Rect.Top+2, Item.Text);
+      Font.Color:=clWindowText;
+    TextOut(x, Rect.Top+(Rect.Bottom-Rect.Top-TextHeight(Item.Text)) div 2, Item.Text);
   end;
 
   DefaultDraw:=False;

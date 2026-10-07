@@ -1347,6 +1347,56 @@ begin
   end;
 end;
 
+//A label that is right justified or centred keeps its position in CLX. In
+//the LCL it is sized to its text from the left and the text ends up at the
+//left of the place it was designed for, i.e. below the control before it:
+//such labels keep the width of the design
+procedure KeepAlignedLabels(theForm: TForm);
+var i: integer;
+begin
+  for i:=0 to theForm.ComponentCount-1 do
+    if(theForm.Components[i] is TLabel)then
+      with TLabel(theForm.Components[i]) do
+        if(Alignment<>taLeftJustify)and(AutoSize)then
+        begin
+          AutoSize:=False;
+          //the form stores no height for a label that sizes itself
+          if(Height<DesignTextHeight)then
+            Height:=DesignTextHeight;
+        end;
+end;
+
+//... and grow to the side the text starts from when a translation is longer
+procedure WidenAlignedLabels(theForm: TForm);
+var i, w: integer;
+  bmp: Graphics.TBitmap;
+begin
+  bmp:=Graphics.TBitmap.Create;
+  try
+    for i:=0 to theForm.ComponentCount-1 do
+      if(theForm.Components[i] is TLabel)then
+        with TLabel(theForm.Components[i]) do
+          if(Alignment<>taLeftJustify)and(Not(AutoSize))and(Not(WordWrap))and
+            (Align=alNone)then
+          begin
+            bmp.Canvas.Font.Assign(Font);
+            w:=bmp.Canvas.TextHeight('Ag');
+            if(w>Height)then
+              Height:=w;
+            w:=bmp.Canvas.TextWidth(Caption);
+            if(w>Width)then
+            begin
+              if(Alignment=taRightJustify)then
+                SetBounds(Left-(w-Width), Top, w, Height)
+              else
+                SetBounds(Left-(w-Width) div 2, Top, w, Height);
+            end;
+          end;
+  finally
+    bmp.Free;
+  end;
+end;
+
 procedure TDMMain.FitFormLayout(theForm: TForm);
 var TextH, i, k, delta, minTop: integer;
   Marker: TLayoutMarker;
@@ -1404,6 +1454,9 @@ begin
   Marker.Name:=LayoutDoneName;
 
   TextH:=ApplicationTextHeight;
+
+  //before the handle and with it the automatic sizes
+  KeepAlignedLabels(theForm);
 
   //Without a handle a form reports a client area of 320x240, and the
   //controls that are anchored to its right or bottom edge are scaled
@@ -1474,6 +1527,9 @@ begin
   //Make Translation
   if(Translate)then
     TranslateForm(theForm);
+
+  if(theForm.FindComponent(LayoutDoneName)<>nil)then
+    WidenAlignedLabels(theForm);
 end;
 
 procedure TDMMain.LoadLanguageFromIniFile;
