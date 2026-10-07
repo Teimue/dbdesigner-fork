@@ -77,8 +77,10 @@ type
     function Tr(const en, de: string): string;
     procedure InitControls;
     //The script for the selected tables and options. False when no table
-    //is selected
-    function BuildScript(Script: TStrings; out Statements, TableCount: integer): Boolean;
+    //is selected. AppendToDatabase: the keys go on after those of the rows
+    //the connected database has already
+    function BuildScript(Script: TStrings; out Statements, TableCount: integer;
+      AppendToDatabase: Boolean = False): Boolean;
   public
     { Public declarations }
     EERModel: TEERModel;
@@ -273,10 +275,11 @@ begin
     TablesGrid.Cells[colRows, i]:=IntToStr(RowsForAllEd.Value);
 end;
 
-function TMainForm.BuildScript(Script: TStrings; out Statements, TableCount: integer): Boolean;
+function TMainForm.BuildScript(Script: TStrings; out Statements, TableCount: integer;
+  AppendToDatabase: Boolean = False): Boolean;
 var Opt: TTestDataOptions;
   Selected: TList;
-  RowCounts: TStringList;
+  RowCounts, Offsets: TStringList;
   i: integer;
 begin
   Result:=False;
@@ -290,6 +293,7 @@ begin
 
   Selected:=TList.Create;
   RowCounts:=TStringList.Create;
+  Offsets:=TStringList.Create;
   Screen.Cursor:=crHourGlass;
   try
     for i:=0 to Tables.Count-1 do
@@ -318,6 +322,13 @@ begin
     Opt.SkipAutoInc:=SkipAutoIncCBox.Checked;
     Opt.Commit:=CommitCBox.Checked;
 
+    //New rows beside the existing ones: their keys must not be taken
+    if(AppendToDatabase)and(Not(Opt.DeleteFirst))then
+    begin
+      ExistingKeyOffsets(Selected, Opt.TargetDB, Offsets);
+      Opt.KeyOffsets:=Offsets;
+    end;
+
     Script.Clear;
     Statements:=GenerateTestData(EERModel, Selected, RowCounts, Opt, Script);
     TableCount:=Selected.Count;
@@ -338,6 +349,7 @@ begin
     Screen.Cursor:=crDefault;
     Selected.Free;
     RowCounts.Free;
+    Offsets.Free;
   end;
 end;
 
@@ -378,7 +390,7 @@ begin
     if(Target<>'')and(TargetCBox.Items.IndexOf(Target)>=0)then
       TargetCBox.ItemIndex:=TargetCBox.Items.IndexOf(Target);
 
-    if(Not(BuildScript(Script, n, t)))then
+    if(Not(BuildScript(Script, n, t, True)))then
       Exit;
 
     ConnText:=Conn.Name;
@@ -389,7 +401,10 @@ begin
       '%d Zeilen in %d Tabellen der Datenbankverbindung'#13#10'%s einfügen?'), [n, t, ConnText]);
     if(DeleteCBox.Checked)then
       Msg:=Msg+#13#10#13#10+Tr('ALL existing rows of these tables are deleted first.',
-        'Vorher werden ALLE vorhandenen Zeilen dieser Tabellen gelöscht.');
+        'Vorher werden ALLE vorhandenen Zeilen dieser Tabellen gelöscht.')
+    else
+      Msg:=Msg+#13#10#13#10+Tr('The existing rows are kept, the keys of the new rows follow theirs.',
+        'Die vorhandenen Zeilen bleiben erhalten, die Schlüssel der neuen Zeilen schließen an.');
 
     if(MessageDlg(Msg, mtConfirmation, [mbYes, mbNo], 0)<>mrYes)then
     begin

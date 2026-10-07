@@ -23,6 +23,12 @@ uses Classes, SysUtils;
 //when the driver does not tell (ODBC)
 function TargetDBOfDriver(const DriverName: string): string;
 
+//The highest number in the key columns (primary key, auto increment) of
+//every table in the database DMDB is connected to, as <table name>=<number>:
+//TTestDataOptions.KeyOffsets for rows that are added to the existing ones.
+//A table that does not exist or has no numeric key is left out
+procedure ExistingKeyOffsets(Tables: TList; const TargetDB: string; Offsets: TStrings);
+
 //Returns the number of executed statements, or -1 when a statement has
 //failed: ErrorMsg is the message of the database and ErrorStmt the statement,
 //and nothing of the script is left in the database (as far as the database
@@ -31,7 +37,7 @@ function ExecuteTestDataScript(Script: TStrings; out ErrorMsg, ErrorStmt: string
 
 implementation
 
-uses DB, SQLDB, DBDM;
+uses DB, SQLDB, DBDM, EERModel, TestDataGen;
 
 function TargetDBOfDriver(const DriverName: string): string;
 var s: string;
@@ -51,6 +57,73 @@ begin
     Result:='PostgreSQL'
   else
     Result:='';
+end;
+
+procedure ExistingKeyOffsets(Tables: TList; const TargetDB: string; Offsets: TStrings);
+var Q: SQLDB.TSQLQuery;
+  Trans: SQLDB.TSQLTransaction;
+  i, c: integer;
+  T: TEERTable;
+  Col: TEERColumn;
+  MaxKey, v: Int64;
+begin
+  Offsets.Clear;
+
+  Trans:=SQLDB.TSQLTransaction(DMDB.SQLConn.Transaction);
+  if(Not(Trans.Active))then
+    Trans.StartTransaction;
+
+  Q:=SQLDB.TSQLQuery.Create(nil);
+  try
+    Q.DataBase:=DMDB.SQLConn;
+    Q.Transaction:=Trans;
+    Q.ParamCheck:=False;
+
+    for i:=0 to Tables.Count-1 do
+    begin
+      T:=TEERTable(Tables[i]);
+      MaxKey:=0;
+      for c:=0 to T.Columns.Count-1 do
+      begin
+        Col:=TEERColumn(T.Columns[c]);
+        if(Not(Col.PrimaryKey))and(Not(Col.AutoInc))then
+          continue;
+
+        try
+          Q.SQL.Text:='SELECT MAX('+TestDataSQLName(T, Col.ColName, TargetDB)+') FROM '+
+            TestDataSQLTableName(T, TargetDB);
+          Q.Open;
+          try
+            if(Not(Q.EOF))and(Not(Q.Fields[0].IsNull))then
+            begin
+              //a key that is no number does not count
+              v:=StrToInt64Def(Trim(Q.Fields[0].AsString), 0);
+              if(v>MaxKey)then
+                MaxKey:=v;
+            end;
+          finally
+            Q.Close;
+          end;
+        except
+          //no such table or column: the script will say so
+          try
+            Trans.RollbackRetaining;
+          except
+          end;
+        end;
+      end;
+
+      if(MaxKey>0)and(MaxKey<High(integer)-10000000)then
+        Offsets.Values[T.ObjName]:=IntToStr(MaxKey);
+    end;
+
+    try
+      Trans.CommitRetaining;
+    except
+    end;
+  finally
+    Q.Free;
+  end;
 end;
 
 function ExecuteTestDataScript(Script: TStrings; out ErrorMsg, ErrorStmt: string): integer;

@@ -23,7 +23,7 @@ var
   ParentForm: TForm;
   Model: TEERModel;
   Conn: TDBConn;
-  Log, Script, Script2, Counts: TStringList;
+  Log, Script, Script2, Counts, Offsets: TStringList;
   Tables, AllTables: TList;
   DBPath, s, ErrStmt: string;
   Failures: integer = 0;
@@ -199,6 +199,35 @@ begin
     Check(SQLVal('SELECT count(*) FROM webserver WHERE idwebserver=9001')='0', 'the insert before it is rolled back');
     Check(StrToIntDef(SQLVal('SELECT count(*) FROM onlineorderhasproduct'), 0)>0, 'the delete before it too');
     Check(TargetDBOfDriver('SQLite')='SQLite', 'target database of the SQLite driver');
+
+    //------------------------------------------------------------
+    WriteLn;
+    WriteLn('--- 2c. more rows beside the existing ones');
+    Offsets:=TStringList.Create;
+    ExistingKeyOffsets(Tables, 'SQLite', Offsets);
+    Check(Offsets.Values['product']='50', 'highest key of product: '+Offsets.Values['product']);
+    Check(Offsets.Values['onlinecustomer']='20', 'highest key of onlinecustomer');
+    Opt.DeleteFirst:=False;
+    Opt.Seed:=7;
+    Script2.Clear;
+    GenerateTestData(Model, Tables, Counts, Opt, Script2);
+    n:=ExecuteTestDataScript(Script2, s, ErrStmt);
+    Check(n=-1, 'without the offsets the same keys are refused ('+Copy(s, 1, 60)+')');
+    Opt.KeyOffsets:=Offsets;
+    Script2.Clear;
+    GenerateTestData(Model, Tables, Counts, Opt, Script2);
+    n:=ExecuteTestDataScript(Script2, s, ErrStmt);
+    Check(n>0, 'with the offsets the rows are added '+s);
+    Check(SQLVal('SELECT count(*) FROM product')='100', '100 rows in product');
+    Check(SQLVal('SELECT max(idproduct) FROM product')='100', 'keys 51..100');
+    Check(SQLVal('SELECT count(*) FROM onlinecustomer')='40', '40 rows in onlinecustomer');
+    Check(SQLVal('SELECT count(*) FROM pragma_foreign_key_check')='0', 'no foreign key violations');
+    Check(SQLVal('SELECT count(*) FROM onlineorder WHERE idonlineorder>20 AND idonlinecustomer<=20')='0',
+      'the new orders belong to the new customers');
+    Opt.KeyOffsets:=nil;
+    Opt.Seed:=8;
+    Opt.DeleteFirst:=True;
+    Offsets.Free;
 
     //------------------------------------------------------------
     WriteLn;

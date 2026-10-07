@@ -39,6 +39,10 @@ type
     DeleteFirst: Boolean;  //DELETE FROM the tables before the inserts
     SkipAutoInc: Boolean;  //leave the auto increment columns to the database
     Commit: Boolean;       //COMMIT at the end
+    //<table name>=<number>: the keys of the table count up from the number
+    //after this one instead of 1, for a table that has rows already (nil:
+    //all from 1)
+    KeyOffsets: TStrings;
   end;
 
 function DefaultTestDataOptions: TTestDataOptions;
@@ -47,6 +51,11 @@ function DefaultTestDataOptions: TTestDataOptions;
 procedure TestDataTargets(List: TStrings);
 //The entry of TestDataTargets for the database type of a model
 function TargetDBOfModel(Model: TEERModel): string;
+
+//The name of a column or another object of the table, and of the table
+//itself, as the script writes it for the database type
+function TestDataSQLName(T: TEERTable; const AName, TargetDB: string): string;
+function TestDataSQLTableName(T: TEERTable; const TargetDB: string): string;
 
 //Does the table exist in the database? A table of a linked model does only
 //when the model creates SQL code for linked objects
@@ -194,6 +203,29 @@ begin
   Result.DeleteFirst:=False;
   Result.SkipAutoInc:=False;
   Result.Commit:=True;
+  Result.KeyOffsets:=nil;
+end;
+
+function TestDataSQLName(T: TEERTable; const AName, TargetDB: string): string;
+begin
+  if(TargetDB='FireBird')then
+    Result:=T.GetSQLName(AName, 'FireBird')
+  else if(Not(DMEER.EncloseNames))then
+    Result:=AName
+  else if(TargetDB='My SQL')then
+    Result:='`'+AName+'`'
+  else if(TargetDB='SQL Server')then
+    Result:='['+AName+']'
+  else
+    Result:='"'+AName+'"';
+end;
+
+function TestDataSQLTableName(T: TEERTable; const TargetDB: string): string;
+begin
+  if(TargetDB='My SQL')then
+    Result:=T.GetSQLTableName
+  else
+    Result:=TestDataSQLName(T, T.ObjName, TargetDB);
 end;
 
 procedure TestDataTargets(List: TStrings);
@@ -333,24 +365,23 @@ var
 
   function SQLName(T: TEERTable; const AName: string): string;
   begin
-    if(Opt.TargetDB='FireBird')then
-      Result:=T.GetSQLName(AName, 'FireBird')
-    else if(Not(DMEER.EncloseNames))then
-      Result:=AName
-    else if(Opt.TargetDB='My SQL')then
-      Result:='`'+AName+'`'
-    else if(Opt.TargetDB='SQL Server')then
-      Result:='['+AName+']'
-    else
-      Result:='"'+AName+'"';
+    Result:=TestDataSQLName(T, AName, Opt.TargetDB);
   end;
 
   function SQLTableName(T: TEERTable): string;
   begin
-    if(Opt.TargetDB='My SQL')then
-      Result:=T.GetSQLTableName
-    else
-      Result:=SQLName(T, T.ObjName);
+    Result:=TestDataSQLTableName(T, Opt.TargetDB);
+  end;
+
+  //The keys of the table count up from the number after this one
+  function KeyOffset(T: TEERTable): integer;
+  begin
+    Result:=0;
+    if(Opt.KeyOffsets<>nil)then
+      if(Opt.KeyOffsets.IndexOfName(T.ObjName)>=0)then
+        Result:=StrToIntDef(Opt.KeyOffsets.Values[T.ObjName], 0);
+    if(Result<0)then
+      Result:=0;
   end;
 
   function TypeNameOf(Col: TEERColumn): string;
@@ -560,10 +591,14 @@ var
     else
       s:=Words(Rnd.Between(1, 3));
 
-    //a number keeps its length: the row number replaces its last digits
+    //a number keeps its length: the row number, with leading zeros,
+    //replaces its last digits (a field of fixed width, so that the numbers
+    //of different rows cannot meet)
     if(Unique)and(s<>'')and(StrToInt64Def(s, -1)>=0)and(Length(s)>=Length(IntToStr(RowNr)))then
     begin
       nr:=IntToStr(RowNr);
+      while(Length(nr)<Min(Length(s), 7))do
+        nr:='0'+nr;
       s:=Copy(s, 1, Length(s)-Length(nr))+nr;
       Unique:=False;
     end;
@@ -732,7 +767,7 @@ var
 
   procedure FillTable(TD: TTableData);
   var T: TEERTable;
-    Wanted, RowNr, c, i, k, Attempt, PKCount, PKNoFK, FirstOwnPK, ParentRow, sc, dc: integer;
+    Wanted, RowNr, KeyNr, c, i, k, Attempt, PKCount, PKNoFK, FirstOwnPK, ParentRow, sc, dc: integer;
     Row: TStringRow;
     Col: TEERColumn;
     Rel: TEERRel;
@@ -786,6 +821,8 @@ var
       for RowNr:=1 to Wanted do
       begin
         SetLength(Row, T.Columns.Count);
+        //the number the keys of this row are made of
+        KeyNr:=KeyOffset(T)+RowNr;
 
         //Columns of the table itself
         for c:=0 to T.Columns.Count-1 do
@@ -794,7 +831,7 @@ var
             Col:=TEERColumn(T.Columns[c]);
             //A primary key of several own columns: the first one counts
             //up, which is enough to make the key unique
-            Row[c]:=ColumnValue(T, Col, RowNr,
+            Row[c]:=ColumnValue(T, Col, KeyNr,
               (c=FirstOwnPK)or(InUniqueIndex(T, Col)));
           end;
 
@@ -877,7 +914,7 @@ var
                   Row[dc]:='NULL'
                 else if(Rel.SrcTbl=T)then
                   //the first row of a table that must reference itself
-                  Row[dc]:=ColumnValue(T, Col, RowNr, True)
+                  Row[dc]:=ColumnValue(T, Col, KeyNr, True)
                 else
                   Row[dc]:=ColumnValue(T, Col, Rnd.Between(1, Max(Opt.DefaultRows, 1)), True);
               end
@@ -939,7 +976,11 @@ var
         HasAutoInc:=True;
 
     Output.Add('');
-    Output.Add('-- '+T.ObjName+' ('+IntToStr(Length(TD.Rows))+')');
+    if(KeyOffset(T)>0)then
+      Output.Add('-- '+T.ObjName+' ('+IntToStr(Length(TD.Rows))+', keys after '+
+        IntToStr(KeyOffset(T))+')')
+    else
+      Output.Add('-- '+T.ObjName+' ('+IntToStr(Length(TD.Rows))+')');
 
     if(HasAutoInc)and(Not(Opt.SkipAutoInc))and(Opt.TargetDB='SQL Server')then
       Output.Add('SET IDENTITY_INSERT '+SQLTableName(T)+' ON;');

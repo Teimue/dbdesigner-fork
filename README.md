@@ -319,7 +319,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **New**
 
-- **Test Data Generator plugin**: INSERT statements for the selected tables in the order of their foreign keys, values by datatype and column name in German or English, unique keys, for FireBird, MySQL, Oracle, PostgreSQL, SQL Server and SQLite; as a script to copy or save, or executed in a database in one transaction.
+- **Test Data Generator plugin**: INSERT statements for the selected tables in the order of their foreign keys, values by datatype and column name in German or English, unique keys, for FireBird, MySQL, Oracle, PostgreSQL, SQL Server and SQLite; as a script to copy or save, or executed in a database in one transaction. Executed in a database that has rows already, the new rows are added beside them: their keys go on after the highest existing key (or the existing rows are deleted first, if that is chosen).
 - `--screenshots <dir>` saves a picture of every dialog, the main window in both modes and the cursors, to check the layout after a change.
 
 **Checked on Windows**
