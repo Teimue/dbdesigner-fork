@@ -5,6 +5,8 @@
 
 ![DBDesigner Fork running under Lazarus/GTK2 on Linux](docs/1.jpeg?raw=true)
 
+![DBDesigner Fork running on Windows 11 (German user interface, 150 % display scaling)](docs/2_windows.png?raw=true)
+
 ## Overview
 
 DBDesigner Fork provides a full-featured graphical environment for designing and managing relational database schemas. It allows you to visually create Entity-Relationship diagrams and generate SQL scripts, reverse-engineer existing databases, and much more.
@@ -18,7 +20,7 @@ DBDesigner Fork provides a full-featured graphical environment for designing and
 | **Original** | DBDesigner 4 (v4.0.2.92) by fabFORCE |
 | **Fork versions** | Fork 1.0 (Sep 2006) → Fork 1.5 (Oct 2010) → Lazarus port (2026) |
 | **Original platforms** | Windows (Delphi 7) and Linux (Kylix 3) |
-| **Current platform** | Linux (Lazarus/FPC, GTK2) — Windows and macOS possible but untested |
+| **Current platforms** | Linux (Lazarus/FPC, GTK2) and Windows (64 bit, see [Windows Version](#windows-version)) — macOS possible but untested |
 | **Databases** | MySQL 8, SQLite 3 and Firebird 3+ (others not ported yet) |
 | **Codebase size** | ~150,000 lines of Pascal source code (main app + plugins) |
 
@@ -32,8 +34,10 @@ DBDesigner Fork provides a full-featured graphical environment for designing and
 - **Query editor** — Visual SQL query builder with drag-and-drop and a result grid.
 - **Synchronization** — Sync models with live MySQL, SQLite and Firebird databases.
 - **PDF generation** — Embedded PDF export of diagrams (untested in the port).
-- **Plugin system** — Extensible via plugins (HTML Report, Data Importer, Simple Web Front-end, Demo).
-- **Multi-language support** — Translation files for internationalization.
+- **Plugin system** — Extensible via plugins (HTML Report, Data Importer, Simple Web Front-end, Test Data Generator, Demo).
+- **Test data** — The Test Data Generator plugin fills the tables of a model with plausible rows, as a script or directly in a database.
+- **Multi-language support** — Translation files for internationalization; the German translation is complete.
+- **High DPI** — On Windows the program is DPI aware and scales its dialogs, symbols, cursors and the model with the display.
 
 ## Building with Lazarus
 
@@ -52,7 +56,10 @@ lazbuild Plugins/Demo/DBDplugin_Demo.lpi
 lazbuild Plugins/HTMLReport/DBDplugin_HTMLReport.lpi
 lazbuild Plugins/DataImporter/DBDplugin_DataImporter.lpi
 lazbuild Plugins/SimpleWebFront/DBDplugin_SimpleWebFront.lpi
+lazbuild Plugins/TestDataGenerator/DBDplugin_TestDataGenerator.lpi
 ```
+
+On Windows `lazbuild` is not on the path; call it as `C:\lazarus\lazbuild.exe` (or wherever Lazarus is installed).
 
 All binaries are output to the `bin/` directory (they are not tracked in git). Note that `lazbuild` does not rebuild after a change to a `.lfm` file alone; touch the matching `.pas` file.
 
@@ -63,6 +70,7 @@ All binaries are output to the `bin/` directory (they are not tracked in git). N
 | HTMLReport Plugin | 22,258 | `bin/DBDplugin_HTMLReport` |
 | DataImporter Plugin | 8,836 | `bin/DBDplugin_DataImporter` |
 | SimpleWebFront Plugin | 40,096 | `bin/DBDplugin_SimpleWebFront` |
+| TestDataGenerator Plugin | 25,600 | `bin/DBDplugin_TestDataGenerator` |
 | **Total** | **~150,000** | |
 
 **Runtime requirements (Linux):**
@@ -71,6 +79,13 @@ All binaries are output to the `bin/` directory (they are not tracked in git). N
 - `libmysqlclient.so.21` (MySQL 8 client library) for MySQL connections
 
 Both libraries are loaded on demand by their versioned name, so no `-dev` package or symlink is needed. Settings, the connection list (`DBConn.ini`) and recent files are stored in `~/.DBDesigner4/`.
+
+**Runtime requirements (Windows, 64 bit):**
+- `sqlite3.dll` for SQLite connections
+- `libmysql.dll` (MySQL 8 client library, with the OpenSSL / zlib / zstd DLLs it needs) for MySQL connections
+- `fbclient.dll` (Firebird 3 or newer) for Firebird connections; the same library is the embedded engine when its other files lie next to it
+
+The 64-bit libraries are looked for next to the program (`bin\`); they are not part of the repository. Settings are stored in `%APPDATA%\DBDesigner4\`.
 
 **Run:**
 ```bash
@@ -118,7 +133,7 @@ Areas still requiring manual or integration testing:
 - Print / page setup output
 - ERwin import, Open/Save model in database
 - Oracle, MS SQL Server and ODBC (connectors not linked yet)
-- Windows and macOS builds
+- The macOS build
 
 ### Standalone tests and round-trip scripts
 
@@ -131,6 +146,7 @@ Areas still requiring manual or integration testing:
 | `DBDesignerFork --screenshots <dir>` | Saves a picture of every dialog with every page (`src/UIScreenshots.pas`) to check the layout after a change of fonts, translations or scaling; runs with read-only settings like `--selftest` |
 | `tests/TestSQLiteSync.pas` | Database synchronisation against SQLite on the order example: create, ALTER TABLE changes, table rebuild, renamed table (`lazbuild tests/TestSQLiteSync.lpi`) |
 | `tests/TestFirebirdSync.pas` | Firebird on the order example, embedded engine or server: create, column / index / primary key / foreign key changes, renamed table, reverse engineering of the result, SQL create script loaded with isql (`lazbuild tests/TestFirebirdSync.lpi`, needs the Firebird client library) |
+| `tests/TestTestDataGen.pas` | The test data generator on the order example: the script is executed in a SQLite database created from the model (row counts, foreign keys, column lengths, same seed = same script), execution in one transaction with rollback on an error (`lazbuild tests/TestTestDataGen.lpi`) |
 | `tests/sqlite-roundtrip.sh` | Loads an exported SQL script into sqlite3 and prints a schema summary |
 | `tests/mysql-roundtrip.sh` | Same for MySQL (drops and recreates the given database) |
 
@@ -174,7 +190,8 @@ DBDesignerFork/
 │   ├── DataImporter/          # Data import tool
 │   ├── Demo/                  # Demo/example plugin
 │   ├── HTMLReport/            # HTML report generator
-│   └── SimpleWebFront/        # Simple web front-end generator
+│   ├── SimpleWebFront/        # Simple web front-end generator
+│   └── TestDataGenerator/     # Test data as INSERT script or directly into a database
 ├── bin/                   # Runtime files (binaries are built here, not tracked)
 │   ├── Data/                  # Configuration, settings, translations
 │   ├── Doc/                   # User documentation (HTML + PDF manual)
@@ -204,7 +221,7 @@ The bundled Delphi-era SynEdit was replaced by the SynEdit package that ships wi
 
 ### Progress
 
-All five projects (main application and four plugins) compile and run. Of the porting task list, 228 of 244 items are checked; the remaining ones are the untested areas listed under [Project Status](#project-status-september-2026), the Windows/macOS builds and the final clean-up (removing the shim layer in favour of direct LCL units). See [`docs/port-to-lazarus.md`](docs/port-to-lazarus.md) for the porting guide and [`docs/port-to-lazarus-task-list.md`](docs/port-to-lazarus-task-list.md) for the checklist.
+All six projects (main application and five plugins) compile and run, on Linux and on Windows. Of the porting task list, 228 of 244 items are checked; the remaining ones are the untested areas listed under [Project Status](#project-status), the macOS build and the final clean-up (removing the shim layer in favour of direct LCL units). See [`docs/port-to-lazarus.md`](docs/port-to-lazarus.md) for the porting guide and [`docs/port-to-lazarus-task-list.md`](docs/port-to-lazarus-task-list.md) for the checklist.
 
 ### AI-Assisted Porting
 
@@ -214,7 +231,9 @@ This project serves as a real-world benchmark of how far AI-assisted software en
 
 ## Project Status
 
-The port builds, launches and has been through eleven rounds of run-and-click testing on Linux (GTK2), each block of rounds followed by a combined regression pass on a single build (rounds 6-9b on d0fbc19, rounds 10-11 on 920a93c: no regressions, self-test 93 PASS / 0 FAIL both times). Treat it as an **early beta**: it is usable for modeling and for MySQL 8 / SQLite 3 work, but it has not been used in production and has only been run on Linux.
+The port builds, launches and has been through eleven rounds of run-and-click testing on Linux (GTK2), each block of rounds followed by a combined regression pass on a single build (rounds 6-9b on d0fbc19, rounds 10-11 on 920a93c: no regressions, self-test 93 PASS / 0 FAIL both times). Treat the Linux build as an **early beta**: it is usable for modeling and for MySQL 8 / SQLite 3 work, but it has not been used in production.
+
+The **Windows version is no longer a beta**: it is built, run and used on Windows 11 (64 bit), including Firebird, high DPI displays and the German user interface. What was done for it is listed under [Windows Version](#windows-version).
 
 **Works and has been verified on a real display:**
 
@@ -243,10 +262,70 @@ The port builds, launches and has been through eleven rounds of run-and-click te
 - Unconfirmed: typing over an already filled DataType cell after a single click may not replace the value (model-edit #34); an empty one-column result right after a syntax-error dialog (#47) and a first Execute after connecting that does nothing (#51) were each seen once and could not be reproduced under probes.
 - Self relations are not guessed by reverse engineering.
 - Not yet tested: PDF export, print and page preview output, ERwin import, Open/Save model in database, the Column Parameters dialog, undo granularity inside the Table and Relation editors, the query grid's Export Records / Print Records to PDF and BLOB viewer.
-- Runtime is Linux only so far. Windows and macOS have not been built or run.
+- macOS has not been built or run. The run-and-click test rounds above were done on Linux; on Windows the areas listed under [Windows Version](#windows-version) were checked.
 - One GLib-CRITICAL warning on stderr remains (Return in the Table Editor grid followed by Return in the name editor; harmless).
 
 Every finding, fix and verification is recorded in the bug catalogs under `docs/` (see [Testing](#testing)).
+
+## Windows Version
+
+The port had only been compiled and run on Linux. Since October 2026 it is built and used on Windows 11 (64 bit) with Lazarus 4.4 / FPC 3.2.2 (`x86_64-win64`), and this is the list of what was changed for it. **New entries are added at the top of each block with every change that is pushed.**
+
+**Build and start**
+
+- Builds on Windows: the Delphi-era Windows branches of the source never went through FPC (compiler version check of the XML parser, CLX/Qt window workarounds, native dialog switches, `/tmp` in the tests).
+- Main program and plugins are Windows GUI applications (no console window); `--selftest` writes its result to the log file only.
+- Application manifest: visual styles of Windows (Common Controls 6) instead of the Windows 95 look.
+- The start picture is shown again while the program loads and under *Help > About* (it was a PNG loaded as a bitmap and failed).
+- The saved position, size and state of the main window are restored; the floating query editor keeps its position.
+- The model window follows the size of the main window again (it stayed a small rectangle after restoring and maximizing).
+
+**High DPI displays**
+
+- The program is DPI aware (system DPI): Windows no longer magnifies the window as a blurred bitmap.
+- The dialogs are scaled with the application font, the main window, the palettes and the docked query editor with the DPI of the display, including the pixel sizes that are set in the code (`TDMMain.FitFormLayout`, `src/UIScale.pas`).
+- The glyphs of the buttons, the images and the image lists are enlarged smoothly with hard transparent edges; custom drawn lists (table editor grid, connection tree, model and datatype palettes) follow the size of the symbols.
+- The model is drawn in the scale of the display, so 100 % keeps its size; zoom, scroll position and position markers are stored independent of the DPI, printing and image export are unchanged.
+- Window positions and sizes, the width of the docked palettes and the sizes of the query panel are stored in the pixels of a 96 DPI display.
+- The cursors of the work tools are created in the scale of the display - and no longer invert a square around the pointer (a fault of the port that was visible on Windows).
+- The plugins are DPI aware and scaled in the same way.
+
+**Dialogs and palettes**
+
+- Every dialog was gone through with `--screenshots`: the forms are laid out in fixed pixels for a font of 8 points and are now fitted to the application font; the contents of group boxes are no longer cut off (CLX places them relative to the frame, the LCL below the caption).
+- Right justified and centred labels keep their place in front of their field instead of sticking to the control before them.
+- Palettes and status bar use the application font; there is a splitter between the palettes and the model; the tab strips of the palettes are painted in the right colours.
+- Connection selector: the tree is filled completely and uses the system colours; the linked models dialog has its designed size.
+- The name of a region is black, or white on a dark region (the grey was hard to read).
+- The SQL editor of the query mode no longer starts with its component name as text.
+
+**Language and character sets**
+
+- Umlauts in the user interface: the translation files are Latin-1 and are converted when they are loaded.
+- Umlauts in model files: read and written in the Windows code page as the original program did, shown correctly in the LCL (UTF-8).
+- The German translation is complete, including the palettes and many controls that could not be translated before (form captions, list items, list columns, hints).
+- The plugins use the application font of the main program and its translations for the dialogs they share with it.
+
+**Databases**
+
+- **Firebird** (3 or newer; tested with Firebird 5, server and embedded): connect, reverse engineering, synchronisation and an SQL export that Firebird accepts (datatype mapping, reserved words, identity columns, `CONSTRAINT ... FOREIGN KEY`, `CREATE INDEX`, comments, triggers).
+- **SQLite**: database synchronisation (ALTER TABLE where SQLite can, otherwise a rebuild of the table in one transaction).
+- 64-bit client libraries are loaded from the program directory.
+
+**Model**
+
+- Large models: the work area matches the navigator right after loading (the canvas size was read after the zoom, so the lower right corner could not be reached).
+- Empty image data in a model file no longer raises an error.
+
+**New**
+
+- **Test Data Generator plugin**: INSERT statements for the selected tables in the order of their foreign keys, values by datatype and column name in German or English, unique keys, for FireBird, MySQL, Oracle, PostgreSQL, SQL Server and SQLite; as a script to copy or save, or executed in a database in one transaction.
+- `--screenshots <dir>` saves a picture of every dialog, the main window in both modes and the cursors, to check the layout after a change.
+
+**Checked on Windows**
+
+- `--selftest` (0 failures), `tests/TestSQLiteSync`, `tests/TestFirebirdSync` (embedded and over TCP) and `tests/TestTestDataGen` after every change; all dialogs and the plugins with `--screenshots` and screenshots at 144 DPI (150 % scaling), application font 8 and 10 points.
+- Not part of these checks: MySQL connections, a display of 96 DPI, a second display with another DPI (Windows magnifies the window there), PDF export and printing.
 
 
 ## License
@@ -255,4 +334,4 @@ This project is licensed under the **GNU General Public License v2**. See [`docs
 
 ## Contributing
 
-Contributions to the FPC/Lazarus port are highly welcome: testing on Windows or macOS, exercising the untested areas above, porting the remaining database connectors, or improving documentation. Please record what you tested and what you found in the style of the bug catalogs in `docs/`.
+Contributions to the FPC/Lazarus port are highly welcome: testing on macOS, exercising the untested areas above, porting the remaining database connectors, or improving documentation. Please record what you tested and what you found in the style of the bug catalogs in `docs/`.
