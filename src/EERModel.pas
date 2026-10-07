@@ -331,7 +331,10 @@ type
     { Private declarations }
     ModelName: string;
 
-    //The current Zoom factor of the EER Model (start @ 100%)
+    //The zoom factor the model is drawn with on the display, in percent. It
+    //includes the DPI of the display (100 % on a display of 144 DPI is 150
+    //here); Get/SetZoomFac deal in the zoom factor the user sees and the
+    //file stores
     ZoomFac: double;
 
     //Vars for MouseAction
@@ -1202,7 +1205,7 @@ type
 
 implementation
 
-uses MainDM, EERDM, FirebirdSQL;
+uses MainDM, EERDM, FirebirdSQL, UIScale;
 
 // -----------------------------------------------
 // Implementation of the MAIN-Class
@@ -1270,7 +1273,7 @@ begin
   ParentFont:=False;
 
 
-  ZoomFac:=100;
+  ZoomFac:=100*UIDPI/DesignDPI;
   NewTableCounter:=0;
   NewRelCounter:=0;
   NewNoteCounter:=0;
@@ -1708,7 +1711,7 @@ var hsc, vsc, hscW, hscH,
 begin
   DMEER.DisablePaint:=True;
   try
-    ZoomFac:=NewZoomFac;
+    ZoomFac:=NewZoomFac*UIDPI/DesignDPI;
 
     hsc:=TScrollingWinControl(parent).HorzScrollBar.Position;
     vsc:=TScrollingWinControl(parent).VertScrollBar.Position;
@@ -1887,17 +1890,17 @@ end;
 
 function TEERModel.GetZoomFac: double;
 begin
-  GetZoomFac:=ZoomFac;
+  GetZoomFac:=ZoomFac*DesignDPI/UIDPI;
 end;
 
 procedure TEERModel.ZoomIn(x, y: integer);
 begin
-  SetZoomFac(ZoomFac*1.3333333333, x, y);
+  SetZoomFac(GetZoomFac*1.3333333333, x, y);
 end;
 
 procedure TEERModel.ZoomOut(x, y: integer);
 begin
-  SetZoomFac(ZoomFac/1.3333333333, x, y);
+  SetZoomFac(GetZoomFac/1.3333333333, x, y);
 end;
 
 procedure TEERModel.SetPositionMarker(nr: integer);
@@ -1905,8 +1908,8 @@ begin
   if(nr>=0)and(nr<=9)then
   begin
     TPosMarker(PosMarkers.Items[nr]).ZoomFac:=GetZoomFac;
-    TPosMarker(PosMarkers.Items[nr]).X:=TScrollingWinControl(parent).HorzScrollBar.Position;
-    TPosMarker(PosMarkers.Items[nr]).Y:=TScrollingWinControl(parent).VertScrollBar.Position;
+    TPosMarker(PosMarkers.Items[nr]).X:=UnscaleDPI(TScrollingWinControl(parent).HorzScrollBar.Position);
+    TPosMarker(PosMarkers.Items[nr]).Y:=UnscaleDPI(TScrollingWinControl(parent).VertScrollBar.Position);
   end;
 end;
 
@@ -1916,11 +1919,11 @@ begin
     if(TPosMarker(PosMarkers.Items[nr]).ZoomFac<>-1)then
     begin
       SetZoomFac(TPosMarker(PosMarkers.Items[nr]).ZoomFac,
-        TPosMarker(PosMarkers.Items[nr]).X,
-        TPosMarker(PosMarkers.Items[nr]).Y);
+        ScaleDPI(TPosMarker(PosMarkers.Items[nr]).X),
+        ScaleDPI(TPosMarker(PosMarkers.Items[nr]).Y));
 
-      TScrollingWinControl(parent).HorzScrollBar.Position:=TPosMarker(PosMarkers.Items[nr]).X;
-      TScrollingWinControl(parent).VertScrollBar.Position:=TPosMarker(PosMarkers.Items[nr]).Y;
+      TScrollingWinControl(parent).HorzScrollBar.Position:=ScaleDPI(TPosMarker(PosMarkers.Items[nr]).X);
+      TScrollingWinControl(parent).VertScrollBar.Position:=ScaleDPI(TPosMarker(PosMarkers.Items[nr]).Y);
     end;
 end;
 
@@ -3303,12 +3306,12 @@ begin
         WriteLn(theFile, '<SETTINGS>');
 
         if(Assigned(TScrollingWinControl(parent).HorzScrollBar))then
-          xpos:=TScrollingWinControl(parent).HorzScrollBar.Position
+          xpos:=UnscaleDPI(TScrollingWinControl(parent).HorzScrollBar.Position)
         else
           xpos:=0;
 
         if(Assigned(TScrollingWinControl(parent).VertScrollBar))then
-          ypos:=TScrollingWinControl(parent).VertScrollBar.Position
+          ypos:=UnscaleDPI(TScrollingWinControl(parent).VertScrollBar.Position)
         else
           ypos:=0;
 
@@ -3336,7 +3339,7 @@ begin
             'UseVersionHistroy="'+IntToStr(Ord(UseVersionHistroy))+'" '+
             'AutoIncVersion="'+IntToStr(Ord(AutoIncVersion))+'" '+
             'DatabaseType="'+DatabaseType+'" '+
-            'ZoomFac="'+FormatFloat('####0.00', ZoomFac)+'" '+
+            'ZoomFac="'+FormatFloat('####0.00', GetZoomFac)+'" '+
             'XPos="'+IntToStr(xpos)+'" '+
             'YPos="'+IntToStr(ypos)+'" '+
             'DefaultDataType="'+IntToStr(DefaultDataType)+'" '+
@@ -4136,8 +4139,8 @@ begin
                   SetZoomFac(StrToFloat(Parser.CurAttr.Value('ZoomFac')));
                   if(MoveToSavedPosition)then
                   begin
-                    TScrollingWinControl(parent).HorzScrollBar.Position:=StrToInt(Parser.CurAttr.Value('XPos'));
-                    TScrollingWinControl(parent).VertScrollBar.Position:=StrToInt(Parser.CurAttr.Value('YPos'));
+                    TScrollingWinControl(parent).HorzScrollBar.Position:=ScaleDPI(StrToInt(Parser.CurAttr.Value('XPos')));
+                    TScrollingWinControl(parent).VertScrollBar.Position:=ScaleDPI(StrToInt(Parser.CurAttr.Value('YPos')));
                   end;
                   DefaultDataType:=StrToInt(Parser.CurAttr.Value('DefaultDataType'));
                   DefaultTablePrefix:=StrToInt(Parser.CurAttr.Value('DefaultTablePrefix'));
@@ -4639,8 +4642,8 @@ begin
           SetZoomFac(StrToFloat(theDoc.SETTINGS.GLOBALSETTINGS.ZoomFac));
           if(MoveToSavedPosition)then
           begin
-            TScrollingWinControl(parent).HorzScrollBar.Position:=theDoc.SETTINGS.GLOBALSETTINGS.XPos;
-            TScrollingWinControl(parent).VertScrollBar.Position:=theDoc.SETTINGS.GLOBALSETTINGS.YPos;
+            TScrollingWinControl(parent).HorzScrollBar.Position:=ScaleDPI(theDoc.SETTINGS.GLOBALSETTINGS.XPos);
+            TScrollingWinControl(parent).VertScrollBar.Position:=ScaleDPI(theDoc.SETTINGS.GLOBALSETTINGS.YPos);
           end;
           DefaultDataType:=theDoc.SETTINGS.GLOBALSETTINGS.DefaultDataType;
           DefaultTablePrefix:=theDoc.SETTINGS.GLOBALSETTINGS.DefaultTablePrefix;
