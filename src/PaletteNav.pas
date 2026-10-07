@@ -178,6 +178,7 @@ begin
   //The application font instead of the fixed pixel fonts of the form; the
   //zoom box at the bottom has to be as high as the font
   ApplyApplicationFont(MainPnl);
+  UsePaletteBackground(MainPnl, PageControl);
   BottomPnl.Height:=Max(19, ApplicationFontHeight+5);
   ZoomShape.SetBounds(2, 3, Max(39, ApplicationFontTextWidth('100.00%')+6), BottomPnl.Height-5);
   Panel1.Width:=ZoomShape.Width+6;

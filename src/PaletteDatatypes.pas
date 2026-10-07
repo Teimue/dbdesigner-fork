@@ -146,6 +146,7 @@ begin
 
   //The application font instead of the fixed pixel fonts of the form
   ApplyApplicationFont(MainPnl);
+  UsePaletteBackground(MainPnl, PageControl);
   TabsPnl.OnResize:=LayoutTabs;
   LayoutTabs(self);
 end;

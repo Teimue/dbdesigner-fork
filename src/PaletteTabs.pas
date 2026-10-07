@@ -23,11 +23,19 @@ unit PaletteTabs;
 
 interface
 
-uses Classes, SysUtils, Graphics, Controls, ExtCtrls;
+uses Classes, SysUtils, Graphics, Controls, ExtCtrls, ComCtrls;
 
 //Give a control and everything on it the application font. The colour of a
 //font is kept
 procedure ApplyApplicationFont(aControl: TControl);
+
+//The panel of a palette and the pages of its page control in clBtnFace.
+//With the visual styles of Windows a panel without a colour of its own shows
+//the background of its parent (the dark grey of the main form when the
+//palette is docked) and a tab sheet is white, so the parts of a palette had
+//three different backgrounds. A sheet cannot be given a colour: its controls
+//are moved onto a panel that fills it
+procedure UsePaletteBackground(MainPnl: TPanel; PageControl: TPageControl);
 
 //The height of a line of text in the application font
 function ApplicationFontHeight: integer;
@@ -62,6 +70,33 @@ begin
   if(aControl is TWinControl)then
     for i:=0 to TWinControl(aControl).ControlCount-1 do
       ApplyApplicationFont(TWinControl(aControl).Controls[i]);
+end;
+
+procedure UsePaletteBackground(MainPnl: TPanel; PageControl: TPageControl);
+var i: integer;
+  Sheet: TTabSheet;
+  Back: TPanel;
+begin
+  MainPnl.ParentColor:=False;
+  MainPnl.ParentBackground:=False;
+  MainPnl.Color:=clBtnFace;
+
+  for i:=0 to PageControl.PageCount-1 do
+  begin
+    Sheet:=PageControl.Pages[i];
+
+    Back:=TPanel.Create(Sheet);
+    Back.BevelOuter:=bvNone;
+    Back.Caption:='';
+    Back.ParentBackground:=False;
+    Back.Color:=clBtnFace;
+    Back.Align:=alClient;
+    Back.Parent:=Sheet;
+
+    //Back is the last control of the sheet; the others keep their order
+    while(Sheet.ControlCount>1)do
+      Sheet.Controls[0].Parent:=Back;
+  end;
 end;
 
 procedure SetApplicationFont(aCanvas: TCanvas);
