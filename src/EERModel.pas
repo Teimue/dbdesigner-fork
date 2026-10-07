@@ -4118,6 +4118,19 @@ begin
                     Pos('|', TForm(Owner).Caption))+
                     ' '+ModelName;
 
+                //The size of the canvas before SetZoomFac, which sizes the
+                //model and with it the scroll range: read after it, a canvas
+                //of another size than the default kept the default scroll
+                //range until the next change of the zoom, and the saved
+                //position was cut off at that range
+                try
+                  EERModel_Width:=StrToInt(Parser.CurAttr.Value('CanvasWidth'));
+                  EERModel_Height:=StrToInt(Parser.CurAttr.Value('CanvasHeight'));
+                except
+                  EERModel_Width:=4096;
+                  EERModel_Height:=2842;
+                end;
+
                 try
                   DatabaseType:=Parser.CurAttr.Value('DatabaseType');
                   SetZoomFac(StrToFloat(Parser.CurAttr.Value('ZoomFac')));
@@ -4236,14 +4249,6 @@ begin
                   {$ELSE}
                   DefModelFont:='Nimbus Sans L';
                   {$ENDIF}
-                end;
-
-                try
-                  EERModel_Width:=StrToInt(Parser.CurAttr.Value('CanvasWidth'));
-                  EERModel_Height:=StrToInt(Parser.CurAttr.Value('CanvasHeight'));
-                except
-                  EERModel_Width:=4096;
-                  EERModel_Height:=2842;
                 end;
               end
               else if(Parser.CurName='DATATYPEGROUPS')and
@@ -4620,6 +4625,15 @@ begin
             Pos('|', TForm(Owner).Caption))+
             ' '+ModelName;
 
+        //The size of the canvas before SetZoomFac, see LoadFromFile2
+        try
+          EERModel_Width:=theDoc.SETTINGS.GLOBALSETTINGS.CanvasWidth;
+          EERModel_Height:=theDoc.SETTINGS.GLOBALSETTINGS.CanvasHeight;
+        except
+          EERModel_Width:=4096;
+          EERModel_Height:=2842;
+        end;
+
         try
           DatabaseType:=theDoc.SETTINGS.GLOBALSETTINGS.DatabaseType;
           SetZoomFac(StrToFloat(theDoc.SETTINGS.GLOBALSETTINGS.ZoomFac));
@@ -4736,14 +4750,6 @@ begin
           {$ELSE}
           DefModelFont:='Nimbus Sans L';
           {$ENDIF}
-        end;
-
-        try
-          EERModel_Width:=theDoc.SETTINGS.GLOBALSETTINGS.CanvasWidth;
-          EERModel_Height:=theDoc.SETTINGS.GLOBALSETTINGS.CanvasHeight;
-        except
-          EERModel_Width:=4096;
-          EERModel_Height:=2842;
         end;
       finally
         DefaultFormatSettings.DecimalSeparator:=DecSep;
@@ -14146,12 +14152,17 @@ begin
 
     imgdata:=theXMLImage.ImgData;
 
-    theImgFile:=TMemoryStream.Create;
-    try
-      DMMain.DecodeStreamFromXML(imgdata, theImgFile);
-      LoadImgFromStream(theImgFile);
-    finally
-      FreeAndNil(theImgFile);
+    //An image object without a picture has no data: nothing to load, and
+    //no error message for it
+    if(imgdata<>'')then
+    begin
+      theImgFile:=TMemoryStream.Create;
+      try
+        DMMain.DecodeStreamFromXML(imgdata, theImgFile);
+        LoadImgFromStream(theImgFile);
+      finally
+        FreeAndNil(theImgFile);
+      end;
     end;
 
     StrechedImg.Width:=1;
@@ -14199,12 +14210,17 @@ begin
 
     imgdata:=theXMLParser.CurAttr.Value('ImgData');
 
-    theImgFile:=TMemoryStream.Create;
-    try
-      DMMain.DecodeStreamFromXML(imgdata, theImgFile);
-      LoadImgFromStream(theImgFile);
-    finally
-      FreeAndNil(theImgFile);
+    //An image object without a picture has no data: nothing to load, and
+    //no error message for it
+    if(imgdata<>'')then
+    begin
+      theImgFile:=TMemoryStream.Create;
+      try
+        DMMain.DecodeStreamFromXML(imgdata, theImgFile);
+        LoadImgFromStream(theImgFile);
+      finally
+        FreeAndNil(theImgFile);
+      end;
     end;
 
     StrechedImg.Width:=1;
