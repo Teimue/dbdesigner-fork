@@ -468,6 +468,85 @@ begin
     MessageDlg(GetTranslatedMessage('The source file %s does not exist.', 23, sourcefile), mtError, [mbOK], 0);
 end;
 
+{$IFDEF MSWINDOWS}
+type
+  TCursorIconInfo = record
+    fIcon: LongBool;
+    xHotspot: LongWord;
+    yHotspot: LongWord;
+    hbmMask: PtrUInt;
+    hbmColor: PtrUInt;
+  end;
+
+function CursorCreateBitmap(nWidth, nHeight: LongInt; nPlanes, nBitCount: LongWord;
+  lpBits: Pointer): PtrUInt; stdcall; external 'gdi32.dll' name 'CreateBitmap';
+function CursorDeleteObject(h: PtrUInt): LongBool; stdcall;
+  external 'gdi32.dll' name 'DeleteObject';
+function CursorCreateIconIndirect(var Info: TCursorIconInfo): PtrUInt; stdcall;
+  external 'user32.dll' name 'CreateIconIndirect';
+
+//A monochrome cursor in the scale of the display. CurBits and MaskBits are
+//the rows of the two bitmaps (bottom up, RowBytes each): a set bit of the
+//mask is a pixel of the cursor, which is black where the bit of the cursor
+//bitmap is set and white elsewhere.
+//Windows takes one bitmap of twice the height: the AND mask above the XOR
+//mask (AND 1 / XOR 0 = the screen, AND 0 / XOR 0 = black, AND 0 / XOR 1 =
+//white). A cursor that is built as a .cur file with the bitmap as it is
+//has XOR 1 outside the mask too and inverts the screen in a square.
+function CreateMonoCursor(const CurBits, MaskBits: TBytes; W, H, RowBytes: integer;
+  XSpot, YSpot: integer): PtrUInt;
+var NW, NH, DstRow, x, y, sx, sy: integer;
+  Bits: TBytes;
+  Info: TCursorIconInfo;
+  hBmp: PtrUInt;
+
+  function SrcBit(const B: TBytes): Boolean;
+  begin
+    Result:=(B[(H-1-sy)*RowBytes+sx div 8] and ($80 shr (sx mod 8)))<>0;
+  end;
+
+begin
+  Result:=0;
+  NW:=ScaleDPI(W);
+  NH:=ScaleDPI(H);
+  //the rows of a device dependent bitmap are aligned to words
+  DstRow:=((NW+15) div 16)*2;
+
+  SetLength(Bits, DstRow*NH*2);
+  FillChar(Bits[0], DstRow*NH, $FF);
+  FillChar(Bits[DstRow*NH], DstRow*NH, 0);
+
+  for y:=0 to NH-1 do
+  begin
+    sy:=y*H div NH;
+    for x:=0 to NW-1 do
+    begin
+      sx:=x*W div NW;
+      if(SrcBit(MaskBits))then
+      begin
+        Bits[y*DstRow+x div 8]:=Bits[y*DstRow+x div 8] and not($80 shr (x mod 8));
+        if(Not(SrcBit(CurBits)))then
+          Bits[(NH+y)*DstRow+x div 8]:=Bits[(NH+y)*DstRow+x div 8] or ($80 shr (x mod 8));
+      end;
+    end;
+  end;
+
+  hBmp:=CursorCreateBitmap(NW, NH*2, 1, 1, @Bits[0]);
+  if(hBmp=0)then
+    Exit;
+  try
+    Info.fIcon:=False;
+    Info.xHotspot:=ScaleDPI(XSpot);
+    Info.yHotspot:=ScaleDPI(YSpot);
+    Info.hbmMask:=hBmp;
+    Info.hbmColor:=0;
+    Result:=CursorCreateIconIndirect(Info);
+  finally
+    CursorDeleteObject(hBmp);
+  end;
+end;
+{$ENDIF}
+
 procedure TDMMain.LoadACursor(crNumber: integer; fname, fname_mask: string; XSpot, YSpot: integer);
 {$IFDEF FPC}
 // Build a .cur in memory from the raw bytes of two 1-bit Windows BMP files.
@@ -495,6 +574,7 @@ var
   RowBytes, XorSize, AndSize, DataOffset, FileHdrSize: LongWord;
   XorData, AndData: TBytes;
   k: LongWord;
+  {$IFDEF MSWINDOWS}hCur: PtrUInt;{$ENDIF}
   IconDir: packed record
     idReserved: Word;
     idType: Word;
@@ -549,6 +629,16 @@ begin
       CurFile.ReadBuffer(XorData[0], XorSize);
       MaskFile.Position := FileHdrSize + MaskInfo.biSize + 2 * 4;
       MaskFile.ReadBuffer(AndData[0], AndSize);
+
+      {$IFDEF MSWINDOWS}
+      hCur:=CreateMonoCursor(XorData, AndData, CurInfo.biWidth, CurInfo.biHeight,
+        RowBytes, XSpot, YSpot);
+      if(hCur<>0)then
+      begin
+        Screen.Cursors[crNumber]:=hCur;
+        Exit;
+      end;
+      {$ENDIF}
 
       // ICONDIR (6 bytes), type=2 means cursor.
       IconDir.idReserved := 0;

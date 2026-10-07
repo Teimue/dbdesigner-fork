@@ -130,6 +130,48 @@ begin
   end;
 end;
 
+//The cursors of the work tools on a grey and a white stripe
+procedure SaveCursors(const FileName: string);
+{$IFDEF MSWINDOWS}
+const Cur: array[0..23] of integer = (crMoveCursor, crNewTableCursor,
+  crRel1nCursor, crRel1nSubCursor, crRel11Cursor, crRelnmCursor,
+  crRel11SubCursor, crRel11NonIdCursor, crNewRegionCursor, crNewNoteCursor,
+  crNewImageCursor, crHandCursor, crZoomInCursor, crZoomOutCursor,
+  crSizeCursor, crDeleteCursor, crSQLSelectCursor, crSQLFromCursor,
+  crSQLOnCursor, crSQLWhereCursor, crSQLGroupCursor, crSQLHavingCursor,
+  crSQLOrderCursor, crSQLSetCursor);
+var bmp: Graphics.TBitmap;
+  png: TPortableNetworkGraphic;
+  i, cell: integer;
+begin
+  cell:=MulDiv(40, Screen.PixelsPerInch, 96);
+  bmp:=Graphics.TBitmap.Create;
+  png:=TPortableNetworkGraphic.Create;
+  try
+    bmp.SetSize(cell*12, cell*2);
+    for i:=0 to High(Cur) do
+    begin
+      if(i<12)then
+        bmp.Canvas.Brush.Color:=clSilver
+      else
+        bmp.Canvas.Brush.Color:=clWhite;
+      bmp.Canvas.FillRect(Classes.Rect((i mod 12)*cell, (i div 12)*cell,
+        (i mod 12+1)*cell, (i div 12+1)*cell));
+      Windows.DrawIconEx(bmp.Canvas.Handle, (i mod 12)*cell+2, (i div 12)*cell+2,
+        Screen.Cursors[Cur[i]], 0, 0, 0, 0, DI_NORMAL);
+    end;
+    png.Assign(bmp);
+    png.SaveToFile(FileName);
+  finally
+    png.Free;
+    bmp.Free;
+  end;
+end;
+{$ELSE}
+begin
+end;
+{$ENDIF}
+
 //One picture of the form, or one for every page of its page controls
 procedure SaveFormPages(F: TCustomForm; const BaseName: string);
 var PageControls: TList;
@@ -528,6 +570,8 @@ begin
       on x: Exception do
         Report.Add('QueryMode'#9'EXCEPTION '+x.Message);
     end;
+
+    SaveCursors(OutDir+'Cursors.png');
 
     PlaceFile:=GetTempDir+'dbdesigner_screenshots.xml';
     CopyFile(TestFile, PlaceFile);
