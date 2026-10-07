@@ -40,7 +40,7 @@ uses
   PaletteDataTypesReplace, ZoomSel, DBConnSelect, DBConnEditor, DBConnLogin,
   EERReverseEngineering, EERSynchronisation, EERStoreInDatabase,
   EERPlaceModel, EditorString, EditorDatatype, EditorTableFieldParam,
-  Tips, Splash, EditorQueryDragTarget, EditorImage, UIScale;
+  Tips, Splash, EditorQueryDragTarget, EditorImage, UIScale, PaletteModel;
 
 {$IFDEF MSWINDOWS}
 function PrintWindow(hwnd: HWND; hdcBlt: HDC; nFlags: UINT): BOOL; stdcall;
@@ -582,6 +582,28 @@ begin
     except
       on x: Exception do
         Report.Add('QueryMode'#9'EXCEPTION '+x.Message);
+    end;
+
+    //"Scroll to selected Object" of the model palette, with a zoomed model
+    try
+      if(Assigned(PaletteModelFrom))and(TMainForm(AMainForm).FActiveEERForm is TEERForm)then
+      begin
+        TEERForm(TMainForm(AMainForm).FActiveEERForm).EERModel.SetZoomFac(200);
+        Pump(400);
+        for i:=0 to PaletteModelFrom.TablesTreeView.Items.Count-1 do
+          if(PaletteModelFrom.TablesTreeView.Items[i].Text='forumpost')and
+            (PaletteModelFrom.TablesTreeView.Items[i].Data<>nil)and
+            (TObject(PaletteModelFrom.TablesTreeView.Items[i].Data) is TEERTable)then
+            PaletteModelFrom.TablesTreeView.Selected:=PaletteModelFrom.TablesTreeView.Items[i];
+        PaletteModelFrom.ScrolltoselectedObjectMIClick(nil);
+        Pump(500);
+        SaveForm(AMainForm, OutDir+'MainForm_ScrollToTable.png');
+        TEERForm(TMainForm(AMainForm).FActiveEERForm).EERModel.SetZoomFac(75);
+        Pump(300);
+      end;
+    except
+      on x: Exception do
+        Report.Add('ScrollToTable'#9'EXCEPTION '+x.Message);
     end;
 
     //The window made smaller and maximized again: the model has to fill it

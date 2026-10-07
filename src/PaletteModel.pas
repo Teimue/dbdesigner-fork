@@ -356,6 +356,11 @@ end;
 
 procedure TPaletteModelFrom.TablesTreeViewDblClick(Sender: TObject);
 begin
+  //A double click shows the object in the model too (not "Edit Object" of
+  //the menu, which calls this as well)
+  if(Sender=TablesTreeView)then
+    ScrolltoselectedObjectMIClick(Sender);
+
   if(TablesTreeView.Selected<>nil)then
     if(Assigned(TablesTreeView.Selected.Data))then
       if(TObject(TablesTreeView.Selected.Data).ClassParent=TEERObj)then
@@ -467,7 +472,7 @@ begin
     begin
       if(MainForm.FActiveEERForm<>nil)then
         if(MainForm.FActiveEERForm.Classname='TEERForm')then
-          TEERForm(MainForm.FActiveEERForm).ScrollInView(
+          TEERForm(MainForm.FActiveEERForm).ShowObject(
             TEERObj(TablesTreeView.Selected.Data));
     end;
 end;

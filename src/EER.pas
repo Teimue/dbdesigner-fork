@@ -68,6 +68,8 @@ type
 
     function SaveAs: Boolean;
     procedure ModelNameChanged(Sender: TObject);
+    //Scroll the model so that the object is in the middle of the window
+    procedure ShowObject(Obj: TControl);
   private
     { Private declarations }
     PrevXPos, PrevYPos: integer;
@@ -220,6 +222,25 @@ begin
       LineTo(P1.X, P1.Y);
     end;
   end;
+end;
+
+//The scroll bars belong to the scroll box, not to the form (the ScrollInView
+//of the form does nothing)
+procedure TEERForm.ShowObject(Obj: TControl);
+var x, y: integer;
+begin
+  if(Obj=nil)or(ScrollBox=nil)then
+    Exit;
+
+  x:=Obj.Left+Obj.Width div 2-ScrollBox.ClientWidth div 2;
+  y:=Obj.Top+Obj.Height div 2-ScrollBox.ClientHeight div 2;
+  if(x<0)then
+    x:=0;
+  if(y<0)then
+    y:=0;
+
+  ScrollBox.HorzScrollBar.Position:=x;
+  ScrollBox.VertScrollBar.Position:=y;
 end;
 
 procedure TEERForm.FormResize(Sender: TObject);
