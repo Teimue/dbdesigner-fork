@@ -128,6 +128,7 @@ Areas still requiring manual or integration testing:
 | `tests/TestSQLite.pas` | Direct SQLDB SQLite3 connectivity |
 | `tests/TestSQLExprShim.pas` | The `sqlexpr` shim against SQLite: transactions, DML commit, idle lock release |
 | `tests/TestMySQLShim.pas` | The shim's MySQL schema queries against a live MySQL 8 server |
+| `DBDesignerFork --screenshots <dir>` | Saves a picture of every dialog with every page (`src/UIScreenshots.pas`) to check the layout after a change of fonts, translations or scaling; runs with read-only settings like `--selftest` |
 | `tests/TestSQLiteSync.pas` | Database synchronisation against SQLite on the order example: create, ALTER TABLE changes, table rebuild, renamed table (`lazbuild tests/TestSQLiteSync.lpi`) |
 | `tests/TestFirebirdSync.pas` | Firebird on the order example, embedded engine or server: create, column / index / primary key / foreign key changes, renamed table, reverse engineering of the result, SQL create script loaded with isql (`lazbuild tests/TestFirebirdSync.lpi`, needs the Firebird client library) |
 | `tests/sqlite-roundtrip.sh` | Loads an exported SQL script into sqlite3 and prints a schema summary |

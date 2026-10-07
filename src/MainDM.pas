@@ -76,6 +76,10 @@ type
 
     //Initialze a form by setting the default font
     procedure InitForm(theForm: TForm; SetFloatOnTop: Boolean = False; Translate: Boolean = True);
+    //Fit the layout of a dialog to the application font, see InitForm
+    procedure FitFormLayout(theForm: TForm);
+    //A number of pixels of the dialog design in the scale of FitFormLayout
+    function ScaleForFont(Value: integer): integer;
 
     procedure LoadApplicationFont;
 
@@ -265,6 +269,10 @@ type
 
     HTMLBrowserAppl: string;
 
+    //The dialogs are laid out for a font of 8 points. The main program sets
+    //this to have InitForm scale them to the application font
+    FitDialogsToFont: Boolean;
+
     ApplicationFontName: string;
     ApplicationFontSize: integer;
     ApplicationFontStyle: TFontStyles;
@@ -326,6 +334,25 @@ implementation
 uses {$IFDEF LINUX}BaseUnix, Unix, {$ENDIF}
   {$IFDEF LCLGTK2}glib2, gdk2, {$ENDIF}
   EditorString, StrUtils, LazUTF8, LConvEncoding;
+
+type
+  //Font and ParentFont are protected in TControl
+  TLayoutControl = class(TControl);
+
+  //Marks a form whose layout FitFormLayout has done and keeps the size the
+  //design has in that scale
+  TLayoutMarker = class(TComponent)
+  public
+    DesignWidth, DesignHeight: integer;
+  end;
+
+const
+  //Marks a form whose layout FitFormLayout has done
+  LayoutDoneName = 'DBDLayoutDone';
+  //Height of a line of text in the font the dialogs are designed with
+  //(8 points at 96 DPI)
+  DesignTextHeight = 13;
+
 
 var
   WMChecked: Boolean = False;
@@ -912,6 +939,16 @@ begin
           WinSize.X:=win.Constraints.MinWidth;
         if(WinSize.Y<win.Constraints.MinHeight)then
           WinSize.Y:=win.Constraints.MinHeight;
+        //A size stored with a smaller application font cuts off the dialog
+        //that FitFormLayout has scaled since
+        if(win.FindComponent(LayoutDoneName) is TLayoutMarker)then
+          with TLayoutMarker(win.FindComponent(LayoutDoneName)) do
+          begin
+            if(WinSize.X<DesignWidth)then
+              WinSize.X:=DesignWidth;
+            if(WinSize.Y<DesignHeight)then
+              WinSize.Y:=DesignHeight;
+          end;
         win.Width:=WinSize.X;
         win.Height:=WinSize.Y;
         //Only maximize when a window manager can actually do it
@@ -1275,8 +1312,157 @@ begin
 
 end;
 
+//The dialogs come from CLX forms that were laid out in fixed pixels for a
+//font of 8 points. Two things do not fit the LCL:
+// - Another application font (or a longer translation) does not fit the
+//   fixed positions. The whole dialog is scaled by the ratio of the font
+//   heights, the way a form is scaled to another DPI.
+// - The controls in a group box are placed relative to its frame, in the LCL
+//   they are placed relative to the area below the caption. They lie lower
+//   by the height of the caption and the last ones are cut off.
+//Height of a line of text in the application font
+function ApplicationTextHeight: integer;
+var bmp: Graphics.TBitmap;
+begin
+  bmp:=Graphics.TBitmap.Create;
+  try
+    bmp.Canvas.Font.Name:=DMMain.ApplicationFontName;
+    bmp.Canvas.Font.Size:=DMMain.ApplicationFontSize;
+    bmp.Canvas.Font.Style:=DMMain.ApplicationFontStyle;
+    Result:=bmp.Canvas.TextHeight('Ag');
+  finally
+    bmp.Free;
+  end;
+end;
+
+function TDMMain.ScaleForFont(Value: integer): integer;
+var TextH: integer;
+begin
+  Result:=Value;
+  if(FitDialogsToFont)then
+  begin
+    TextH:=ApplicationTextHeight;
+    if(TextH>0)then
+      Result:=MulDiv(Value, TextH, DesignTextHeight);
+  end;
+end;
+
+procedure TDMMain.FitFormLayout(theForm: TForm);
+var TextH, i, k, delta, minTop: integer;
+  Marker: TLayoutMarker;
+  G: TGroupBox;
+
+  //The fonts the forms carry for single controls are those of the CLX
+  //design (Sans, 9 or 11 pixels): take the application font, keep the style
+  procedure UnifyFonts(aControl: TControl);
+  var n: integer;
+  begin
+    with TLayoutControl(aControl) do
+      if(Not(ParentFont))then
+        if(CompareText(Font.Name, 'Sans')=0)or(CompareText(Font.Name, 'default')=0)or
+          (Font.Name='')then
+        begin
+          Font.Name:=ApplicationFontName;
+          Font.Size:=ApplicationFontSize;
+        end
+        //another font (monospace, ...) keeps its proportion
+        else if(Font.Height<>0)and(TextH<>DesignTextHeight)then
+          Font.Height:=MulDiv(Font.Height, TextH, DesignTextHeight);
+
+    if(aControl is TWinControl)then
+      for n:=0 to TWinControl(aControl).ControlCount-1 do
+        UnifyFonts(TWinControl(aControl).Controls[n]);
+  end;
+
+  //What TWinControl.AutoAdjustLayout does to scale a form to another DPI
+  //(it knows the anchors), without its scaling of the fonts
+  procedure ScaleLayout(aControl: TControl);
+  var n: integer;
+  begin
+    if(aControl is TWinControl)then
+      for n:=0 to TWinControl(aControl).ControlCount-1 do
+        ScaleLayout(TWinControl(aControl).Controls[n]);
+
+    TLayoutControl(aControl).DoAutoAdjustLayout(lapAutoAdjustForDPI,
+      TextH/DesignTextHeight, TextH/DesignTextHeight);
+  end;
+
+begin
+  if(Not(FitDialogsToFont))or(theForm.FindComponent(LayoutDoneName)<>nil)then
+    Exit;
+
+  //The main window, the model windows, the palettes and the docked query
+  //editor size themselves
+  if(theForm=Application.MainForm)or(Application.MainForm=nil)or
+    (theForm.ClassNameIs('TMainForm'))or(theForm.ClassNameIs('TEERForm'))or
+    (theForm.ClassNameIs('TPaletteNavForm'))or(theForm.ClassNameIs('TPaletteDataTypesForm'))or
+    (theForm.ClassNameIs('TPaletteModelFrom'))or(theForm.ClassNameIs('TPaletteToolsForm'))or
+    (theForm.ClassNameIs('TEditorQueryForm'))or(theForm.ClassNameIs('TSplashForm'))then
+    Exit;
+
+  Marker:=TLayoutMarker.Create(theForm);
+  Marker.Name:=LayoutDoneName;
+
+  TextH:=ApplicationTextHeight;
+
+  //Without a handle a form reports a client area of 320x240, and the
+  //controls that are anchored to its right or bottom edge are scaled
+  //relative to that
+  theForm.HandleNeeded;
+
+  theForm.DisableAutoSizing;
+  try
+    //The fonts are set below
+    if(TextH>0)and(TextH<>DesignTextHeight)then
+      ScaleLayout(theForm);
+
+    theForm.Font.Name:=ApplicationFontName;
+    theForm.Font.Size:=ApplicationFontSize;
+    theForm.Font.Style:=ApplicationFontStyle;
+    for i:=0 to theForm.ControlCount-1 do
+      UnifyFonts(theForm.Controls[i]);
+
+    //Group boxes: move the controls up by the height of the caption
+    for i:=0 to theForm.ComponentCount-1 do
+      if(theForm.Components[i] is TGroupBox)then
+      begin
+        G:=TGroupBox(theForm.Components[i]);
+        if(G.ControlCount=0)then
+          continue;
+
+        //the caption is as high as the text
+        delta:=TextH;
+
+        minTop:=MaxInt;
+        for k:=0 to G.ControlCount-1 do
+          if(G.Controls[k].Align=alNone)and(G.Controls[k].Top<minTop)then
+            minTop:=G.Controls[k].Top;
+
+        //A box that is laid out for the LCL already has its first control
+        //at the top
+        if(minTop<>MaxInt)and(minTop>=delta-2)then
+        begin
+          if(delta>minTop-3)then
+            delta:=minTop-3;
+          for k:=0 to G.ControlCount-1 do
+            if(G.Controls[k].Align=alNone)and
+              (Not(akBottom in G.Controls[k].Anchors))then
+              G.Controls[k].Top:=G.Controls[k].Top-delta;
+        end;
+      end;
+  finally
+    theForm.EnableAutoSizing;
+  end;
+
+  Marker.DesignWidth:=theForm.Width;
+  Marker.DesignHeight:=theForm.Height;
+end;
+
 procedure TDMMain.InitForm(theForm: TForm; SetFloatOnTop: Boolean = False; Translate: Boolean = True);
 begin
+  //Once per form, before the font of the form is set
+  FitFormLayout(theForm);
+
   theForm.Font.Name:=ApplicationFontName;
   theForm.Font.Size:=ApplicationFontSize;
   theForm.Font.Style:=ApplicationFontStyle;
@@ -1398,6 +1584,15 @@ begin
   try
     GetSectionFromTxtFile(SettingsPath+ProgName+'_Translations.txt',
       theForm.Name, theStringList);
+
+    //The caption of the form itself. Not the main window and the model
+    //windows: their captions carry the name of the model
+    if(Not(theForm.ClassNameIs('TMainForm')))and(Not(theForm.ClassNameIs('TEERForm')))then
+    begin
+      s2:=theStringList.Values[LanguageCode+'_'+theForm.ClassName+'_'+theForm.Name];
+      if(s2<>'')then
+        theForm.Caption:=s2;
+    end;
 
     for i:=0 to theForm.ComponentCount-1 do
     begin
@@ -2297,7 +2492,9 @@ begin
   Result:=False;
   for i:=1 to ParamCount do
     if (CompareText(ParamStr(i), '--selftest')=0) or
-       (CompareText(ParamStr(i), '-selftest')=0) then
+       (CompareText(ParamStr(i), '-selftest')=0) or
+       //a picture of every dialog (UIScreenshots), nothing is to be stored
+       (CompareText(ParamStr(i), '--screenshots')=0) then
       Exit(True);
 end;
 

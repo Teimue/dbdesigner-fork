@@ -114,7 +114,9 @@ begin
 
   DatatypeLbl.Caption:=Datatype.TypeName+'(';
 
-  MainPnl.Width:=DatatypeLbl.Width+78;
+  //Measured: the label only gets its new width when it is laid out
+  Canvas.Font:=DatatypeLbl.Font;
+  MainPnl.Width:=Canvas.TextWidth(DatatypeLbl.Caption)+78;
 
   Width:=MainPnl.Width;
   Height:=MainPnl.Height;

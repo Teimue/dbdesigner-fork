@@ -290,21 +290,21 @@ begin
   //Column Icon
   ColumnGrid.ColWidths[0]:=20;
   //Column Name
-  ColumnGrid.ColWidths[1]:=104;
+  ColumnGrid.ColWidths[1]:=DMMain.ScaleForFont(104);
   //Datatype Icon
   ColumnGrid.ColWidths[2]:=20;
   //Datatype
-  ColumnGrid.ColWidths[3]:=115;
+  ColumnGrid.ColWidths[3]:=DMMain.ScaleForFont(115);
   //Not Null
   ColumnGrid.ColWidths[4]:=20;
   //Auto Inc
   ColumnGrid.ColWidths[5]:=20;
   //Options
-  ColumnGrid.ColWidths[6]:=160;
+  ColumnGrid.ColWidths[6]:=DMMain.ScaleForFont(160);
   //Default Val
-  ColumnGrid.ColWidths[7]:=80;
+  ColumnGrid.ColWidths[7]:=DMMain.ScaleForFont(80);
   //Comments
-  ColumnGrid.ColWidths[8]:=100;
+  ColumnGrid.ColWidths[8]:=DMMain.ScaleForFont(100);
 
   ColumnGrid.Col:=1;
   ColumnGrid.Row:=1;
@@ -329,7 +329,10 @@ begin
   StdInsertMemo.Font.Name:=DMGUI.SQLTextFont;
   StdInsertMemo.Font.Size:=DMGUI.SQLTextFontSize;
 
+  //The stored height may be from a smaller application font
   OptionsPnl.Height:=DMEER.TableSplitterPos;
+  if(OptionsPnl.Height<DMMain.ScaleForFont(172))then
+    OptionsPnl.Height:=DMMain.ScaleForFont(172);
   OptionSplitterMoved(self);
 
   BottomPnl.Top:=1000;
@@ -2084,28 +2087,30 @@ end;
 procedure TEditorTableForm.FormResize(Sender: TObject);
 begin
   //TableNameEd
-  TableNameEd.Width:=Width-(702-164);
+  TableNameEd.Width:=Width-DMMain.ScaleForFont(702-164);
 
   //Column Name
-  ColumnGrid.ColWidths[1]:=(Width-702) div 4+104;
+  ColumnGrid.ColWidths[1]:=(Width-DMMain.ScaleForFont(702)) div 4+DMMain.ScaleForFont(104);
   //Column Comments
-  ColumnGrid.ColWidths[8]:=(Width-702) div 4*3+100;
+  //The numbers are pixels of the form design (702 wide), which
+  //DMMain.FitFormLayout scales to the application font
+  ColumnGrid.ColWidths[8]:=(Width-DMMain.ScaleForFont(702)) div 4*3+DMMain.ScaleForFont(100);
 
 
   //PageControlTitle
-  PageControlTitleShape.Width:=Width-(702-533);
-  PageControlTitlePnl.Width:=Width-(702-531);
+  PageControlTitleShape.Width:=Width-DMMain.ScaleForFont(702-533);
+  PageControlTitlePnl.Width:=Width-DMMain.ScaleForFont(702-531);
 
   //PageControl
-  TablePageControl.Width:=Width-(702-541);
+  TablePageControl.Width:=Width-DMMain.ScaleForFont(702-541);
 
   //Index page
-  IndexListBox.Width:=Width-(702-121);
-  NewIndexBtn.Left:=Width-702+121;
-  DelIndexBtn.Left:=Width-702+121;
-  IndexGroupbox.Left:=156+Width-702;
-  IndexColumnsLbl.Left:=322+Width-702;
-  IndexDragHintLbl.Left:=366+Width-702;
+  IndexListBox.Width:=Width-DMMain.ScaleForFont(702-121);
+  NewIndexBtn.Left:=Width-DMMain.ScaleForFont(702-121);
+  DelIndexBtn.Left:=Width-DMMain.ScaleForFont(702-121);
+  IndexGroupbox.Left:=Width-DMMain.ScaleForFont(702-156);
+  IndexColumnsLbl.Left:=Width-DMMain.ScaleForFont(702-322);
+  IndexDragHintLbl.Left:=Width-DMMain.ScaleForFont(702-366);
 end;
 
 procedure TEditorTableForm.ClearAllSQLInsertsMIClick(Sender: TObject);
@@ -2115,14 +2120,14 @@ end;
 
 procedure TEditorTableForm.OptionSplitterMoved(Sender: TObject);
 begin
-  PageControlTreeView.Height:=OptionsPnl.Height-(172-155);
-  TablePageControl.Height:=OptionsPnl.Height-(172-135);
+  PageControlTreeView.Height:=OptionsPnl.Height-DMMain.ScaleForFont(172-155);
+  TablePageControl.Height:=OptionsPnl.Height-DMMain.ScaleForFont(172-135);
 end;
 
 procedure TEditorTableForm.OptionSplitterCanResize(Sender: TObject;
   var NewSize: Integer; var Accept: Boolean);
 begin
-  if(NewSize<172)then
+  if(NewSize<DMMain.ScaleForFont(172))then
     Accept:=False;
 end;
 

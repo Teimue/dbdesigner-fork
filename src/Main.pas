@@ -80,7 +80,7 @@ uses
 const
   INIVersion_DBDesigner4_Settings=4;
   INIVersion_DBDesigner4_DatabaseInfo=8;
-  INIVersion_DBDesigner4_Translations=20;
+  INIVersion_DBDesigner4_Translations=21;
   INIVersion_DBConn_DefaultSettings=5;
 
 type
@@ -498,7 +498,7 @@ uses MainDM, ZoomSel, IniFiles,
   EERDM, EditorTable, EditorRelation, EditorRegion, EditorNote,
   EditorImage, GUIDM, DBDM, EditorQuery, EditorQueryDragTarget,
   Tips, EERPlaceModel, DBEERDM, EERExportImportDM, Math,
-  UITestRunner, PaletteTabs;
+  UITestRunner, PaletteTabs, UIScreenshots;
 
 procedure TMainForm.AppException(Sender: TObject; E: Exception);
 const
@@ -607,6 +607,9 @@ begin
 
   DMEERExportImport:=TDMEERExportImport.Create(self);
 
+  //The dialogs are scaled to the application font (not the plugins')
+  DMMain.FitDialogsToFont:=True;
+
   DMMain.InitForm(self);
 
   //Create the QueryDragTarget for all models
@@ -658,7 +661,7 @@ begin
     WindowState := wsNormal;
 
   // --selftest: schedule automatic UI test after full initialization
-  if HasSelfTestParam then
+  if HasSelfTestParam or HasScreenshotParam then
   begin
     SelfTestTmr := TTimer.Create(Self);
     SelfTestTmr.Interval := 250; // polls until ShowPalettesTmrTimer is done, then defers to OnIdle
@@ -4007,6 +4010,19 @@ var
   FailCount: Integer;
   I: Integer;
 begin
+  //--screenshots <directory>: a picture of every dialog, then end
+  if HasScreenshotParam then
+  begin
+    try
+      SaveDialogScreenshots(Self);
+    except
+      on E: Exception do
+        WriteLn('Screenshots: ', E.ClassName, ': ', E.Message);
+    end;
+    Application.Terminate;
+    Exit;
+  end;
+
   WriteLn('=== DBDesigner Fork Self-Test Mode ===');
   WriteLn('Running UI tests...');
   WriteLn('');

@@ -173,6 +173,10 @@ begin
     //Not in the translation files (yet)
     if(RevEngTypeCBox.Items.Count=5)then
       RevEngTypeCBox.Items.Add('Use Firebird specific functions');
+    //Filling the list has cleared the selection; the handlers below read
+    //the selected item
+    if(RevEngTypeCBox.ItemIndex<0)then
+      RevEngTypeCBox.ItemIndex:=0;
   finally
   end;
 end;
@@ -455,12 +459,19 @@ begin
   finally
     theIniFile.Free;
   end;
+
+  //Filling the list has cleared the selection
+  if(SubstCBox.ItemIndex<0)and(SubstCBox.Items.Count>0)then
+    SubstCBox.ItemIndex:=0;
 end;
 
 procedure TEERReverseEngineeringForm.SubstCBoxCloseUp(Sender: TObject);
 var theIniFile: TMemIniFile;
   s: string;
 begin
+  if(SubstCBox.ItemIndex<0)then
+    Exit;
+
   theIniFile:=TMemIniFile.Create(DMMain.SettingsPath+DMMain.ProgName+'_DatabaseInfo.ini');
   try
     s:=Copy(SubstCBox.Items[SubstCBox.ItemIndex], 1, Pos(' ', SubstCBox.Items[SubstCBox.ItemIndex])-1)+

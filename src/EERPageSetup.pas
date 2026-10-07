@@ -174,9 +174,9 @@ begin
   begin
     //Set Dialog Height
     if(Not(PrintPnl.Visible))then
-      ClientHeight:=Round(EERModel.EERModel_Height*PreviewZoomFactor+160)
+      ClientHeight:=Round(EERModel.EERModel_Height*PreviewZoomFactor)+DMMain.ScaleForFont(160)
     else
-      ClientHeight:=Round(EERModel.EERModel_Height*PreviewZoomFactor+70);
+      ClientHeight:=Round(EERModel.EERModel_Height*PreviewZoomFactor)+DMMain.ScaleForFont(70);
       
     MainGroupBox.Align:=alNone;
     MainGroupBox.Align:=alClient;

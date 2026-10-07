@@ -259,8 +259,8 @@ end;
 
 procedure TEERSynchronisationForm.FormResize(Sender: TObject);
 begin
-  ProgressMemo.Width:=ProgressGroupBox.Width-34;
-  ProgressMemo.Height:=ProgressGroupBox.Height-37;
+  ProgressMemo.Width:=ProgressGroupBox.ClientWidth-2*ProgressMemo.Left;
+  ProgressMemo.Height:=ProgressGroupBox.ClientHeight-ProgressMemo.Top-ProgressMemo.Left;
 end;
 
 //Keep the progress log scrolled to its newest line. EERMySQLSyncDB appends to
