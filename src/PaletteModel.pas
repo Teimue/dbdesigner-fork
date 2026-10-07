@@ -230,7 +230,7 @@ begin
 
             TablesTreeView.Images.Draw(Canvas, Rect.Left, Rect.Top, 0, True);
 
-            Canvas.TextOut(Rect.Left+16, Rect.Top+2, TTreeNode(Item).Text);
+            Canvas.TextOut(Rect.Left+TablesTreeView.Images.Width, Rect.Top+2, TTreeNode(Item).Text);
 
             if(TTreeNode(Item).Selected)then
             begin

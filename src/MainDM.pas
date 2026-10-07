@@ -333,7 +333,7 @@ implementation
 
 uses {$IFDEF LINUX}BaseUnix, Unix, {$ENDIF}
   {$IFDEF LCLGTK2}glib2, gdk2, {$ENDIF}
-  EditorString, StrUtils, LazUTF8, LConvEncoding;
+  EditorString, StrUtils, LazUTF8, LConvEncoding, UIScale;
 
 type
   //Font and ParentFont are protected in TControl
@@ -825,20 +825,20 @@ begin
       theIni.WriteInteger('WindowPositions', winname+'State', 0);
 
       if(P.X>0)then
-        theIni.WriteInteger('WindowPositions', winname+'Left', P.X)
+        theIni.WriteInteger('WindowPositions', winname+'Left', UnscaleDPI(P.X))
       else
         theIni.WriteInteger('WindowPositions', winname+'Left', 15);
 
       if(P.Y>0)then
-        theIni.WriteInteger('WindowPositions', winname+'Top', P.Y)
+        theIni.WriteInteger('WindowPositions', winname+'Top', UnscaleDPI(P.Y))
       else
         theIni.WriteInteger('WindowPositions', winname+'Top', 15);
 
       if(DoSize)then
       begin
-        theIni.WriteInteger('WindowPositions', winname+'Width', win.Width);
+        theIni.WriteInteger('WindowPositions', winname+'Width', UnscaleDPI(win.Width));
 
-        theIni.WriteInteger('WindowPositions', winname+'Height', win.Height);
+        theIni.WriteInteger('WindowPositions', winname+'Height', UnscaleDPI(win.Height));
       end;
     end;
 
@@ -878,8 +878,8 @@ begin
         win.WindowState:=wsNormal;
 {$ENDIF}
 
-      WinPos.X:=theIni.ReadInteger('WindowPositions', winname+'Left', 80);
-      WinPos.Y:=theIni.ReadInteger('WindowPositions', winname+'Top', 140);
+      WinPos.X:=ScaleDPI(theIni.ReadInteger('WindowPositions', winname+'Left', 80));
+      WinPos.Y:=ScaleDPI(theIni.ReadInteger('WindowPositions', winname+'Top', 140));
       if(WinPos.X>Screen.Width)then
         WinPos.X:=Screen.Width-50;
       if(WinPos.Y>Screen.Height)then
@@ -929,8 +929,8 @@ begin
         // the current screen: the geometry was saved on another display and a
         // window larger than the screen makes LCL/GTK2 fight over the size
         // (endless resize loop, see docs/ui-bug-catalog.md #5).
-        WinSize.X:=theIni.ReadInteger('WindowPositions', winname+'Width', win.Width);
-        WinSize.Y:=theIni.ReadInteger('WindowPositions', winname+'Height', win.Height);
+        WinSize.X:=ScaleDPI(theIni.ReadInteger('WindowPositions', winname+'Width', UnscaleDPI(win.Width)));
+        WinSize.Y:=ScaleDPI(theIni.ReadInteger('WindowPositions', winname+'Height', UnscaleDPI(win.Height)));
         if(WinSize.X>Screen.Width-win.Left)then
           WinSize.X:=Screen.Width-win.Left;
         if(WinSize.Y>Screen.Height-win.Top)then
@@ -1426,28 +1426,54 @@ var TextH, i, k, delta, minTop: integer;
 
   //What TWinControl.AutoAdjustLayout does to scale a form to another DPI
   //(it knows the anchors), without its scaling of the fonts
-  procedure ScaleLayout(aControl: TControl);
+  procedure ScaleLayout(aControl: TControl; Factor: double);
   var n: integer;
   begin
     if(aControl is TWinControl)then
       for n:=0 to TWinControl(aControl).ControlCount-1 do
-        ScaleLayout(TWinControl(aControl).Controls[n]);
+        ScaleLayout(TWinControl(aControl).Controls[n], Factor);
 
     TLayoutControl(aControl).DoAutoAdjustLayout(lapAutoAdjustForDPI,
-      TextH/DesignTextHeight, TextH/DesignTextHeight);
+      Factor, Factor);
   end;
 
 begin
   if(Not(FitDialogsToFont))or(theForm.FindComponent(LayoutDoneName)<>nil)then
     Exit;
 
-  //The main window, the model windows, the palettes and the docked query
-  //editor size themselves
-  if(theForm=Application.MainForm)or(Application.MainForm=nil)or
-    (theForm.ClassNameIs('TMainForm'))or(theForm.ClassNameIs('TEERForm'))or
+  //The model windows hold nothing but the model
+  if(theForm.ClassNameIs('TEERForm'))then
+    Exit;
+
+  //The main window, the palettes and the docked query editor fit themselves
+  //to the font. They are laid out in the pixels of a display of 96 DPI
+  if(theForm.ClassNameIs('TMainForm'))or
     (theForm.ClassNameIs('TPaletteNavForm'))or(theForm.ClassNameIs('TPaletteDataTypesForm'))or
     (theForm.ClassNameIs('TPaletteModelFrom'))or(theForm.ClassNameIs('TPaletteToolsForm'))or
     (theForm.ClassNameIs('TEditorQueryForm'))or(theForm.ClassNameIs('TSplashForm'))then
+  begin
+    Marker:=TLayoutMarker.Create(theForm);
+    Marker.Name:=LayoutDoneName;
+
+    if(UIDPI<>DesignDPI)then
+    begin
+      theForm.HandleNeeded;
+      theForm.DisableAutoSizing;
+      try
+        ScaleLayout(theForm, UIDPI/DesignDPI);
+      finally
+        theForm.EnableAutoSizing;
+      end;
+      ScaleFormGraphics(theForm);
+    end;
+
+    Marker.DesignWidth:=theForm.Width;
+    Marker.DesignHeight:=theForm.Height;
+    Exit;
+  end;
+
+  //the application font is not known before the main window is there
+  if(Application.MainForm=nil)then
     Exit;
 
   Marker:=TLayoutMarker.Create(theForm);
@@ -1467,7 +1493,7 @@ begin
   try
     //The fonts are set below
     if(TextH>0)and(TextH<>DesignTextHeight)then
-      ScaleLayout(theForm);
+      ScaleLayout(theForm, TextH/DesignTextHeight);
 
     theForm.Font.Name:=ApplicationFontName;
     theForm.Font.Size:=ApplicationFontSize;
@@ -1506,6 +1532,9 @@ begin
   finally
     theForm.EnableAutoSizing;
   end;
+
+  //the bitmaps follow the DPI of the display
+  ScaleFormGraphics(theForm);
 
   Marker.DesignWidth:=theForm.Width;
   Marker.DesignHeight:=theForm.Height;

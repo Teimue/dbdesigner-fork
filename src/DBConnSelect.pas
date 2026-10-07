@@ -1024,7 +1024,7 @@ begin
       begin
         DBConnImgList.Draw(Canvas, x, Rect.Top+1, Item.SelectedIndex);
 
-        theRect.Left:=x+18;
+        theRect.Left:=x+DBConnImgList.Width+2;
         Brush.Color:=clHighlight;
         FillRect(theRect);
       end
@@ -1034,7 +1034,7 @@ begin
           DBConnImgList.Draw(Canvas, x, Rect.Top+1, 1)
         else
           DBConnImgList.Draw(Canvas, x, Rect.Top+1, Item.ImageIndex);
-      x:=x+20;
+      x:=x+DBConnImgList.Width+4;
     end;
 
 

@@ -497,7 +497,7 @@ uses MainDM, ZoomSel, IniFiles,
   EERReverseEngineering, EERSynchronisation, EERStoreInDatabase, Splash,
   EERDM, EditorTable, EditorRelation, EditorRegion, EditorNote,
   EditorImage, GUIDM, DBDM, EditorQuery, EditorQueryDragTarget,
-  Tips, EERPlaceModel, DBEERDM, EERExportImportDM, Math,
+  Tips, EERPlaceModel, DBEERDM, EERExportImportDM, Math, UIScale,
   UITestRunner, PaletteTabs, UIScreenshots;
 
 procedure TMainForm.AppException(Sender: TObject; E: Exception);
@@ -636,8 +636,8 @@ begin
   PluginList:=TStringList.Create;
 
   //Restore original size of ToolsPnls
-  DesignToolsPnl.Height:=487;
-  QueryToolsPnl.Height:=254;
+  DesignToolsPnl.Height:=ScaleDPI(487);
+  QueryToolsPnl.Height:=ScaleDPI(254);
 
 {$IFDEF LINUX}
   CheckLinuxDesktopFile;
@@ -1157,23 +1157,23 @@ begin
   if not Assigned(PaletteDataTypesForm) then Exit;
   if not Assigned(PaletteModelFrom) then Exit;
 
-  PaletteToolsForm.Top:=60;
-  PaletteToolsForm.Left:=8;
+  PaletteToolsForm.Top:=ScaleDPI(60);
+  PaletteToolsForm.Left:=ScaleDPI(8);
 
-  PaletteNavForm.Width:=221;
-  PaletteNavForm.Height:=173;
-  PaletteDataTypesForm.Width:=221;
-  PaletteDataTypesForm.Height:=229;
-  PaletteModelFrom.Width:=221;
-  PaletteModelFrom.Height:=192;
+  PaletteNavForm.Width:=ScaleDPI(221);
+  PaletteNavForm.Height:=ScaleDPI(173);
+  PaletteDataTypesForm.Width:=ScaleDPI(221);
+  PaletteDataTypesForm.Height:=ScaleDPI(229);
+  PaletteModelFrom.Width:=ScaleDPI(221);
+  PaletteModelFrom.Height:=ScaleDPI(192);
 
-  PaletteNavForm.Top:=45;
+  PaletteNavForm.Top:=ScaleDPI(45);
   PaletteNavForm.Left:=Left+Width-PaletteNavForm.Width-25;
 
-  PaletteDataTypesForm.Top:=244;
+  PaletteDataTypesForm.Top:=ScaleDPI(244);
   PaletteDataTypesForm.Left:=Left+Width-PaletteDataTypesForm.Width-25;
 
-  PaletteModelFrom.Top:=499;
+  PaletteModelFrom.Top:=ScaleDPI(499);
   PaletteModelFrom.Left:=Left+Width-PaletteModelFrom.Width-25;
 
   DMMain.SaveWinPos(PaletteToolsForm, False);
@@ -1841,8 +1841,8 @@ begin
   LayoutStatusBarAndPaletteHeaders;
 
   //Set DockPnls Height
-  NavPnl.Height:=173+NavHeaderPnl.Height+4;
-  DatatypesPnl.Height:=229+DatatypesHeaderPnl.Height+4;
+  NavPnl.Height:=ScaleDPI(173)+NavHeaderPnl.Height+4;
+  DatatypesPnl.Height:=ScaleDPI(229)+DatatypesHeaderPnl.Height+4;
 
   //The docked palettes are as wide as the user left them
   PaletteDockSepPnl.MinSize:=150;
@@ -1859,8 +1859,8 @@ begin
   //Create Main Palette
   try
     PaletteToolsForm:=TPaletteToolsForm.Create(self);
-    PaletteToolsForm.Top:=50;
-    PaletteToolsForm.Left:=15;
+    PaletteToolsForm.Top:=ScaleDPI(50);
+    PaletteToolsForm.Left:=ScaleDPI(15);
   except
     on E: Exception do
       StartupErrors.Add('PaletteToolsForm: ' + E.Message);
@@ -1871,7 +1871,7 @@ begin
   //Create NavInfoPalette
   try
     PaletteNavForm:=TPaletteNavForm.Create(self);
-    PaletteNavForm.Top:=44;
+    PaletteNavForm.Top:=ScaleDPI(44);
     PaletteNavForm.Left:=Screen.Width-PaletteNavForm.Width-25;
   except
     on E: Exception do
@@ -1881,7 +1881,7 @@ begin
   //Create DatatypesPalette
   try
     PaletteDataTypesForm:=TPaletteDataTypesForm.Create(self);
-    PaletteDataTypesForm.Top:=60;
+    PaletteDataTypesForm.Top:=ScaleDPI(60);
     PaletteDataTypesForm.Left:=Screen.Width-PaletteDataTypesForm.Width-25;
   except
     on E: Exception do
@@ -1891,7 +1891,7 @@ begin
   //Create ModelPalette
   try
     PaletteModelFrom:=TPaletteModelFrom.Create(self);
-    PaletteModelFrom.Top:=380;
+    PaletteModelFrom.Top:=ScaleDPI(380);
     PaletteModelFrom.Left:=Screen.Width-PaletteModelFrom.Width-25;
   except
     on E: Exception do
@@ -1933,7 +1933,7 @@ begin
 
     //Hide Right Pnl
     RightPnl.Visible:=False;
-    LeftPnl.Width:=34;
+    LeftPnl.Width:=ScaleDPI(34);
 
     SetLayout(DMGUI.DockedQueryPnlMode, False);
   end;
@@ -2594,7 +2594,7 @@ begin
     else
     begin
       DatatypesPnl.Visible:=True;
-      DatatypesPnl.Top:=74;
+      DatatypesPnl.Top:=ScaleDPI(74);
     end;
   end;
 

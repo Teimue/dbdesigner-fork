@@ -83,6 +83,8 @@ uses MainDM, EditorTable;
 
 procedure TEditorTableFieldParamForm.FormCreate(Sender: TObject);
 begin
+  DMMain.InitForm(self);
+
   WindowTitleHeight:=-22;
   WindowXBorder:=-4;
 
@@ -116,7 +118,7 @@ begin
 
   //Measured: the label only gets its new width when it is laid out
   Canvas.Font:=DatatypeLbl.Font;
-  MainPnl.Width:=Canvas.TextWidth(DatatypeLbl.Caption)+78;
+  MainPnl.Width:=Canvas.TextWidth(DatatypeLbl.Caption)+DMMain.ScaleForFont(78);
 
   Width:=MainPnl.Width;
   Height:=MainPnl.Height;

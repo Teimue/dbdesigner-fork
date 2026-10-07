@@ -288,17 +288,17 @@ begin
 
   ColumnGrid.ColCount:=9;
   //Column Icon
-  ColumnGrid.ColWidths[0]:=20;
+  ColumnGrid.ColWidths[0]:=DatatypesImgList.Width+4;
   //Column Name
   ColumnGrid.ColWidths[1]:=DMMain.ScaleForFont(104);
   //Datatype Icon
-  ColumnGrid.ColWidths[2]:=20;
+  ColumnGrid.ColWidths[2]:=DatatypesImgList.Width+4;
   //Datatype
   ColumnGrid.ColWidths[3]:=DMMain.ScaleForFont(115);
   //Not Null
-  ColumnGrid.ColWidths[4]:=20;
+  ColumnGrid.ColWidths[4]:=DatatypesImgList.Width+4;
   //Auto Inc
-  ColumnGrid.ColWidths[5]:=20;
+  ColumnGrid.ColWidths[5]:=DatatypesImgList.Width+4;
   //Options
   ColumnGrid.ColWidths[6]:=DMMain.ScaleForFont(160);
   //Default Val
@@ -833,10 +833,10 @@ begin
                   DatatypesImgList.Draw(ColumnGrid.Canvas,
                     xpos, Rect.Top+1, 9);
 
-                TextOut(xpos+16, Rect.Top+2, theDatatype.Options[i]);
+                TextOut(xpos+DatatypesImgList.Width, Rect.Top+2, theDatatype.Options[i]);
                 theSize:=TextExtent(theDatatype.Options[i]);
 
-                xpos:=xpos+theSize.cx+16+10;
+                xpos:=xpos+theSize.cx+DatatypesImgList.Width+10;
               end;
             end;
           7:
@@ -1561,7 +1561,7 @@ begin
         begin
           theSize:=ColumnGrid.Canvas.TextExtent(theDatatype.Options[i]);
           xpos2:=xpos;
-          xpos:=xpos+theSize.cx+16+5;
+          xpos:=xpos+theSize.cx+DatatypesImgList.Width+5;
 
           if(X-theRect.Left>=xpos2)and
             (X-theRect.Left<xpos)then

@@ -129,7 +129,7 @@ var
 
 implementation
 
-uses Main, MainDM, DBDM, PaletteTabs;
+uses Main, MainDM, DBDM, PaletteTabs, UIScale;
 
 {$R *.lfm}
 
@@ -208,18 +208,18 @@ begin
 
 
     DockedQueryPnlMode:=StrToInt(theIni.ReadString('DockedQueryPanel', 'Mode', '2'));
-    DockedQueryPnlHeightM1:=StrToInt(theIni.ReadString('DockedQueryPanel', 'HeightM1', '226'));
-    DockedQueryPnlHeightM2:=StrToInt(theIni.ReadString('DockedQueryPanel', 'HeightM2', '379'));
+    DockedQueryPnlHeightM1:=ScaleDPI(StrToInt(theIni.ReadString('DockedQueryPanel', 'HeightM1', '226')));
+    DockedQueryPnlHeightM2:=ScaleDPI(StrToInt(theIni.ReadString('DockedQueryPanel', 'HeightM2', '379')));
     DockedQueryPnlStoredSQLTreeVisibleM1:=(StrToInt(theIni.ReadString('DockedQueryPanel', 'StoredSQLTreeVisibleM1', '0'))=1);
     DockedQueryPnlStoredSQLTreeVisibleM2:=(StrToInt(theIni.ReadString('DockedQueryPanel', 'StoredSQLTreeVisibleM2', '1'))=1);
-    DockedQueryPnlStoredSQLTreeWidthM1:=StrToInt(theIni.ReadString('DockedQueryPanel', 'StoredSQLTreeWidthM1', '159'));
-    DockedQueryPnlStoredSQLTreeWidthM2:=StrToInt(theIni.ReadString('DockedQueryPanel', 'StoredSQLTreeWidthM2', '200'));
+    DockedQueryPnlStoredSQLTreeWidthM1:=ScaleDPI(StrToInt(theIni.ReadString('DockedQueryPanel', 'StoredSQLTreeWidthM1', '159')));
+    DockedQueryPnlStoredSQLTreeWidthM2:=ScaleDPI(StrToInt(theIni.ReadString('DockedQueryPanel', 'StoredSQLTreeWidthM2', '200')));
     DockedQueryPnlBLOBPnlVisibleM1:=(StrToInt(theIni.ReadString('DockedQueryPanel', 'BLOBPnlVisibleM1', '0'))=1);
     DockedQueryPnlBLOBPnlVisibleM2:=(StrToInt(theIni.ReadString('DockedQueryPanel', 'BLOBPnlVisibleM2', '0'))=1);
-    DockedQueryPnlBLOBPnlWidthM1:=StrToInt(theIni.ReadString('DockedQueryPanel', 'BLOBPnlWidthM1', '180'));
-    DockedQueryPnlBLOBPnlWidthM2:=StrToInt(theIni.ReadString('DockedQueryPanel', 'BLOBPnlWidthM2', '180'));
-    DockedQueryPnlSQLPnlSizeM1:=StrToInt(theIni.ReadString('DockedQueryPanel', 'SQLPnlSizeM1', '426'));
-    DockedQueryPnlSQLPnlSizeM2:=StrToInt(theIni.ReadString('DockedQueryPanel', 'SQLPnlSizeM2', '144'));
+    DockedQueryPnlBLOBPnlWidthM1:=ScaleDPI(StrToInt(theIni.ReadString('DockedQueryPanel', 'BLOBPnlWidthM1', '180')));
+    DockedQueryPnlBLOBPnlWidthM2:=ScaleDPI(StrToInt(theIni.ReadString('DockedQueryPanel', 'BLOBPnlWidthM2', '180')));
+    DockedQueryPnlSQLPnlSizeM1:=ScaleDPI(StrToInt(theIni.ReadString('DockedQueryPanel', 'SQLPnlSizeM1', '426')));
+    DockedQueryPnlSQLPnlSizeM2:=ScaleDPI(StrToInt(theIni.ReadString('DockedQueryPanel', 'SQLPnlSizeM2', '144')));
 
     UseSQLSyntaxHighlighting:=(StrToInt(theIni.ReadString('GeneralSettings', 'UseSQLSyntaxHighlighting', '0'))=1);
 
@@ -230,7 +230,7 @@ begin
     begin
       ShowPalettesDocked:=(StrToInt(theIni.ReadString('GeneralSettings', 'ShowPalettesDocked',
         '1'))=1);
-      PaletteDockWidth:=StrToIntDef(theIni.ReadString('GeneralSettings', 'PaletteDockWidth', '0'), 0);
+      PaletteDockWidth:=ScaleDPI(StrToIntDef(theIni.ReadString('GeneralSettings', 'PaletteDockWidth', '0'), 0));
 
       ShowTipsOnStartup:=(StrToInt(theIni.ReadString('GeneralSettings', 'ShowTipsOnStartup', '1'))=1);
       try
@@ -303,7 +303,7 @@ begin
     if(Assigned(MainForm))then
       if(MainForm.PaletteDockPnl.Visible)then
         PaletteDockWidth:=MainForm.PaletteDockPnl.Width;
-    theIni.WriteString('GeneralSettings', 'PaletteDockWidth', IntToStr(PaletteDockWidth));
+    theIni.WriteString('GeneralSettings', 'PaletteDockWidth', IntToStr(UnscaleDPI(PaletteDockWidth)));
 
     theIni.WriteString('GeneralSettings', 'EditorsFloatOnTop', IntToStr(Ord(DMMain.NormalizeEditorForms)));
 
@@ -339,18 +339,18 @@ begin
     theIni.WriteString('GeneralSettings', 'HTMLBrowserAppl', DMMain.HTMLBrowserAppl);
 
     theIni.WriteString('DockedQueryPanel', 'Mode', IntToStr(DockedQueryPnlMode));
-    theIni.WriteString('DockedQueryPanel', 'HeightM1', IntToStr(DockedQueryPnlHeightM1));
-    theIni.WriteString('DockedQueryPanel', 'HeightM2', IntToStr(DockedQueryPnlHeightM2));
+    theIni.WriteString('DockedQueryPanel', 'HeightM1', IntToStr(UnscaleDPI(DockedQueryPnlHeightM1)));
+    theIni.WriteString('DockedQueryPanel', 'HeightM2', IntToStr(UnscaleDPI(DockedQueryPnlHeightM2)));
     theIni.WriteString('DockedQueryPanel', 'StoredSQLTreeVisibleM1', IntToStr(Ord(DockedQueryPnlStoredSQLTreeVisibleM1)));
     theIni.WriteString('DockedQueryPanel', 'StoredSQLTreeVisibleM2', IntToStr(Ord(DockedQueryPnlStoredSQLTreeVisibleM2)));
-    theIni.WriteString('DockedQueryPanel', 'StoredSQLTreeWidthM1', IntToStr(DockedQueryPnlStoredSQLTreeWidthM1));
-    theIni.WriteString('DockedQueryPanel', 'StoredSQLTreeWidthM2', IntToStr(DockedQueryPnlStoredSQLTreeWidthM2));
+    theIni.WriteString('DockedQueryPanel', 'StoredSQLTreeWidthM1', IntToStr(UnscaleDPI(DockedQueryPnlStoredSQLTreeWidthM1)));
+    theIni.WriteString('DockedQueryPanel', 'StoredSQLTreeWidthM2', IntToStr(UnscaleDPI(DockedQueryPnlStoredSQLTreeWidthM2)));
     theIni.WriteString('DockedQueryPanel', 'BLOBPnlVisibleM1', IntToStr(Ord(DockedQueryPnlBLOBPnlVisibleM1)));
     theIni.WriteString('DockedQueryPanel', 'BLOBPnlVisibleM2', IntToStr(Ord(DockedQueryPnlBLOBPnlVisibleM2)));
-    theIni.WriteString('DockedQueryPanel', 'BLOBPnlWidthM1', IntToStr(DockedQueryPnlBLOBPnlWidthM1));
-    theIni.WriteString('DockedQueryPanel', 'BLOBPnlWidthM2', IntToStr(DockedQueryPnlBLOBPnlWidthM2));
-    theIni.WriteString('DockedQueryPanel', 'SQLPnlSizeM1', IntToStr(DockedQueryPnlSQLPnlSizeM1));
-    theIni.WriteString('DockedQueryPanel', 'SQLPnlSizeM2', IntToStr(DockedQueryPnlSQLPnlSizeM2));
+    theIni.WriteString('DockedQueryPanel', 'BLOBPnlWidthM1', IntToStr(UnscaleDPI(DockedQueryPnlBLOBPnlWidthM1)));
+    theIni.WriteString('DockedQueryPanel', 'BLOBPnlWidthM2', IntToStr(UnscaleDPI(DockedQueryPnlBLOBPnlWidthM2)));
+    theIni.WriteString('DockedQueryPanel', 'SQLPnlSizeM1', IntToStr(UnscaleDPI(DockedQueryPnlSQLPnlSizeM1)));
+    theIni.WriteString('DockedQueryPanel', 'SQLPnlSizeM2', IntToStr(UnscaleDPI(DockedQueryPnlSQLPnlSizeM2)));
 
     theIni.WriteString('GeneralSettings', 'UseSQLSyntaxHighlighting', IntToStr(Ord(UseSQLSyntaxHighlighting)));
 
