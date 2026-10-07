@@ -464,17 +464,35 @@ begin
 end;
 
 procedure TPaletteModelFrom.ScrolltoselectedObjectMIClick(Sender: TObject);
+var theNode: TTreeNode;
+  Target: TControl;
 begin
-  if(TablesTreeView.Selected<>nil)then
-    if(Assigned(TablesTreeView.Selected.Data))and
-      (TablesTreeView.Selected.ImageIndex<>1)and
-      (TablesTreeView.Selected.ImageIndex<>2)then
-    begin
-      if(MainForm.FActiveEERForm<>nil)then
-        if(MainForm.FActiveEERForm.Classname='TEERForm')then
-          TEERForm(MainForm.FActiveEERForm).ShowObject(
-            TEERObj(TablesTreeView.Selected.Data));
-    end;
+  theNode:=TablesTreeView.Selected;
+  if(theNode=nil)or(MainForm.FActiveEERForm=nil)then
+    Exit;
+  if(MainForm.FActiveEERForm.Classname<>'TEERForm')then
+    Exit;
+
+  Target:=nil;
+  if(Assigned(theNode.Data))and(TObject(theNode.Data) is TEERRel)then
+  begin
+    //A relation: the part in its middle, where its symbol is
+    Target:=TEERRel(theNode.Data).RelMiddle;
+    if(Target=nil)then
+      Target:=TEERRel(theNode.Data);
+  end
+  else
+  begin
+    //A table, or one of its columns or the "Columns" / "Relations" node:
+    //the table
+    while(theNode.Parent<>nil)do
+      theNode:=theNode.Parent;
+    if(Assigned(theNode.Data))and(TObject(theNode.Data) is TEERTable)then
+      Target:=TEERTable(theNode.Data);
+  end;
+
+  if(Target<>nil)then
+    TEERForm(MainForm.FActiveEERForm).ShowObject(Target);
 end;
 
 procedure TPaletteModelFrom.ShowLinkedModelsMIShow(Sender: TObject);

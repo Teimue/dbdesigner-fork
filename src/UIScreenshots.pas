@@ -598,6 +598,14 @@ begin
         PaletteModelFrom.ScrolltoselectedObjectMIClick(nil);
         Pump(500);
         SaveForm(AMainForm, OutDir+'MainForm_ScrollToTable.png');
+
+        //... and to a relation
+        for i:=0 to PaletteModelFrom.TablesTreeView.Items.Count-1 do
+          if(PaletteModelFrom.TablesTreeView.Items[i].Text='ProductgroupRel')then
+            PaletteModelFrom.TablesTreeView.Selected:=PaletteModelFrom.TablesTreeView.Items[i];
+        PaletteModelFrom.ScrolltoselectedObjectMIClick(nil);
+        Pump(500);
+        SaveForm(AMainForm, OutDir+'MainForm_ScrollToRelation.png');
         TEERForm(TMainForm(AMainForm).FActiveEERForm).EERModel.SetZoomFac(75);
         Pump(300);
       end;
