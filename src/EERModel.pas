@@ -13483,6 +13483,7 @@ procedure TEERRegion.PaintObj2Canvas(theCanvas: TCanvas; xo, yo: integer);
 // resolve to TCanvas.Width/Height under LCL (CLX had no such properties).
 var objW, objH: integer;
   s: string;
+  theColor: LongInt;
 begin
   if(ParentEERModel.DisableModelRefresh)then
     Exit;
@@ -13512,7 +13513,13 @@ begin
     if(Not(DMEER.DisableTextOutput))then
     begin
       Font.Height:=ParentEERModel.GetFontHeight;
-      Font.Color:=clGray;
+      //Black, white on a dark region (grey was hard to read on both)
+      theColor:=ColorToRGB(Brush.Color);
+      if((theColor and $FF)*299+((theColor shr 8) and $FF)*587+
+        ((theColor shr 16) and $FF)*114<110000)then
+        Font.Color:=clWhite
+      else
+        Font.Color:=clBlack;
       Brush.Style := bsClear;
       TextOut(xo+EvalZoomFac(4), yo+EvalZoomFac(3), ObjName);
     end;
