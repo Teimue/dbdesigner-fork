@@ -281,7 +281,7 @@ object MainForm: TMainForm
   end
   object GenerateBtn: TButton
     Left = 372
-    Top = 234
+    Top = 212
     Width = 84
     Height = 25
     Caption = 'Generate'
@@ -291,7 +291,7 @@ object MainForm: TMainForm
   end
   object CopyBtn: TButton
     Left = 460
-    Top = 234
+    Top = 212
     Width = 78
     Height = 25
     Caption = 'Copy'
@@ -300,35 +300,44 @@ object MainForm: TMainForm
   end
   object SaveBtn: TButton
     Left = 542
-    Top = 234
+    Top = 212
     Width = 84
     Height = 25
     Caption = 'Save ...'
     TabOrder = 14
     OnClick = SaveBtnClick
   end
+  object ExecBtn: TButton
+    Left = 372
+    Top = 240
+    Width = 166
+    Height = 25
+    Caption = 'Execute in database ...'
+    TabOrder = 15
+    OnClick = ExecBtnClick
+  end
   object CloseBtn: TButton
     Left = 630
-    Top = 234
+    Top = 240
     Width = 78
     Height = 25
     Cancel = True
     Caption = 'Close'
-    TabOrder = 15
+    TabOrder = 17
     OnClick = CloseBtnClick
   end
   object OutputLbl: TLabel
     Left = 12
-    Top = 270
+    Top = 272
     Width = 28
     Height = 13
     Caption = 'Script'
   end
   object OutputMemo: TMemo
     Left = 12
-    Top = 286
+    Top = 288
     Width = 696
-    Height = 244
+    Height = 242
     Anchors = [akTop, akLeft, akRight, akBottom]
     Font.Name = 'Consolas'
     Font.Height = -12

@@ -42,6 +42,10 @@
         <Filename Value="TestDataGen.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
+      <Unit>
+        <Filename Value="TestDataExec.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
     </Units>
     <RequiredPackages>
       <Item>

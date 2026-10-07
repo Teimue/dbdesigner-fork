@@ -17,7 +17,7 @@ uses
   {$IFDEF UNIX}cthreads,{$ENDIF}
   Interfaces, // LCL
   Classes, SysUtils, Forms, Controls, DB, SQLDB,
-  MainDM, DBDM, EERDM, DBEERDM, EERModel, TestDataGen;
+  MainDM, DBDM, EERDM, DBEERDM, EERModel, TestDataGen, TestDataExec;
 
 var
   ParentForm: TForm;
@@ -25,7 +25,7 @@ var
   Conn: TDBConn;
   Log, Script, Script2, Counts: TStringList;
   Tables, AllTables: TList;
-  DBPath, s: string;
+  DBPath, s, ErrStmt: string;
   Failures: integer = 0;
   Opt: TTestDataOptions;
   i, n, Errors: integer;
@@ -179,6 +179,26 @@ begin
     Errors:=RunScript(Script2);
     Check(Errors=0, 'the second script runs too (DELETE first)');
     Check(SQLVal('SELECT count(*) FROM pragma_foreign_key_check')='0', 'no foreign key violations');
+
+    //------------------------------------------------------------
+    WriteLn;
+    WriteLn('--- 2b. executed in one transaction (TestDataExec)');
+    n:=ExecuteTestDataScript(Script, s, ErrStmt);
+    Check(n>270, IntToStr(n)+' statements executed, the script of step 1 again');
+    Check(SQLVal('SELECT count(*) FROM product')='50', '50 rows in product');
+    Check(SQLVal('SELECT count(*) FROM pragma_foreign_key_check')='0', 'no foreign key violations');
+    //a script that fails in the middle leaves nothing behind
+    Script2.Clear;
+    Script2.Add('DELETE FROM onlineorderhasproduct;');
+    Script2.Add('INSERT INTO webserver (idwebserver, name) VALUES (9001, ''rollback test'');');
+    Script2.Add('INSERT INTO no_such_table (a) VALUES (1);');
+    n:=ExecuteTestDataScript(Script2, s, ErrStmt);
+    Check(n=-1, 'a failing statement is reported');
+    Check(Pos('no_such_table', ErrStmt)>0, 'with the statement');
+    Check(s<>'', 'and the message of the database');
+    Check(SQLVal('SELECT count(*) FROM webserver WHERE idwebserver=9001')='0', 'the insert before it is rolled back');
+    Check(StrToIntDef(SQLVal('SELECT count(*) FROM onlineorderhasproduct'), 0)>0, 'the delete before it too');
+    Check(TargetDBOfDriver('SQLite')='SQLite', 'target database of the SQLite driver');
 
     //------------------------------------------------------------
     WriteLn;

@@ -9,7 +9,8 @@ unit Main;
 // Description
 //   Main form of the Test Data Generator plugin: choose the tables of the
 //   model and the number of rows, the target database and a few options, and
-//   get a script of INSERT statements (see TestDataGen.pas) to copy or save.
+//   get a script of INSERT statements (see TestDataGen.pas) to copy, to save
+//   or to execute in a database (TestDataExec.pas).
 //
 //   Usage: DBDplugin_TestDataGenerator modelfilename.xml
 //
@@ -52,6 +53,7 @@ type
     GenerateBtn: TButton;
     CopyBtn: TButton;
     SaveBtn: TButton;
+    ExecBtn: TButton;
     CloseBtn: TButton;
 
     OutputLbl: TLabel;
@@ -65,6 +67,7 @@ type
     procedure GenerateBtnClick(Sender: TObject);
     procedure CopyBtnClick(Sender: TObject);
     procedure SaveBtnClick(Sender: TObject);
+    procedure ExecBtnClick(Sender: TObject);
     procedure CloseBtnClick(Sender: TObject);
   private
     { Private declarations }
@@ -73,6 +76,9 @@ type
 
     function Tr(const en, de: string): string;
     procedure InitControls;
+    //The script for the selected tables and options. False when no table
+    //is selected
+    function BuildScript(Script: TStrings; out Statements, TableCount: integer): Boolean;
   public
     { Public declarations }
     EERModel: TEERModel;
@@ -83,7 +89,7 @@ var
 
 implementation
 
-uses MainDM, EERDM, TestDataGen;
+uses MainDM, EERDM, DBDM, TestDataGen, TestDataExec;
 
 {$R *.lfm}
 
@@ -113,6 +119,8 @@ begin
   DMMain.MainFormIsDialog:=True;
   //Create EER DateModule, containing additional functions for the EERModel
   DMEER:=TDMEER.Create(self);
+  //The database connections, to execute the script
+  DMDB:=TDMDB.Create(self);
 
   //Font and layout. The texts are set below: the translations of the main
   //program belong to its own forms of the same name
@@ -120,6 +128,7 @@ begin
 
   //The language of the main program
   DMMain.LoadLanguageFromIniFile;
+  DMMain.LoadTranslatedMessages;
   German:=(CompareText(DMMain.GetLanguageCode, 'de')=0);
 
   if(ParamCount<1)then
@@ -177,6 +186,7 @@ begin
   GenerateBtn.Caption:=Tr('Generate', 'Erzeugen');
   CopyBtn.Caption:=Tr('Copy', 'Kopieren');
   SaveBtn.Caption:=Tr('Save ...', 'Speichern ...');
+  ExecBtn.Caption:=Tr('Execute in database ...', 'In Datenbank ausführen ...');
   CloseBtn.Caption:=Tr('Close', 'Schließen');
   OutputLbl.Caption:=Tr('Script', 'Skript');
   StatusLbl.Caption:='';
@@ -240,6 +250,7 @@ begin
   end;
 
   GenerateBtn.Enabled:=(Tables.Count>0);
+  ExecBtn.Enabled:=(Tables.Count>0);
   CopyBtn.Enabled:=False;
   SaveBtn.Enabled:=False;
 end;
@@ -262,12 +273,15 @@ begin
     TablesGrid.Cells[colRows, i]:=IntToStr(RowsForAllEd.Value);
 end;
 
-procedure TMainForm.GenerateBtnClick(Sender: TObject);
+function TMainForm.BuildScript(Script: TStrings; out Statements, TableCount: integer): Boolean;
 var Opt: TTestDataOptions;
   Selected: TList;
-  RowCounts, Script: TStringList;
-  i, n: integer;
+  RowCounts: TStringList;
+  i: integer;
 begin
+  Result:=False;
+  Statements:=0;
+  TableCount:=0;
   if(EERModel=nil)then
     Exit;
 
@@ -276,7 +290,6 @@ begin
 
   Selected:=TList.Create;
   RowCounts:=TStringList.Create;
-  Script:=TStringList.Create;
   Screen.Cursor:=crHourGlass;
   try
     for i:=0 to Tables.Count-1 do
@@ -289,6 +302,7 @@ begin
 
     if(Selected.Count=0)then
     begin
+      Screen.Cursor:=crDefault;
       MessageDlg(Tr('Please select at least one table.', 'Bitte mindestens eine Tabelle auswählen.'),
         mtInformation, [mbOK], 0);
       Exit;
@@ -304,7 +318,9 @@ begin
     Opt.SkipAutoInc:=SkipAutoIncCBox.Checked;
     Opt.Commit:=CommitCBox.Checked;
 
-    n:=GenerateTestData(EERModel, Selected, RowCounts, Opt, Script);
+    Script.Clear;
+    Statements:=GenerateTestData(EERModel, Selected, RowCounts, Opt, Script);
+    TableCount:=Selected.Count;
 
     OutputMemo.Lines.BeginUpdate;
     try
@@ -314,14 +330,94 @@ begin
     end;
 
     StatusLbl.Caption:=Format(Tr('%d INSERT statements for %d tables', '%d INSERT-Anweisungen für %d Tabellen'),
-      [n, Selected.Count]);
+      [Statements, TableCount]);
     CopyBtn.Enabled:=True;
     SaveBtn.Enabled:=True;
+    Result:=True;
   finally
     Screen.Cursor:=crDefault;
     Selected.Free;
     RowCounts.Free;
+  end;
+end;
+
+procedure TMainForm.GenerateBtnClick(Sender: TObject);
+var Script: TStringList;
+  n, t: integer;
+begin
+  Script:=TStringList.Create;
+  try
+    BuildScript(Script, n, t);
+  finally
     Script.Free;
+  end;
+end;
+
+procedure TMainForm.ExecBtnClick(Sender: TObject);
+var Conn: TDBConn;
+  Script: TStringList;
+  n, t, Done: integer;
+  Target, Msg, ErrMsg, ErrStmt, ConnText: string;
+begin
+  if(EERModel=nil)then
+    Exit;
+
+  //Which database?
+  DMDB.DisconnectFromDB;
+  Conn:=DMDB.GetUserSelectedDBConn(EERModel.DefSyncDBConn);
+  if(Conn=nil)then
+    Exit;
+  DMDB.ConnectToDB(Conn);
+  if(DMDB.CurrentDBConn=nil)then
+    Exit;
+
+  Script:=TStringList.Create;
+  try
+    //The script in the SQL of this database
+    Target:=TargetDBOfDriver(Conn.DriverName);
+    if(Target<>'')and(TargetCBox.Items.IndexOf(Target)>=0)then
+      TargetCBox.ItemIndex:=TargetCBox.Items.IndexOf(Target);
+
+    if(Not(BuildScript(Script, n, t)))then
+      Exit;
+
+    ConnText:=Conn.Name;
+    if(Conn.Params.Values['Database']<>'')then
+      ConnText:=ConnText+' ('+Conn.Params.Values['Database']+')';
+
+    Msg:=Format(Tr('Insert %d rows into %d tables of the database connection'#13#10'%s?',
+      '%d Zeilen in %d Tabellen der Datenbankverbindung'#13#10'%s einfügen?'), [n, t, ConnText]);
+    if(DeleteCBox.Checked)then
+      Msg:=Msg+#13#10#13#10+Tr('ALL existing rows of these tables are deleted first.',
+        'Vorher werden ALLE vorhandenen Zeilen dieser Tabellen gelöscht.');
+
+    if(MessageDlg(Msg, mtConfirmation, [mbYes, mbNo], 0)<>mrYes)then
+    begin
+      StatusLbl.Caption:=Tr('Nothing was written to the database.', 'Es wurde nichts in die Datenbank geschrieben.');
+      Exit;
+    end;
+
+    Screen.Cursor:=crHourGlass;
+    try
+      Done:=ExecuteTestDataScript(Script, ErrMsg, ErrStmt);
+    finally
+      Screen.Cursor:=crDefault;
+    end;
+
+    if(Done<0)then
+    begin
+      StatusLbl.Caption:=Tr('Error - nothing was written to the database.',
+        'Fehler - es wurde nichts in die Datenbank geschrieben.');
+      MessageDlg(Tr('The database has rejected a statement. All changes of the script were rolled back.',
+        'Die Datenbank hat eine Anweisung abgelehnt. Alle Änderungen des Skripts wurden zurückgenommen.')+
+        #13#10#13#10+ErrMsg+#13#10#13#10+Copy(ErrStmt, 1, 600), mtError, [mbOK], 0);
+    end
+    else
+      StatusLbl.Caption:=Format(Tr('%d rows written to %s (%d statements).',
+        '%d Zeilen in %s geschrieben (%d Anweisungen).'), [n, ConnText, Done]);
+  finally
+    Script.Free;
+    DMDB.DisconnectFromDB;
   end;
 end;
 

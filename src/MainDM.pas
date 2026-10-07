@@ -82,6 +82,8 @@ type
     function ScaleForFont(Value: integer): integer;
 
     procedure LoadApplicationFont;
+    //The file of the translations, see LoadTranslatedMessages
+    function TranslationsFile: string;
 
     //Get language
     procedure LoadLanguageFromIniFile;
@@ -1754,12 +1756,17 @@ var theStringList: TStringList;
   end;
 
 begin
-  if(Not(FileExists(SettingsPath+ProgName+'_Translations.txt')))then
+  if(Not(FileExists(TranslationsFile)))then
+    Exit;
+
+  //The main window of a plugin has the name of the main window of the
+  //program, but not its controls
+  if(MainFormIsDialog)and(theForm.ClassNameIs('TMainForm'))then
     Exit;
 
   theStringList:=TStringList.Create;
   try
-    GetSectionFromTxtFile(SettingsPath+ProgName+'_Translations.txt',
+    GetSectionFromTxtFile(TranslationsFile,
       theForm.Name, theStringList);
 
     //The caption of the form itself. Not the main window and the model
@@ -1864,10 +1871,10 @@ end;
 procedure TDMMain.GetFormResourceStrings(theForm: TForm; name: string; theStrings: TStringList);
 var i: integer;
 begin
-  if(Not(FileExists(SettingsPath+ProgName+'_Translations.txt')))then
+  if(Not(FileExists(TranslationsFile)))then
     Exit;
-    
-  GetSectionFromTxtFile(SettingsPath+ProgName+'_Translations.txt',
+
+  GetSectionFromTxtFile(TranslationsFile,
     theForm.Name+'_ResourceStrings', theStrings, False);
 
   //Filter ResourceStrings by provided name
@@ -1886,11 +1893,20 @@ end;
 
 procedure TDMMain.LoadTranslatedMessages;
 begin
-  if(Not(FileExists(SettingsPath+ProgName+'_Translations.txt')))then
+  if(Not(FileExists(TranslationsFile)))then
     Exit;
 
-  GetSectionFromTxtFile(SettingsPath+ProgName+'_Translations.txt',
+  GetSectionFromTxtFile(TranslationsFile,
     'Messages', MessageCaptions, True);
+end;
+
+function TDMMain.TranslationsFile: string;
+begin
+  //A plugin has no translations of its own: the dialogs it shares with the
+  //main program (database connections ...) take those of the main program
+  Result:=SettingsPath+ProgName+'_Translations.txt';
+  if(Not(FileExists(Result)))then
+    Result:=SettingsPath+'DBDesignerFork_Translations.txt';
 end;
 
 function TDMMain.GetTranslatedMessage(OriginalMsg: string; MsgNr: integer; StrToInsert: string = ''; StrToInsert2: string = ''): string;
@@ -2557,12 +2573,17 @@ procedure TDMMain.LoadApplicationFont;
 var theIni: TMemIniFile;
   s: string;
 begin
-  //Read IniFile. A plugin has no settings of its own: it takes the font of
-  //the main program
+  //Read IniFile. A plugin has no font setting of its own (its settings file,
+  //if there is one, holds other things): it takes the font of the main
+  //program
   s:=SettingsPath+ProgName+'_Settings.ini';
-  if(Not(FileExists(s)))and(FileExists(SettingsPath+'DBDesignerFork_Settings.ini'))then
-    s:=SettingsPath+'DBDesignerFork_Settings.ini';
   theIni:=TMemIniFile.Create(s);
+  if(Not(theIni.ValueExists('GeneralSettings', 'ApplicationFontName')))and
+    (FileExists(SettingsPath+'DBDesignerFork_Settings.ini'))then
+  begin
+    theIni.Free;
+    theIni:=TMemIniFile.Create(SettingsPath+'DBDesignerFork_Settings.ini');
+  end;
   try
     try
 {$IFDEF LINUX}
