@@ -1,0 +1,61 @@
+DBDesigner Fork - libraries of other projects in the setup program
+====================================================================
+
+DBDesigner Fork itself is free software under the GNU General Public
+License, version 2 or later (Copying.txt in the program directory).
+
+The setup program installs the following libraries of other projects next
+to the program. They are unchanged binaries; the program loads them at run
+time when a connection to the database in question is opened.
+
+
+SQLite                                                         sqlite3.dll
+---------------------------------------------------------------------------
+https://www.sqlite.org
+Public domain. See SQLite-LICENSE.txt.
+
+
+MySQL client library                                          libmySQL.dll
+---------------------------------------------------------------------------
+https://www.mysql.com
+Copyright (c) 2000, 2024, Oracle and/or its affiliates.
+GNU General Public License, version 2 (the text is Copying.txt in the
+program directory), with the Universal FOSS Exception, version 1.0
+(https://oss.oracle.com/licenses/universal-foss-exception/).
+The complete licence file of MySQL 8.0, with the notices of the components
+it contains, is the file LICENSE of the MySQL source code:
+https://github.com/mysql/mysql-server/blob/8.0/LICENSE
+
+
+OpenSSL                              libssl-3-x64.dll, libcrypto-3-x64.dll
+---------------------------------------------------------------------------
+https://www.openssl.org
+Copyright 1998-2026 The OpenSSL Authors.
+Apache License, version 2.0. See OpenSSL-LICENSE.txt.
+Needed by the MySQL client library.
+
+
+zlib                                                                 z.dll
+---------------------------------------------------------------------------
+https://zlib.net
+(C) 1995-2026 Jean-loup Gailly and Mark Adler.
+zlib licence. See zlib-LICENSE.txt.
+Needed by the MySQL client library.
+
+
+Zstandard                                                         zstd.dll
+---------------------------------------------------------------------------
+https://facebook.github.io/zstd/
+Copyright (c) Meta Platforms, Inc. and affiliates.
+BSD licence. See zstd-LICENSE.txt.
+Needed by the MySQL client library.
+
+
+Firebird                                    subdirectory "firebird"
+---------------------------------------------------------------------------
+https://firebirdsql.org
+Client library and embedded engine of Firebird 5, with the ICU libraries
+and the runtime libraries of Microsoft Visual C++ that belong to the
+Firebird kit.
+Initial Developer's Public License and InterBase Public License. See
+IDPLicense.txt and IPLicense.txt in the subdirectory "firebird".

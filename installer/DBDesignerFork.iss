@@ -59,6 +59,8 @@ Source: "{#BinDir}\DBDplugin_*.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; licence
 Source: "{#BinDir}\Copying.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\Copying Addition for Win32.txt"; DestDir: "{app}"; Flags: ignoreversion
+; licences of the client libraries below (the ones of Firebird lie in "firebird")
+Source: "licenses\*.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 ; default settings, translations, templates of the plugins
 Source: "{#BinDir}\Data\*"; DestDir: "{app}\Data"; Flags: ignoreversion recursesubdirs createallsubdirs
