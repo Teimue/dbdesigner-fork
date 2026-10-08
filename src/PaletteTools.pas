@@ -109,7 +109,7 @@ var
 
 implementation
 
-uses MainDM, Main, EERDM;
+uses MainDM, Main, EERDM, UIScale;
 
 {$R *.lfm}
 
@@ -117,8 +117,9 @@ procedure TPaletteToolsForm.FormCreate(Sender: TObject);
 begin
   DMMain.InitForm(self);
   
-  width:=58;
-  height:=309;
+  //the size of the picture behind the buttons, in the scale of the display
+  Width:=ScaleDPI(58);
+  Height:=ScaleDPI(309);
 
   if(DMEER.WorkMode=wmQuery)then
     QueryImg.BringToFront;

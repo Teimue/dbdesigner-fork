@@ -40,7 +40,8 @@ uses
   PaletteDataTypesReplace, ZoomSel, DBConnSelect, DBConnEditor, DBConnLogin,
   EERReverseEngineering, EERSynchronisation, EERStoreInDatabase,
   EERPlaceModel, EditorString, EditorDatatype, EditorTableFieldParam,
-  Tips, Splash, EditorQueryDragTarget, EditorImage, UIScale, PaletteModel;
+  Tips, Splash, EditorQueryDragTarget, EditorImage, UIScale, PaletteModel,
+  PaletteTools;
 
 {$IFDEF MSWINDOWS}
 function PrintWindow(hwnd: HWND; hdcBlt: HDC; nFlags: UINT): BOOL; stdcall;
@@ -593,6 +594,23 @@ begin
           on x: Exception do
             Report.Add('ModelImage'#9'EXCEPTION '+x.Message);
         end;
+
+    //The floating tools palette
+    try
+      if(PaletteToolsForm<>nil)then
+      begin
+        PaletteToolsForm.Show;
+        Pump(400);
+        SaveForm(PaletteToolsForm, OutDir+'PaletteTools.png');
+        Report.Add('PaletteTools'#9'client '+IntToStr(PaletteToolsForm.ClientWidth)+'x'+
+          IntToStr(PaletteToolsForm.ClientHeight));
+        PaletteToolsForm.Hide;
+        Pump(200);
+      end;
+    except
+      on x: Exception do
+        Report.Add('PaletteTools'#9'EXCEPTION '+x.Message);
+    end;
 
     //The page grid, with the whole of the active model in view
     try

@@ -296,6 +296,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **High DPI displays**
 
+- The floating tools palette has the size of its scaled content (its window kept the size of 96 DPI and cut the buttons off).
 - The program is DPI aware (system DPI): Windows no longer magnifies the window as a blurred bitmap.
 - The dialogs are scaled with the application font, the main window, the palettes and the docked query editor with the DPI of the display, including the pixel sizes that are set in the code (`TDMMain.FitFormLayout`, `src/UIScale.pas`).
 - The glyphs of the buttons, the images and the image lists are enlarged smoothly with hard transparent edges; custom drawn lists (table editor grid, connection tree, model and datatype palettes) follow the size of the symbols.
