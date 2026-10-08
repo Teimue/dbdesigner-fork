@@ -2,7 +2,7 @@
 <!--
   Application manifest of DBDesigner Fork (Windows).
 
-  It is part of src/DBDesignerFork.res (resource type 24, name 1); after a
+  It is part of src/AppResources.res (resource type 24, name 1); after a
   change run tools/update-manifest-res.py to put it into the .res file again.
 
   - Common Controls 6: without it Windows draws the controls in the classic

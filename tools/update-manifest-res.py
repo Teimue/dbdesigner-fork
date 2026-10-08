@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Puts src/DBDesignerFork.manifest into src/DBDesignerFork.res.
+"""Puts src/DBDesignerFork.manifest into src/AppResources.res.
 
-The .res file holds the icon and the version info of the program and is
-linked by DBDesignerFork.lpr ({$R src/DBDesignerFork.res}). This script
+The .res file holds the icon of the program and is linked by
+DBDesignerFork.lpr ({$R src/AppResources.res}); the version info comes
+from the project options (DBDesignerFork.lpi). This script
 replaces (or adds) the manifest resource (type 24 = RT_MANIFEST, name 1) and
 leaves every other resource as it is. Run it from the project directory
 after a change of the manifest:
@@ -13,7 +14,7 @@ import os
 import struct
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RES = os.path.join(HERE, 'src', 'DBDesignerFork.res')
+RES = os.path.join(HERE, 'src', 'AppResources.res')
 MANIFEST = os.path.join(HERE, 'src', 'DBDesignerFork.manifest')
 RT_MANIFEST = 24
 

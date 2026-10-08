@@ -13,7 +13,16 @@
       <Title Value="DBDesigner Fork"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
+      <XPManifest>
+        <UseManifest Value="False"/>
+      </XPManifest>
     </General>
+    <VersionInfo>
+      <UseVersionInfo Value="True"/>
+      <MajorVersionNr Value="1"/>
+      <MinorVersionNr Value="5"/>
+      <StringTable FileDescription="DBDesigner Fork" ProductName="DBDesigner Fork" ProductVersion="1.5.0.0"/>
+    </VersionInfo>
     <BuildModes Count="1">
       <Item1 Name="Default" Default="True"/>
     </BuildModes>

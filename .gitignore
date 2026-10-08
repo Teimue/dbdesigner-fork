@@ -4,7 +4,7 @@ lib/
 *.ppu
 *.compiled
 *.res
-!src/DBDesignerFork.res
+!src/AppResources.res
 
 # Binary output
 bin/DBDesignerFork

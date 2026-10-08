@@ -96,7 +96,10 @@ uses
   UITestRunner in 'src/UITestRunner.pas',
   UIScreenshots in 'src/UIScreenshots.pas';
 
-{$R src/DBDesignerFork.res}
+//The icon and the manifest
+{$R src/AppResources.res}
+//The version info, written by Lazarus from the project options (.lpi)
+{$R *.res}
 
 begin
   {$IFDEF MSWINDOWS}
