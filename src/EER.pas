@@ -70,14 +70,19 @@ type
     procedure ModelNameChanged(Sender: TObject);
     //Scroll the model so that the object is in the middle of the window
     procedure ShowObject(Obj: TControl);
+    //Cascade / Tile of the main form: show a title bar with the model name
+    procedure SetArranged(Arranged, IsActive: Boolean);
+    procedure TitlePnlDblClick(Sender: TObject);
   private
     { Private declarations }
     PrevXPos, PrevYPos: integer;
     FormIsClosing: Boolean;
+    UnarrangedColor: TColor;
   public
     { Public declarations }
 
     ScrollBox: TScrollBox;
+    TitlePnl: TPanel;
     EERModel: TEERModel;
     theFormMenuItem: TMenuItem;
   end;
@@ -107,6 +112,20 @@ begin
   BorderStyle := bsNone;
   Parent := MainForm.EERPanel;
   Align := alClient;
+
+  UnarrangedColor := Color;
+
+  // Title bar, only shown when the models are cascaded or tiled
+  TitlePnl := TPanel.Create(self);
+  TitlePnl.Parent := self;
+  TitlePnl.Align := alTop;
+  TitlePnl.Height := Scale96ToFont(22);
+  TitlePnl.BevelOuter := bvNone;
+  TitlePnl.Alignment := taLeftJustify;
+  TitlePnl.ParentColor := False;
+  TitlePnl.ParentFont := False;
+  TitlePnl.Visible := False;
+  TitlePnl.OnDblClick := TitlePnlDblClick;
 
   // Create a ScrollBox to provide scrollbars for the diagram
   ScrollBox := TScrollBox.Create(self);
@@ -152,6 +171,8 @@ end;
 procedure TEERForm.ModelNameChanged(Sender: TObject);
 begin
   Caption:='DB Model | '+EERModel.GetModelName;
+  if(TitlePnl<>nil)then
+    TitlePnl.Caption:='  '+EERModel.GetModelName;
 
   //Windows menu entry (created by MainForm.AddToMDIWindowMenu)
   if(theFormMenuItem<>nil)then
@@ -161,6 +182,44 @@ begin
   if(MainForm<>nil)then
     if(MainForm.FActiveEERForm=nil)or(MainForm.FActiveEERForm=self)then
       MainForm.Caption:='DBDesigner Fork - '+EERModel.GetModelName;
+end;
+
+procedure TEERForm.SetArranged(Arranged, IsActive: Boolean);
+begin
+  if(TitlePnl=nil)then
+    Exit;
+
+  if(IsActive)then
+  begin
+    TitlePnl.Color:=clHighlight;
+    TitlePnl.Font.Color:=clHighlightText;
+  end
+  else
+  begin
+    TitlePnl.Color:=clBtnFace;
+    TitlePnl.Font.Color:=clBtnText;
+  end;
+  TitlePnl.Visible:=Arranged;
+
+  //A thin frame, so that windows lying on each other can be told apart
+  if(Arranged)then
+  begin
+    Color:=cl3DDkShadow;
+    ChildSizing.LeftRightSpacing:=Scale96ToFont(1);
+    ChildSizing.TopBottomSpacing:=Scale96ToFont(1);
+  end
+  else
+  begin
+    Color:=UnarrangedColor;
+    ChildSizing.LeftRightSpacing:=0;
+    ChildSizing.TopBottomSpacing:=0;
+  end;
+end;
+
+//A double click on the title bar shows this model alone again
+procedure TEERForm.TitlePnlDblClick(Sender: TObject);
+begin
+  MainForm.ShowEERFormAlone(self);
 end;
 
 procedure TEERForm.FormActivate(Sender: TObject);

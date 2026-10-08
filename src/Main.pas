@@ -84,6 +84,9 @@ const
   INIVersion_DBConn_DefaultSettings=5;
 
 type
+  //Arrangement of the model windows in the main form (Windows menu)
+  TEERLayout = (elSingle, elTile, elCascade);
+
   TMainForm = class(TForm)
     MainMenu: TMainMenu;
     FileMI: TMenuItem;
@@ -462,6 +465,12 @@ type
 
     ActivateDeactivateCounter: integer;
     ApplicationIsDeactivated: Boolean;
+
+    //How the model windows are arranged in the EERPanel
+    FEERLayout: TEERLayout;
+    procedure ArrangeEERForms;
+    procedure EERPanelResize(Sender: TObject);
+    procedure LCLAppUserInput(Sender: TObject; Msg: Cardinal);
     procedure SelfTestTmrTimer(Sender: TObject);
     procedure SelfTestIdleHandler(Sender: TObject; var Done: Boolean);
     procedure RunSelfTestNow;
@@ -483,6 +492,10 @@ type
     procedure RegisterEERForm(F: TEERForm);
     procedure UnregisterEERForm(F: TEERForm);
     procedure SwitchToEERForm(F: TEERForm);
+    //Make a model the active one, the arrangement of the windows is kept
+    procedure ActivateEERForm(F: TEERForm);
+    //Show one model in the whole area again (leaves Cascade / Tile)
+    procedure ShowEERFormAlone(F: TEERForm);
   end;
 
 var
@@ -588,6 +601,9 @@ begin
   RegisterQtEventHandler(EventFilter);
   // Register global keyboard handler for DoApplicationEvent (key-up uses KylixSpaceUpTimer)
   Application.AddOnKeyDownHandler(LCLAppKeyDown);
+  // A click into a model that is not the active one activates it (Cascade / Tile)
+  Application.AddOnUserInputHandler(LCLAppUserInput);
+  EERPanel.OnResize := EERPanelResize;
   {$ELSE}
   Application.OnEvent:=DoApplicationEvent;
   {$ENDIF}
@@ -681,6 +697,9 @@ begin
   DMMain.SaveWinPos(self, True);
 
   EditorQueryDragTargetForm.Free;
+  {$IFDEF FPC}
+  Application.RemoveOnUserInputHandler(LCLAppUserInput);
+  {$ENDIF}
   FEERFormList.Free;
 end;
 
@@ -890,21 +909,28 @@ begin
     if(WindowsMI.Items[i].GroupIndex=59)then
       WindowsMI.Items[i].Checked:=False;
 
+  //A model chosen from the menu is shown alone again
   for i:=0 to FEERFormList.Count-1 do
     if(TEERForm(FEERFormList[I]).theFormMenuItem=Sender)then
-      SwitchToEERForm(TEERForm(FEERFormList[I]));
+    begin
+      ShowEERFormAlone(TEERForm(FEERFormList[I]));
+      break;
+    end;
 
   TMenuItem(Sender).Checked:=True;
 end;
 
 procedure TMainForm.CascadeMIClick(Sender: TObject);
 begin
-  // Cascade not applicable for embedded forms
+  //The model windows are embedded in the EERPanel: lay them out there
+  FEERLayout:=elCascade;
+  ArrangeEERForms;
 end;
 
 procedure TMainForm.TileMIClick(Sender: TObject);
 begin
-  // Tile not applicable for embedded forms
+  FEERLayout:=elTile;
+  ArrangeEERForms;
 end;
 
 procedure TMainForm.ToolsMIClick(Sender: TObject);
@@ -4191,17 +4217,12 @@ begin
 end;
 
 procedure TMainForm.RegisterEERForm(F: TEERForm);
-var
-  i: Integer;
 begin
-  // Hide all existing EER forms
-  for i := 0 to FEERFormList.Count - 1 do
-    TEERForm(FEERFormList[i]).Visible := False;
-  // Add and show the new one
+  // Add and show the new one (alone, or as one more window of the arrangement)
   if FEERFormList.IndexOf(F) < 0 then
     FEERFormList.Add(F);
-  F.Visible := True;
   FActiveEERForm := F;
+  ArrangeEERForms;
   UpdateCaptionForEERForm(F);
 end;
 
@@ -4219,20 +4240,136 @@ begin
       SwitchToEERForm(TEERForm(FEERFormList[FEERFormList.Count - 1]))
     else
       FActiveEERForm := nil;
-  end;
+  end
+  else
+    // the remaining windows share the area
+    ArrangeEERForms;
 end;
 
 procedure TMainForm.SwitchToEERForm(F: TEERForm);
-var
-  i: Integer;
 begin
-  // Hide all EER forms
-  for i := 0 to FEERFormList.Count - 1 do
-    TEERForm(FEERFormList[i]).Visible := False;
-  // Show the requested one
-  F.Visible := True;
+  // Show the requested one; ArrangeEERForms hides the others unless the
+  // windows are cascaded or tiled
   FActiveEERForm := F;
+  ArrangeEERForms;
   UpdateCaptionForEERForm(F);
+end;
+
+procedure TMainForm.ActivateEERForm(F: TEERForm);
+begin
+  if (F = nil) or (FEERFormList.IndexOf(F) < 0) then
+    Exit;
+
+  SwitchToEERForm(F);
+  // palettes, status bar and the Windows menu follow the active model
+  F.FormActivate(nil);
+end;
+
+procedure TMainForm.ShowEERFormAlone(F: TEERForm);
+begin
+  FEERLayout := elSingle;
+  ActivateEERForm(F);
+end;
+
+procedure TMainForm.EERPanelResize(Sender: TObject);
+begin
+  if FEERLayout <> elSingle then
+    ArrangeEERForms;
+end;
+
+procedure TMainForm.LCLAppUserInput(Sender: TObject; Msg: Cardinal);
+var
+  C: TControl;
+begin
+  if (FEERLayout = elSingle) or not (Sender is TControl) then
+    Exit;
+  if (Msg <> LM_LBUTTONDOWN) and (Msg <> LM_RBUTTONDOWN) and (Msg <> LM_MBUTTONDOWN) then
+    Exit;
+
+  C := TControl(Sender);
+  while (C <> nil) and not (C is TEERForm) do
+    C := C.Parent;
+
+  if (C <> nil) and (C <> FActiveEERForm) then
+    ActivateEERForm(TEERForm(C));
+end;
+
+procedure TMainForm.ArrangeEERForms;
+var
+  i, n, cols, rows, row, col, inRow, gap, step, W, H, x, y, x2, y2: Integer;
+  F: TEERForm;
+begin
+  n := FEERFormList.Count;
+  if n = 0 then
+    Exit;
+  // one model always has the whole area
+  if n < 2 then
+    FEERLayout := elSingle;
+
+  W := EERPanel.ClientWidth;
+  H := EERPanel.ClientHeight;
+  gap := Scale96ToFont(2);
+
+  cols := 1;
+  while cols * cols < n do
+    Inc(cols);
+  rows := (n + cols - 1) div cols;
+
+  step := Scale96ToFont(26);
+  if (n > 1) and (step * (n - 1) > H div 2) then
+    step := (H div 2) div (n - 1);
+  if (n > 1) and (step * (n - 1) > W div 2) then
+    step := (W div 2) div (n - 1);
+
+  EERPanel.DisableAlign;
+  try
+    for i := 0 to n - 1 do
+    begin
+      F := TEERForm(FEERFormList[i]);
+      case FEERLayout of
+        elSingle:
+          begin
+            F.SetArranged(False, False);
+            F.Align := alClient;
+            F.Visible := (F = FActiveEERForm);
+          end;
+        elTile:
+          begin
+            // the windows of the last row share its whole width
+            row := i div cols;
+            col := i mod cols;
+            inRow := cols;
+            if row = rows - 1 then
+              inRow := n - row * cols;
+            x := (W * col) div inRow;
+            x2 := (W * (col + 1)) div inRow;
+            y := (H * row) div rows;
+            y2 := (H * (row + 1)) div rows;
+            if col < inRow - 1 then
+              Dec(x2, gap);
+            if row < rows - 1 then
+              Dec(y2, gap);
+            F.Align := alNone;
+            F.SetBounds(x, y, x2 - x, y2 - y);
+            F.SetArranged(True, F = FActiveEERForm);
+            F.Visible := True;
+          end;
+        elCascade:
+          begin
+            F.Align := alNone;
+            F.SetBounds(i * step, i * step, W - (n - 1) * step, H - (n - 1) * step);
+            F.SetArranged(True, F = FActiveEERForm);
+            F.Visible := True;
+            F.BringToFront;
+          end;
+      end;
+    end;
+  finally
+    EERPanel.EnableAlign;
+  end;
+
+  if (FEERLayout = elCascade) and (FActiveEERForm <> nil) then
+    FActiveEERForm.BringToFront;
 end;
 finalization
   StartupErrors.Free;

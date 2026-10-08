@@ -542,7 +542,7 @@ var i, k, Open: integer;
   AName, TestFile, DBFile: string;
   DPIRect: TRect;
   SystemDPI: integer;
-  EERFrm: TEERForm;
+  EERFrm, EERFrm2, EERFrm3: TEERForm;
   t: QWord;
 begin
   OutDir:=ScreenshotDir;
@@ -724,6 +724,38 @@ begin
       Pump(100);
 
       inc(i);
+    end;
+
+    //Three models, tiled and cascaded (Windows menu), then one alone again
+    try
+      EERFrm:=TEERForm(TMainForm(AMainForm).NewEERModel);
+      EERFrm.EERModel.LoadFromFile(TestFile, True, False, True, False);
+      EERFrm2:=TEERForm(TMainForm(AMainForm).NewEERModel);
+      EERFrm2.EERModel.LoadFromFile(TestFile, True, False, True, False);
+      EERFrm3:=TEERForm(TMainForm(AMainForm).NewEERModel);
+      Pump(500);
+      TMainForm(AMainForm).TileMIClick(nil);
+      Pump(600);
+      SaveForm(AMainForm, OutDir+'MainForm_Tile.png');
+      TMainForm(AMainForm).ActivateEERForm(EERFrm);
+      Pump(400);
+      SaveForm(AMainForm, OutDir+'MainForm_Tile_FirstActive.png');
+      TMainForm(AMainForm).CascadeMIClick(nil);
+      Pump(600);
+      SaveForm(AMainForm, OutDir+'MainForm_Cascade.png');
+      TMainForm(AMainForm).ActivateEERForm(EERFrm3);
+      Pump(400);
+      SaveForm(AMainForm, OutDir+'MainForm_Cascade_LastActive.png');
+      EERFrm3.EERModel.IsChanged:=False;
+      EERFrm3.Close;
+      Pump(600);
+      SaveForm(AMainForm, OutDir+'MainForm_Cascade_OneClosed.png');
+      TMainForm(AMainForm).ShowEERFormAlone(EERFrm2);
+      Pump(400);
+      SaveForm(AMainForm, OutDir+'MainForm_AloneAgain.png');
+    except
+      on x: Exception do
+        Report.Add('Tile/Cascade'#9'EXCEPTION '+x.Message);
     end;
   finally
     Report.SaveToFile(OutDir+'screenshots.txt');

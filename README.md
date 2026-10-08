@@ -318,6 +318,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Model**
 
+- Several open models can be shown at once: "Tile" and "Cascade" of the Windows menu lay the models out in the model area, each with a title bar. A click into a model makes it the active one; a double click on its title bar or its entry in the Windows menu shows it alone again.
 - Large models: the work area matches the navigator right after loading (the canvas size was read after the zoom, so the lower right corner could not be reached).
 - Empty image data in a model file no longer raises an error.
 
