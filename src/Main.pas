@@ -631,6 +631,13 @@ begin
 
   DMMain.InitForm(self);
 
+  //The window styles (Standard, Motif, SGI, Platinum) are those of CLX/Qt.
+  //The LCL draws with the theme of the system, the menu items only set
+  //their check mark
+  {$IFDEF FPC}
+  Style1.Visible:=False;
+  {$ENDIF}
+
   //Create the QueryDragTarget for all models
   EditorQueryDragTargetForm:=TEditorQueryDragTargetForm.Create(self);
 
