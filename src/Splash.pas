@@ -79,7 +79,7 @@ var
 
 implementation
 
-uses Main, UIScale;
+uses Main, UIScale, GlobalSysFunctions;
 
 {$R *.lfm}
 
@@ -92,6 +92,9 @@ begin
 
   //started by CloseAfter
   CloseTimer.Enabled:=False;
+
+  //The version is read from the version info of the program
+  VersionLbl.Caption:=Trim('Version '+GetProgramVersionStr);
 
   //The picture is a PNG file. Without it the window stays grey
   SplashImg:=TPicture.Create;

@@ -53,8 +53,41 @@ procedure LoadApplicationFont;
 function GetSpecialFolder(Folder: Integer): String;
 {$ENDIF}
 function GetGlobalSettingsPath: string;
+function GetProgramVersionStr: string;
 
 implementation
+
+uses
+  // the version info of the program and the readers of its resources
+  fileinfo, winpeimagereader, elfreader, machoreader;
+
+//The version of the program as it is set in the project options
+//(DBDesignerFork.lpi, Version Info), e.g. 1.5 for 1.5.0.0;
+//an empty string when the program has no version info
+function GetProgramVersionStr: string;
+var
+  theVersion: TProgramVersion;
+  s: string;
+begin
+  GetProgramVersionStr:='';
+
+  try
+    if(Not(GetProgramVersion(theVersion)))then
+      Exit;
+  except
+    Exit;
+  end;
+
+  s:=IntToStr(theVersion.Major)+'.'+IntToStr(theVersion.Minor);
+
+  //Revision and build are only shown when they are set
+  if(theVersion.Revision<>0)or(theVersion.Build<>0)then
+    s:=s+'.'+IntToStr(theVersion.Revision);
+  if(theVersion.Build<>0)then
+    s:=s+'.'+IntToStr(theVersion.Build);
+
+  GetProgramVersionStr:=s;
+end;
 
 {$IFDEF MSWINDOWS}
 //CSIDL_COOKIES              Cookies

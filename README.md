@@ -273,7 +273,8 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Build and start**
 
-- Version info of the program: it is set in the project options of Lazarus (`DBDesignerFork.lpi`, *Project Options > Version Info*) and reads 1.5.0.0. Before it was a fixed 1.0.0.0 block inside a binary `.res` file. The icon and the application manifest stay in `src/AppResources.res` (was `src/DBDesignerFork.res`; Lazarus writes its own `DBDesignerFork.res` with the version info at every build).
+- The version is 2.0.0.*build*. The start picture and *Help > About* read it from the version info of the program (`GetProgramVersionStr` in `src/GlobalSysFunctions.pas`) instead of a fixed "Version 1.5". The build number is counted up by Lazarus: `lazbuild` does it only at a build of everything (`lazbuild -B DBDesignerFork.lpi`) and then writes the next number to `DBDesignerFork.lpi`, so this file is changed by such a build.
+- Version info of the program: it is set in the project options of Lazarus (`DBDesignerFork.lpi`, *Project Options > Version Info*). Before it was a fixed 1.0.0.0 block inside a binary `.res` file. The icon and the application manifest stay in `src/AppResources.res` (was `src/DBDesignerFork.res`; Lazarus writes its own `DBDesignerFork.res` with the version info at every build).
 - Builds on Windows: the Delphi-era Windows branches of the source never went through FPC (compiler version check of the XML parser, CLX/Qt window workarounds, native dialog switches, `/tmp` in the tests).
 - Main program and plugins are Windows GUI applications (no console window); `--selftest` writes its result to the log file only.
 - Application manifest: visual styles of Windows (Common Controls 6) instead of the Windows 95 look.

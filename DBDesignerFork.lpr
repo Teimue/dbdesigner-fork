@@ -125,7 +125,6 @@ begin
   if(Not(HasSelfTestParam))and(Not(HasScreenshotParam))then
   begin
     SplashForm:=TSplashForm.Create(Application);
-    SplashForm.VersionLbl.Caption:='Version 1.5';
     SplashForm.Show;
     SplashForm.Update;
   end;

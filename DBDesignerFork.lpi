@@ -13,15 +13,13 @@
       <Title Value="DBDesigner Fork"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
-      <XPManifest>
-        <UseManifest Value="False"/>
-      </XPManifest>
     </General>
     <VersionInfo>
       <UseVersionInfo Value="True"/>
-      <MajorVersionNr Value="1"/>
-      <MinorVersionNr Value="5"/>
-      <StringTable FileDescription="DBDesigner Fork" ProductName="DBDesigner Fork" ProductVersion="1.5.0.0"/>
+      <AutoIncrementBuild Value="True"/>
+      <MajorVersionNr Value="2"/>
+      <BuildNr Value="2"/>
+      <StringTable FileDescription="DBDesigner Fork" ProductName="DBDesigner Fork" ProductVersion="2.0"/>
     </VersionInfo>
     <BuildModes Count="1">
       <Item1 Name="Default" Default="True"/>
@@ -47,7 +45,7 @@
         <PackageName Value="LCL"/>
       </Item4>
     </RequiredPackages>
-    <Units Count="49">
+    <Units Count="50">
       <Unit0>
         <Filename Value="DBDesignerFork.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -281,6 +279,10 @@
         <Filename Value="src/UITestRunner.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit48>
+      <Unit49>
+        <Filename Value="src/UIScreenshots.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit49>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

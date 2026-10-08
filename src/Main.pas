@@ -500,7 +500,7 @@ uses MainDM, ZoomSel, IniFiles,
   EERDM, EditorTable, EditorRelation, EditorRegion, EditorNote,
   EditorImage, GUIDM, DBDM, EditorQuery, EditorQueryDragTarget,
   Tips, EERPlaceModel, DBEERDM, EERExportImportDM, Math, UIScale,
-  UITestRunner, PaletteTabs, UIScreenshots;
+  UITestRunner, PaletteTabs, UIScreenshots, GlobalSysFunctions;
 
 procedure TMainForm.AppException(Sender: TObject; E: Exception);
 const
@@ -592,8 +592,8 @@ begin
   Application.OnEvent:=DoApplicationEvent;
   {$ENDIF}
 
-  //Get Version string, defined in DBDesigner4.dpr
-  Version:='1.5';
+  //Get Version string from the version info of the program (DBDesignerFork.lpi)
+  Version:=GetProgramVersionStr;
 
   //Initialize DMMain and DMGUI
   DMMain:=TDMMain.Create(self);
@@ -723,10 +723,7 @@ procedure TMainForm.AboutMIClick(Sender: TObject);
 begin
   //The start picture, until it is clicked. The form frees itself
   with TSplashForm.Create(self) do
-  begin
-    VersionLbl.Caption:='Version '+Version;
     ShowModal;
-  end;
 end;
 
 procedure TMainForm.FormShow(Sender: TObject);
