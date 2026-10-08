@@ -13,7 +13,7 @@
 #define AppExe "DBDesignerFork.exe"
 #define AppVersion GetVersionNumbersString(BinDir + "\" + AppExe)
 
-; Firebird client library: taken from an unpacked Firebird zip kit (64 bit),
+; Firebird client and embedded engine: taken from an unpacked Firebird zip kit (64 bit),
 ; by default next to the repository. Another place:
 ;   ISCC.exe /DFirebirdDir=C:\path\to\Firebird installer\DBDesignerFork.iss
 #ifndef FirebirdDir
@@ -89,9 +89,8 @@ Source: "{#BinDir}\libcrypto-3-x64.dll"; DestDir: "{app}"; Flags: ignoreversion 
 Source: "{#BinDir}\z.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#BinDir}\zstd.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
-; Firebird client (connections to a server). The program looks for
-; fbclient.dll in the subdirectory "firebird" of its directory; the runtime
-; DLLs it needs lie next to it. The embedded engine is not packed.
+; Firebird client. The program looks for fbclient.dll in the subdirectory
+; "firebird" of its directory; the runtime DLLs it needs lie next to it.
 #if FileExists(SourcePath + FirebirdDir + "\fbclient.dll")
 Source: "{#FirebirdDir}\fbclient.dll"; DestDir: "{app}\firebird"; Flags: ignoreversion
 Source: "{#FirebirdDir}\msvcp140*.dll"; DestDir: "{app}\firebird"; Flags: ignoreversion
@@ -99,6 +98,18 @@ Source: "{#FirebirdDir}\vcruntime140*.dll"; DestDir: "{app}\firebird"; Flags: ig
 Source: "{#FirebirdDir}\firebird.msg"; DestDir: "{app}\firebird"; Flags: ignoreversion
 Source: "{#FirebirdDir}\IDPLicense.txt"; DestDir: "{app}\firebird"; Flags: ignoreversion
 Source: "{#FirebirdDir}\IPLicense.txt"; DestDir: "{app}\firebird"; Flags: ignoreversion
+; Embedded engine (a connection without host name opens the database file
+; itself): the engine, ICU, the character sets and the time zones. This set
+; has been run through tests\TestFirebirdSync. No server, no service, no
+; security database; the plugins for a server (authentication, wire
+; encryption, UDR, trace) are left out.
+Source: "{#FirebirdDir}\plugins\engine13.dll"; DestDir: "{app}\firebird\plugins"; Flags: ignoreversion
+Source: "{#FirebirdDir}\firebird.conf"; DestDir: "{app}\firebird"; Flags: ignoreversion
+Source: "{#FirebirdDir}\ib_util.dll"; DestDir: "{app}\firebird"; Flags: ignoreversion
+Source: "{#FirebirdDir}\icu*.dll"; DestDir: "{app}\firebird"; Flags: ignoreversion
+Source: "{#FirebirdDir}\icudt*.dat"; DestDir: "{app}\firebird"; Flags: ignoreversion
+Source: "{#FirebirdDir}\intl\*"; DestDir: "{app}\firebird\intl"; Flags: ignoreversion
+Source: "{#FirebirdDir}\tzdata\*"; DestDir: "{app}\firebird\tzdata"; Flags: ignoreversion
 #else
   #pragma warning "No fbclient.dll in " + FirebirdDir + ", the Firebird client is left out"
 #endif
