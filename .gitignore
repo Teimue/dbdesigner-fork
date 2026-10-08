@@ -45,3 +45,6 @@ tests/TestSQLExport
 
 # Local test data
 Testdata/
+
+# Setup programs built by Inno Setup
+installer/Output/
