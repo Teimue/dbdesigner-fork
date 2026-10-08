@@ -85,6 +85,9 @@ type
     procedure ModelTVCustomDrawItem(Sender: TCustomTreeView;
       Node: TTreeNode; State: TCustomDrawState;
       var DefaultDraw: Boolean);
+    procedure TablesTreeViewAdvancedCustomDrawItem(Sender: TCustomTreeView;
+      Node: TTreeNode; State: TCustomDrawState; Stage: TCustomDrawStage;
+      var PaintImages, DefaultDraw: Boolean);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 
     procedure RefreshTablesTreeView(theModel: TEERModel);
@@ -245,6 +248,84 @@ begin
       end;
 end;
 
+procedure TPaletteModelFrom.TablesTreeViewAdvancedCustomDrawItem(
+  Sender: TCustomTreeView; Node: TTreeNode; State: TCustomDrawState;
+  Stage: TCustomDrawStage; var PaintImages, DefaultDraw: Boolean);
+var theRegion: TEERRegion;
+  s: string;
+  theTV: TTreeView;
+  RowRect, TxtRect, MarkerRect: TRect;
+  MarkerSize: integer;
+  theTextStyle: TTextStyle;
+begin
+  //The LCL paints the node after the cdPrePaint stage, so the region
+  //color has to be painted over the finished node
+  if(Stage<>cdPostPaint)or(EERModel=nil)then
+    Exit;
+
+  //If a table item is drawn, get bgcolor from region
+  if(Node.Data=nil)or(Node.Level<>0)then
+    Exit;
+  if(Not(TObject(Node.Data) is TEERTable))then
+    Exit;
+
+  theRegion:=TEERTable(Node.Data).GetRegion;
+  if(theRegion=nil)then
+    Exit;
+
+  theTV:=TTreeView(Sender);
+  try
+    s:=EERModel.RegionColors.ValueFromIndex[theRegion.RegionColor];
+
+    with theTV.Canvas do
+    begin
+      RowRect:=Node.DisplayRect(False);
+      RowRect.Left:=Node.DisplayIconLeft;
+      TxtRect:=Node.DisplayRect(True);
+
+      Brush.Style:=bsSolid;
+      Brush.Color:=DMMain.RGB(DMMain.HexStringToInt(Copy(s, 2, 2)),
+        DMMain.HexStringToInt(Copy(s, 4, 2)),
+        DMMain.HexStringToInt(Copy(s, 6, 2)));
+      FillRect(RowRect);
+
+      if(theTV.Images<>nil)and(Node.ImageIndex>=0)and
+        (Node.ImageIndex<theTV.Images.Count)then
+        theTV.Images.DrawForPPI(theTV.Canvas, RowRect.Left+1,
+          RowRect.Top+(RowRect.Bottom-RowRect.Top-
+            theTV.Images.HeightForPPI[theTV.ImagesWidth, theTV.Font.PixelsPerInch]) div 2,
+          Node.ImageIndex, theTV.ImagesWidth, theTV.Font.PixelsPerInch,
+          theTV.GetCanvasScaleFactor);
+
+      //Selected tables keep the region color and get a small marker
+      //behind the name, like in the CLX version
+      if(cdsSelected in State)or(cdsMarked in State)then
+      begin
+        MarkerSize:=theTV.Scale96ToFont(5);
+        MarkerRect.Left:=TxtRect.Right+theTV.Scale96ToFont(6);
+        MarkerRect.Top:=RowRect.Top+(RowRect.Bottom-RowRect.Top-MarkerSize) div 2;
+        MarkerRect.Right:=MarkerRect.Left+MarkerSize;
+        MarkerRect.Bottom:=MarkerRect.Top+MarkerSize;
+        Brush.Color:=clBlack;
+        FillRect(MarkerRect);
+      end;
+      Font.Color:=theTV.Font.Color;
+
+      theTextStyle:=TextStyle;
+      theTextStyle.Layout:=tlCenter;
+      theTextStyle.SingleLine:=True;
+      theTextStyle.Opaque:=False;
+      theTextStyle.ShowPrefix:=False;
+      Inc(TxtRect.Left, theTV.Scale96ToFont(2));
+      TxtRect.Right:=RowRect.Right;
+      Brush.Style:=bsClear;
+      TextRect(TxtRect, TxtRect.Left, TxtRect.Top, Node.Text, theTextStyle);
+      Brush.Style:=bsSolid;
+    end;
+  except
+  end;
+end;
+
 procedure TPaletteModelFrom.FormCloseQuery(Sender: TObject;
   var CanClose: Boolean);
 begin
@@ -294,6 +375,7 @@ begin
           begin
             theNode:=TablesTreeView.Items.AddObject(nil, ObjName, TableList[i]);
             theNode.ImageIndex:=0;
+            theNode.SelectedIndex:=0;
 
             //Add Colums
             if(Columns.Count>0)then
@@ -309,6 +391,7 @@ begin
                   theChildNode.ImageIndex:=2
                 else
                   theChildNode.ImageIndex:=1;
+                theChildNode.SelectedIndex:=theChildNode.ImageIndex;
               end;
             end;
 
@@ -322,12 +405,14 @@ begin
                 theChildNode:=TablesTreeView.Items.AddChildObject(theKindNode,
                   TEERRel(RelStart[j]).ObjName, RelStart[j]);
                 theChildNode.ImageIndex:=3;
+                theChildNode.SelectedIndex:=3;
               end;
               for j:=0 to RelEnd.Count-1 do
               begin
                 theChildNode:=TablesTreeView.Items.AddChildObject(theKindNode,
                   TEERRel(RelEnd[j]).ObjName, RelEnd[j]);
                 theChildNode.ImageIndex:=3;
+                theChildNode.SelectedIndex:=3;
               end;
             end;
           end;
@@ -556,7 +641,10 @@ begin
       if(TObject(theNode.Data) is TEERTable)then
       begin
         TablesTreeView.Selected:=theNode;
-        TablesTreeView.BeginDrag(False, 5);
+        //A pending drag swallows the right click, so the popup menu
+        //would not open on the table name
+        if(Button=mbLeft)then
+          TablesTreeView.BeginDrag(False, 5);
       end;
 end;
 

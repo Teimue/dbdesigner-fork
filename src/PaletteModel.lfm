@@ -1020,7 +1020,7 @@ object PaletteModelFrom: TPaletteModelFrom
           ScrollBars = ssAutoBoth
           TabOrder = 0
           TabStop = False
-          OnCustomDrawItem = ModelTVCustomDrawItem
+          OnAdvancedCustomDrawItem = TablesTreeViewAdvancedCustomDrawItem
           OnDblClick = TablesTreeViewDblClick
           OnDragDrop = TablesTreeViewDragDrop
           OnDragOver = TablesTreeViewDragOver
