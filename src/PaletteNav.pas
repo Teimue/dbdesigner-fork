@@ -134,6 +134,7 @@ type
     procedure NavigatorPBoxClick(Sender: TObject);
     procedure InfoPBoxClick(Sender: TObject);
     procedure LayoutTabs(Sender: TObject);
+    procedure LayoutInfoSheet;
   private
     { Private declarations }
     ZoomTrackBarActive: Boolean;
@@ -190,6 +191,57 @@ begin
 
   TabsPnl.OnResize:=LayoutTabs;
   LayoutTabs(self);
+  LayoutInfoSheet;
+end;
+
+//The labels of the info page are as wide as their (translated) texts in the
+//application font and the fields follow them: the form gives them 41 pixels,
+//which cut a longer text off behind the field
+procedure TPaletteNavForm.LayoutInfoSheet;
+var Col1, Col2, Gap, EditLeft, Edit2Left: integer;
+
+  function MaxWidth(const L: array of TLabel): integer;
+  var i: integer;
+  begin
+    Result:=0;
+    for i:=0 to High(L) do
+      if(ApplicationFontTextWidth(L[i].Caption)>Result)then
+        Result:=ApplicationFontTextWidth(L[i].Caption);
+  end;
+
+  procedure Place(L: TLabel; ARight: integer; E: TEdit);
+  begin
+    L.AutoSize:=False;
+    L.Alignment:=taRightJustify;
+    L.Layout:=tlCenter;
+    L.SetBounds(ARight-ApplicationFontTextWidth(L.Caption)-2, E.Top,
+      ApplicationFontTextWidth(L.Caption)+2, E.Height);
+  end;
+
+begin
+  Gap:=Max(4, ApplicationFontHeight div 3);
+  Col1:=MaxWidth([Label1, Label2, Label3, Label6]);
+  Col2:=MaxWidth([Label4, Label5]);
+
+  EditLeft:=Gap+Col1+Gap;
+  Edit2Left:=EditLeft+LeftEdit.Width+2*Gap+Col2+Gap;
+
+  NameEdit.Left:=EditLeft;
+  LeftEdit.Left:=EditLeft;
+  TopEdit.Left:=EditLeft;
+  LinkEd.Left:=EditLeft;
+  WidthEd.Left:=Edit2Left;
+  HeightEd.Left:=Edit2Left;
+  NameEdit.Width:=Edit2Left+WidthEd.Width-EditLeft;
+  LinkEd.Width:=NameEdit.Width;
+  Bevel1.Width:=Edit2Left+WidthEd.Width-Bevel1.Left;
+
+  Place(Label3, EditLeft-Gap, NameEdit);
+  Place(Label1, EditLeft-Gap, LeftEdit);
+  Place(Label2, EditLeft-Gap, TopEdit);
+  Place(Label6, EditLeft-Gap, LinkEd);
+  Place(Label4, Edit2Left-Gap, WidthEd);
+  Place(Label5, Edit2Left-Gap, HeightEd);
 end;
 
 //The tab strip and the zoom bar follow the width of the palette

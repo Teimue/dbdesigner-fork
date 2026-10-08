@@ -41,7 +41,7 @@ uses
   EERReverseEngineering, EERSynchronisation, EERStoreInDatabase,
   EERPlaceModel, EditorString, EditorDatatype, EditorTableFieldParam,
   Tips, Splash, EditorQueryDragTarget, EditorImage, UIScale, PaletteModel,
-  PaletteTools;
+  PaletteTools, PaletteNav;
 
 {$IFDEF MSWINDOWS}
 function PrintWindow(hwnd: HWND; hdcBlt: HDC; nFlags: UINT): BOOL; stdcall;
@@ -594,6 +594,21 @@ begin
           on x: Exception do
             Report.Add('ModelImage'#9'EXCEPTION '+x.Message);
         end;
+
+    //The info page of the navigator palette
+    try
+      if(PaletteNavForm<>nil)then
+      begin
+        PaletteNavForm.PageControl.ActivePage:=PaletteNavForm.InfoSheet;
+        Pump(400);
+        SaveForm(AMainForm, OutDir+'MainForm_NavInfo.png');
+        PaletteNavForm.PageControl.ActivePage:=PaletteNavForm.NavSheet;
+        Pump(200);
+      end;
+    except
+      on x: Exception do
+        Report.Add('NavInfo'#9'EXCEPTION '+x.Message);
+    end;
 
     //The floating tools palette
     try

@@ -307,6 +307,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Dialogs and palettes**
 
+- Info page of the navigator palette: the labels are as wide as their translated texts in the application font and the fields follow them (a longer label such as "Verknüpft:" was cut off behind its field).
 - The submenu *Window > Style* (Standard, Motif, SGI, Platinum) is hidden: these are the styles of CLX/Qt, the LCL draws with the theme of the system and the items only set their check mark.
 - The dialogs to open and to place a model offer "All files (*.*)" as a second file type.
 - Model palette: the tables in the list have the colour of their region again; a selected table keeps the colour and is marked by a small square behind its name. The context menu opens on a right click on the table name, and a selected node keeps its icon.
