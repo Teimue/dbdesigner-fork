@@ -1306,7 +1306,11 @@ begin
 
   if(FActiveEERForm<>nil)then
     if(FActiveEERForm.Classname='TEERForm')then
+    begin
       TEERForm(FActiveEERForm).EERModel.GridPaintBox.Visible:=TMenuItem(Sender).Checked;
+      //the regions show the grid too
+      TEERForm(FActiveEERForm).EERModel.Refresh;
+    end;
 end;
 
 procedure TMainForm.ListTableIndicesMIClick(Sender: TObject);

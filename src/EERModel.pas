@@ -303,6 +303,9 @@ type
 
     //Paint grid Box --> needs to be replaced
     procedure DoGridPaintBoxPaint(Sender: TObject);
+    //The borders of the pages on a canvas that shows the area of the model
+    //(in the pixels of the display) from OffsX, OffsY with the size W x H
+    procedure PaintPageGrid(theCanvas: TCanvas; OffsX, OffsY, W, H: integer; DarkBackground: Boolean);
 
     //Decode Datatypes ini-file data
     procedure DecodeDataTypes(s: string; p: Pointer);
@@ -2545,27 +2548,59 @@ end;
 
 
 procedure TEERModel.DoGridPaintBoxPaint(Sender: TObject);
-var i, w, h: integer;
 begin
   //Same as DoSelectionRectPaint: use the paintbox size, not TCanvas.Width/Height
-  w:=GridPaintBox.Width;
-  h:=GridPaintBox.Height;
-  with GridPaintBox.Canvas do
+  PaintPageGrid(GridPaintBox.Canvas, 0, 0, GridPaintBox.Width, GridPaintBox.Height, False);
+end;
+
+procedure TEERModel.PaintPageGrid(theCanvas: TCanvas; OffsX, OffsY, W, H: integer;
+  DarkBackground: Boolean);
+var i, p, PageW, PageH: integer;
+begin
+  if(HPageCount<=0)or(VPageCount<=0)then
+    Exit;
+  PageW:=Round(EERModel_Width/HPageCount);
+  PageH:=Round(EERModel_Height/VPageCount);
+  if(PageW<1)or(PageH<1)then
+    Exit;
+
+  with theCanvas do
   begin
-    Pen.Style:=psDot;
-    Pen.Color:=clSilver;
-    for i:=0 to w div 21 do
+    Pen.Style:=psDash;
+    Pen.Width:=1;
+    //silver was hardly to be seen, least on a display of high resolution
+    if(DarkBackground)then
+      Pen.Color:=clWhite
+    else
+      Pen.Color:=$00707070;
+    Brush.Style:=bsClear;
+
+    i:=1;
+    while(PageW*i<EERModel_Width)do
     begin
-      MoveTo(EvalZoomFac(Round(EERModel_Width/HPageCount)*(i+1)), 0);
-      LineTo(EvalZoomFac(Round(EERModel_Width/HPageCount)*(i+1)), h-1);
+      p:=EvalZoomFac(PageW*i)-OffsX;
+      if(p>=0)and(p<W)then
+      begin
+        MoveTo(p, 0);
+        LineTo(p, H);
+      end;
+      inc(i);
     end;
 
-    for i:=0 to h div 16 do
+    i:=1;
+    while(PageH*i<EERModel_Height)do
     begin
-      MoveTo(0, EvalZoomFac(Round(EERModel_Height/VPageCount)*(i+1)));
-      LineTo(w-1, EvalZoomFac(Round(EERModel_Height/VPageCount)*(i+1)));
+      p:=EvalZoomFac(PageH*i)-OffsY;
+      if(p>=0)and(p<H)then
+      begin
+        MoveTo(0, p);
+        LineTo(W, p);
+      end;
+      inc(i);
     end;
+
     Pen.Style:=psSolid;
+    Brush.Style:=bsSolid;
   end;
 end;
 
@@ -13568,6 +13603,19 @@ begin
         Font.Color:=clBlack;
       Brush.Style := bsClear;
       TextOut(xo+EvalZoomFac(4), yo+EvalZoomFac(3), ObjName);
+      Brush.Style := bsSolid;
+    end;
+
+    //The page grid lies below all objects: a region would hide it, and in
+    //a model that is covered by regions nothing of it was left to see
+    if(DMEER.DisplayPaperGrid)and(Not(ParentEERModel.PaintingToSpecialCanvas))and
+      (theCanvas=Canvas)then
+    begin
+      theColor:=ColorToRGB(Brush.Color);
+      ParentEERModel.PaintPageGrid(theCanvas, Left, Top, objW, objH,
+        (theColor and $FF)*299+((theColor shr 8) and $FF)*587+
+        ((theColor shr 16) and $FF)*114<110000);
+      Brush.Color:=theColor;
     end;
 
     // Paint selection

@@ -544,6 +544,8 @@ var i, k, Open: integer;
   SystemDPI: integer;
   EERFrm, EERFrm2, EERFrm3: TEERForm;
   ExportBmp: Graphics.TBitmap;
+  GridModel: TEERModel;
+  PrevZoom: double;
   t: QWord;
 begin
   OutDir:=ScreenshotDir;
@@ -591,6 +593,29 @@ begin
           on x: Exception do
             Report.Add('ModelImage'#9'EXCEPTION '+x.Message);
         end;
+
+    //The page grid, with the whole of the active model in view
+    try
+      if(TMainForm(AMainForm).FActiveEERForm is TEERForm)then
+      begin
+        GridModel:=TEERForm(TMainForm(AMainForm).FActiveEERForm).EERModel;
+        PrevZoom:=GridModel.GetZoomFac;
+        GridModel.SetZoomFac(15);
+        Pump(300);
+        TMainForm(AMainForm).DisplayPageGridMIClick(TMainForm(AMainForm).DisplayPageGridMI);
+        Pump(500);
+        SaveForm(AMainForm, OutDir+'MainForm_PageGrid.png');
+        Report.Add('PageGrid'#9'grid visible '+BoolToStr(GridModel.GridPaintBox.Visible, True)+
+          ', '+IntToStr(GridModel.GridPaintBox.Width)+'x'+IntToStr(GridModel.GridPaintBox.Height)+
+          ' at '+IntToStr(GridModel.GridPaintBox.Left)+','+IntToStr(GridModel.GridPaintBox.Top));
+        TMainForm(AMainForm).DisplayPageGridMIClick(TMainForm(AMainForm).DisplayPageGridMI);
+        GridModel.SetZoomFac(PrevZoom);
+        Pump(300);
+      end;
+    except
+      on x: Exception do
+        Report.Add('PageGrid'#9'EXCEPTION '+x.Message);
+    end;
 
     //The query mode with the docked query editor
     try

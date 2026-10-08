@@ -330,6 +330,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Model**
 
+- *Display Page Grid* can be seen: the borders of the pages were a dotted line in light grey below all objects, so a region hid them (and a model that is covered by regions showed nothing at all). They are dashed lines in dark grey that also cross the regions, white on a dark region.
 - Export of the model as an image: the picture is as large as the area of the objects (it had an empty band at the right and at the bottom, as wide and high as the distance of the objects from the origin), and an object that lies outside the work area no longer blows it up.
 - Several open models can be shown at once: "Tile" and "Cascade" of the Windows menu lay the models out in the model area, each with a title bar. A click into a model makes it the active one; a double click on its title bar or its entry in the Windows menu shows it alone again.
 - Large models: the work area matches the navigator right after loading (the canvas size was read after the zoom, so the lower right corner could not be reached).
