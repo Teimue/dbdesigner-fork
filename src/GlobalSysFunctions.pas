@@ -53,6 +53,9 @@ procedure LoadApplicationFont;
 function GetSpecialFolder(Folder: Integer): String;
 {$ENDIF}
 function GetGlobalSettingsPath: string;
+//The directory the open dialog starts in as long as the user has not
+//opened a model: the one with the examples
+function GetDefaultModelDir: string;
 function GetProgramVersionStr: string;
 
 implementation
@@ -163,6 +166,37 @@ begin
   ForceDirectories(SettingsPath);
 
   GetGlobalSettingsPath:=SettingsPath;
+end;
+
+function GetDefaultModelDir: string;
+var ExamplesDir: string;
+{$IFDEF MSWINDOWS}
+  s: string;
+{$ENDIF}
+begin
+  //Next to the program (source tree, unpacked archive)
+  ExamplesDir:=ExtractFilePath(Application.ExeName)+'Examples'+PathDelim;
+  GetDefaultModelDir:=ExamplesDir;
+  if(DirectoryExists(ExamplesDir))then
+    Exit;
+
+{$IFDEF MSWINDOWS}
+  //The setup program puts the examples into the documents, for all users
+  //or for the current user: below "Program Files" they could not be saved
+  try
+    s:=GetSpecialFolder(CSIDL_COMMON_DOCUMENTS)+PathDelim+'DBDesigner'+PathDelim;
+    if(DirectoryExists(s))then
+    begin
+      GetDefaultModelDir:=s;
+      Exit;
+    end;
+
+    s:=GetSpecialFolder(CSIDL_PERSONAL)+PathDelim+'DBDesigner'+PathDelim;
+    if(DirectoryExists(s))then
+      GetDefaultModelDir:=s;
+  except
+  end;
+{$ENDIF}
 end;
 
 procedure LoadApplicationFont;

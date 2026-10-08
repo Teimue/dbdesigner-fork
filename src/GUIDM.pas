@@ -129,7 +129,7 @@ var
 
 implementation
 
-uses Main, MainDM, DBDM, PaletteTabs, UIScale;
+uses Main, MainDM, DBDM, PaletteTabs, UIScale, GlobalSysFunctions;
 
 {$R *.lfm}
 
@@ -265,9 +265,9 @@ begin
       LastTipShown:=-1;
     end;
 
-    if(RecentOpenFileDir='')then
-      RecentOpenFileDir:=ExtractFilePath(Application.ExeName)+
-        'Examples'+PathDelim;
+    //also when the directory is gone (e.g. the examples of an earlier setup)
+    if(RecentOpenFileDir='')or(Not(DirectoryExists(RecentOpenFileDir)))then
+      RecentOpenFileDir:=GetDefaultModelDir;
 
     if(RecentSaveModelAsImageDir='')then
       RecentSaveModelAsImageDir:=RecentOpenFileDir;
