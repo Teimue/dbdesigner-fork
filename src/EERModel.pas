@@ -5439,51 +5439,84 @@ begin
 end;
 
 procedure TEERModel.PaintModelToImage(ModelBmp: TBitmap; PaintSelectedOnly: Boolean = False);
+const Margin = 10;
 var i, x, y, w, h: integer;
   SelObjList: TList;
+  Obj: TEERObj;
 begin
-  x:=Width;
-  y:=Height;
+  x:=MaxInt;
+  y:=MaxInt;
   w:=0;
   h:=0;
 
   SelObjList:=TList.Create;
   try
-    //Only Export model area
+    //Only export the area of the objects
     for i:=0 to ComponentCount-1 do
       if(Components[i].ClassParent=TEERObj)then
         if(TEERObj(Components[i]).Selected)or
           (Not(PaintSelectedOnly))then
         begin
-          if(TEERObj(Components[i]).Obj_X<x)then
-            x:=TEERObj(Components[i]).Obj_X;
-          if(TEERObj(Components[i]).Obj_Y<y)then
-            y:=TEERObj(Components[i]).Obj_Y;
-          if(TEERObj(Components[i]).Obj_X+TEERObj(Components[i]).Obj_W>w)then
-            w:=TEERObj(Components[i]).Obj_X+TEERObj(Components[i]).Obj_W;
-          if(TEERObj(Components[i]).Obj_Y+TEERObj(Components[i]).Obj_H>h)then
-            h:=TEERObj(Components[i]).Obj_Y+TEERObj(Components[i]).Obj_H;
+          Obj:=TEERObj(Components[i]);
+
+          //An object that lies outside the work area cannot be reached in
+          //the program and must not blow up the picture (a model had a
+          //stray image of 8 pixels 10000 pixels below everything else)
+          if(Obj.Obj_X<EERModel_Width)and(Obj.Obj_Y<EERModel_Height)and
+            (Obj.Obj_X+Obj.Obj_W>0)and(Obj.Obj_Y+Obj.Obj_H>0)then
+          begin
+            if(Obj.Obj_X<x)then
+              x:=Obj.Obj_X;
+            if(Obj.Obj_Y<y)then
+              y:=Obj.Obj_Y;
+            if(Obj.Obj_X+Obj.Obj_W>w)then
+              w:=Obj.Obj_X+Obj.Obj_W;
+            if(Obj.Obj_Y+Obj.Obj_H>h)then
+              h:=Obj.Obj_Y+Obj.Obj_H;
+          end;
 
           //If the user exports the selected objects
           //deselect them, so no dottet line is drawn
           if(PaintSelectedOnly)then
           begin
-            TEERObj(Components[i]).SetSelected(False);
+            Obj.SetSelected(False);
             SelObjList.Add(Components[i]);
           end;
         end;
 
-//    ModelBmp.Width:=10000;     LOOK HERE!
-//    ModelBmp.Height:=10000;
-//    ModelBmp.Canvas.Rectangle(Rect(0, 0, 1, 1));
-//    ModelBmp.Canvas.Refresh;
+    //nothing to paint
+    if(x=MaxInt)or(y=MaxInt)then
+    begin
+      x:=0;
+      y:=0;
+      w:=1;
+      h:=1;
+    end;
 
-    ModelBmp.Width:=w;
-    ModelBmp.Height:=h;
+    //within the work area, with a small margin around the objects
+    if(w>EERModel_Width)then
+      w:=EERModel_Width;
+    if(h>EERModel_Height)then
+      h:=EERModel_Height;
+    x:=x-Margin;
+    if(x<0)then
+      x:=0;
+    y:=y-Margin;
+    if(y<0)then
+      y:=0;
+    w:=w+Margin;
+    h:=h+Margin;
+
+    //PaintModel moves the objects by x and y to the origin of the picture:
+    //the picture is as large as the area of the objects, not as their
+    //right and bottom edge in the model (it had an empty band of the width
+    //of x and the height of y)
+    ModelBmp.Width:=w-x;
+    ModelBmp.Height:=h-y;
 
     ModelBmp.Canvas.Pen.Color:=clWhite;
     ModelBmp.Canvas.Brush.Color:=clWhite;
-    ModelBmp.Canvas.Rectangle(Rect(0, 0, ModelBmp.Width-1, ModelBmp.Height-1));
+    ModelBmp.Canvas.FillRect(Rect(0, 0, ModelBmp.Width, ModelBmp.Height));
 
     if Assigned(ModelBmp.Canvas) then
     begin

@@ -543,6 +543,7 @@ var i, k, Open: integer;
   DPIRect: TRect;
   SystemDPI: integer;
   EERFrm, EERFrm2, EERFrm3: TEERForm;
+  ExportBmp: Graphics.TBitmap;
   t: QWord;
 begin
   OutDir:=ScreenshotDir;
@@ -571,6 +572,25 @@ begin
     Pump(800);
 
     SaveForm(AMainForm, OutDir+'MainForm.png');
+
+    //The image export of every open model
+    for i:=0 to Screen.FormCount-1 do
+      if(Screen.Forms[i] is TEERForm)then
+        try
+          ExportBmp:=Graphics.TBitmap.Create;
+          try
+            TEERForm(Screen.Forms[i]).EERModel.PaintModelToImage(ExportBmp);
+            AName:='ModelImage_'+TEERForm(Screen.Forms[i]).EERModel.GetModelName+'.png';
+            AName:=StringReplace(AName, ' ', '_', [rfReplaceAll]);
+            DMMain.SaveBitmap(ExportBmp, OutDir+AName, '.png');
+            Report.Add(AName+#9'model image'#9+IntToStr(ExportBmp.Width)+'x'+IntToStr(ExportBmp.Height));
+          finally
+            ExportBmp.Free;
+          end;
+        except
+          on x: Exception do
+            Report.Add('ModelImage'#9'EXCEPTION '+x.Message);
+        end;
 
     //The query mode with the docked query editor
     try

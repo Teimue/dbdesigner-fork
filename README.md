@@ -268,7 +268,6 @@ The **Windows version is no longer a beta**: it is built, run and used on Window
 - Dragging a datatype from the palette onto the Table Editor grid does nothing while the editor is modal (it would need a non-modal Table Editor); use the "Set Datatype" popup submenu of the column grid instead.
 - SQL export writes no `ENGINE` clause for MyISAM tables (MySQL's default engine applies).
 - Placing a model from file (Add/Link Model) is not undoable, as in the original.
-- Export selected Objects as Image paints from the model origin instead of cropping to the selection (inherited).
 - The query result grid shows DECIMAL values through a float conversion, so trailing zeros are trimmed (`14.20` is displayed as `14.2`).
 - Unconfirmed: typing over an already filled DataType cell after a single click may not replace the value (model-edit #34); an empty one-column result right after a syntax-error dialog (#47) and a first Execute after connecting that does nothing (#51) were each seen once and could not be reproduced under probes.
 - Self relations are not guessed by reverse engineering.
@@ -331,6 +330,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Model**
 
+- Export of the model as an image: the picture is as large as the area of the objects (it had an empty band at the right and at the bottom, as wide and high as the distance of the objects from the origin), and an object that lies outside the work area no longer blows it up.
 - Several open models can be shown at once: "Tile" and "Cascade" of the Windows menu lay the models out in the model area, each with a title bar. A click into a model makes it the active one; a double click on its title bar or its entry in the Windows menu shows it alone again.
 - Large models: the work area matches the navigator right after loading (the canvas size was read after the zoom, so the lower right corner could not be reached).
 - Empty image data in a model file no longer raises an error.
