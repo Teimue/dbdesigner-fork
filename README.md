@@ -7,6 +7,12 @@
 
 ![DBDesigner Fork running on Windows 11 (German user interface, 150 % display scaling)](docs/2_windows.png?raw=true)
 
+## Download
+
+**Windows (64 bit):** the setup program of [DBDesigner Fork 2.0.0](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.0.0) (pre-release) is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases). It installs the program, the plugins and the client libraries for SQLite, MySQL and Firebird (with the embedded engine); nothing else has to be installed. The setup program is not code signed, so Windows SmartScreen asks before it is started.
+
+**Linux:** build from source, see [Building with Lazarus](#building-with-lazarus).
+
 ## Overview
 
 DBDesigner Fork provides a full-featured graphical environment for designing and managing relational database schemas. It allows you to visually create Entity-Relationship diagrams and generate SQL scripts, reverse-engineer existing databases, and much more.
@@ -273,6 +279,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Build and start**
 
+- Release: version 2.0.0 is the first release of the Windows version, a pre-release with the setup program on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.0.0) (tag `v2.0.0`).
 - Setup program: `installer/DBDesignerFork.iss` is an Inno Setup script (written for Inno Setup 7). After building the program and the plugins, `ISCC.exe installer\DBDesignerFork.iss` writes `installer/Output/DBDesignerFork-<version>-win64-setup.exe`. It installs the program, the plugins, `Data`, `Gfx` and `Doc`, for all users or for the current user, in English or German. The order example goes to `Documents\DBDesigner` (the public documents when installed for all users), where it can be saved; the open dialog starts there when there is no `Examples` directory next to the program. The 64 bit client libraries (`sqlite3.dll`, `libmySQL.dll` and what it needs) are packed when they lie in `bin`; they are not part of the repository. Firebird (`fbclient.dll` with its runtime DLLs and the embedded engine: `engine13.dll`, ICU, character sets, time zones; no server) is taken from an unpacked Firebird zip kit next to the repository (`/DFirebirdDir=...` for another place) and installed to the subdirectory `firebird`. The licences of the packed libraries lie in `installer/licenses` and are installed to the subdirectory `licenses`.
 - The version is 2.0.0.*build*. The start picture and *Help > About* read it from the version info of the program (`GetProgramVersionStr` in `src/GlobalSysFunctions.pas`) instead of a fixed "Version 1.5". The build number is counted up by Lazarus: `lazbuild` does it only at a build of everything (`lazbuild -B DBDesignerFork.lpi`) and then writes the next number to `DBDesignerFork.lpi`, so this file is changed by such a build.
 - Version info of the program: it is set in the project options of Lazarus (`DBDesignerFork.lpi`, *Project Options > Version Info*). Before it was a fixed 1.0.0.0 block inside a binary `.res` file. The icon and the application manifest stay in `src/AppResources.res` (was `src/DBDesignerFork.res`; Lazarus writes its own `DBDesignerFork.res` with the version info at every build).
