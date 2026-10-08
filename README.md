@@ -40,7 +40,8 @@ DBDesigner Fork provides a full-featured graphical environment for designing and
 - **Query editor** — Visual SQL query builder with drag-and-drop and a result grid.
 - **Synchronization** — Sync models with live MySQL, SQLite and Firebird databases.
 - **PDF generation** — Embedded PDF export of diagrams (untested in the port).
-- **Plugin system** — Extensible via plugins (HTML Report, Data Importer, Simple Web Front-end, Test Data Generator, Demo).
+- **Plugin system** — Extensible via plugins (HTML Report, Data Importer, Simple Web Front-end, Test Data Generator, Data Browser, Demo).
+- **Data browser** — The Data Browser plugin shows the rows of the tables in a connected database, with filter, sort order and a jump along the foreign keys of the model.
 - **Test data** — The Test Data Generator plugin fills the tables of a model with plausible rows, as a script or directly in a database.
 - **Multi-language support** — Translation files for internationalization; the German translation is complete.
 - **High DPI** — On Windows the program is DPI aware and scales its dialogs, symbols, cursors and the model with the display.
@@ -63,6 +64,7 @@ lazbuild Plugins/HTMLReport/DBDplugin_HTMLReport.lpi
 lazbuild Plugins/DataImporter/DBDplugin_DataImporter.lpi
 lazbuild Plugins/SimpleWebFront/DBDplugin_SimpleWebFront.lpi
 lazbuild Plugins/TestDataGenerator/DBDplugin_TestDataGenerator.lpi
+lazbuild Plugins/DataBrowser/DBDplugin_DataBrowser.lpi
 ```
 
 On Windows `lazbuild` is not on the path; call it as `C:\lazarus\lazbuild.exe` (or wherever Lazarus is installed).
@@ -77,6 +79,7 @@ All binaries are output to the `bin/` directory (they are not tracked in git). N
 | DataImporter Plugin | 8,836 | `bin/DBDplugin_DataImporter` |
 | SimpleWebFront Plugin | 40,096 | `bin/DBDplugin_SimpleWebFront` |
 | TestDataGenerator Plugin | 25,600 | `bin/DBDplugin_TestDataGenerator` |
+| DataBrowser Plugin | 29,100 | `bin/DBDplugin_DataBrowser` |
 | **Total** | **~150,000** | |
 
 **Runtime requirements (Linux):**
@@ -153,6 +156,7 @@ Areas still requiring manual or integration testing:
 | `tests/TestSQLiteSync.pas` | Database synchronisation against SQLite on the order example: create, ALTER TABLE changes, table rebuild, renamed table (`lazbuild tests/TestSQLiteSync.lpi`) |
 | `tests/TestFirebirdSync.pas` | Firebird on the order example, embedded engine or server: create, column / index / primary key / foreign key changes, renamed table, reverse engineering of the result, SQL create script loaded with isql (`lazbuild tests/TestFirebirdSync.lpi`, needs the Firebird client library) |
 | `tests/TestTestDataGen.pas` | The test data generator on the order example: the script is executed in a SQLite database created from the model (row counts, foreign keys, column lengths, same seed = same script), execution in one transaction with rollback on an error (`lazbuild tests/TestTestDataGen.lpi`) |
+| `tests/TestDataBrowser.pas` | The SELECT statements of the data browser for every database type (limit of rows, filter, sort order, names, values) and those for SQLite executed in a database file (`lazbuild tests/TestDataBrowser.lpi`) |
 | `tests/sqlite-roundtrip.sh` | Loads an exported SQL script into sqlite3 and prints a schema summary |
 | `tests/mysql-roundtrip.sh` | Same for MySQL (drops and recreates the given database) |
 
@@ -197,7 +201,8 @@ DBDesignerFork/
 │   ├── Demo/                  # Demo/example plugin
 │   ├── HTMLReport/            # HTML report generator
 │   ├── SimpleWebFront/        # Simple web front-end generator
-│   └── TestDataGenerator/     # Test data as INSERT script or directly into a database
+│   ├── TestDataGenerator/     # Test data as INSERT script or directly into a database
+│   └── DataBrowser/           # Rows of the tables in a connected database (read only)
 ├── bin/                   # Runtime files (binaries are built here, not tracked)
 │   ├── Data/                  # Configuration, settings, translations
 │   ├── Doc/                   # User documentation (HTML + PDF manual)
@@ -227,7 +232,7 @@ The bundled Delphi-era SynEdit was replaced by the SynEdit package that ships wi
 
 ### Progress
 
-All six projects (main application and five plugins) compile and run, on Linux and on Windows. Of the porting task list, 228 of 244 items are checked; the remaining ones are the untested areas listed under [Project Status](#project-status), the macOS build and the final clean-up (removing the shim layer in favour of direct LCL units). See [`docs/port-to-lazarus.md`](docs/port-to-lazarus.md) for the porting guide and [`docs/port-to-lazarus-task-list.md`](docs/port-to-lazarus-task-list.md) for the checklist.
+All seven projects (main application and six plugins) compile and run on Windows; the main application and the four original plugins also on Linux (the Test Data Generator and the Data Browser were written on Windows and have not been built on Linux yet). Of the porting task list, 228 of 244 items are checked; the remaining ones are the untested areas listed under [Project Status](#project-status), the macOS build and the final clean-up (removing the shim layer in favour of direct LCL units). See [`docs/port-to-lazarus.md`](docs/port-to-lazarus.md) for the porting guide and [`docs/port-to-lazarus-task-list.md`](docs/port-to-lazarus-task-list.md) for the checklist.
 
 ### AI-Assisted Porting
 
@@ -332,6 +337,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **New**
 
+- **Data Browser plugin**: connect to a database and look at the rows of the tables of the model, or of all tables of the database. A filter as a WHERE condition, a limit of rows, a click on a column title sorts, a double click on a foreign key column (marked with `>`) shows the referenced row, the whole value of a cell is shown below the grid. It only reads, and it keeps no query open, so no lock stays on the database. Checked with SQLite; the statements for the other database types are covered by `tests/TestDataBrowser`.
 - **Test Data Generator plugin**: INSERT statements for the selected tables in the order of their foreign keys, values by datatype and column name in German or English, unique keys, for FireBird, MySQL, Oracle, PostgreSQL, SQL Server and SQLite; as a script to copy or save, or executed in a database in one transaction. Executed in a database that has rows already, the new rows are added beside them: their keys go on after the highest existing key (or the existing rows are deleted first, if that is chosen).
 - `--screenshots <dir>` saves a picture of every dialog, the main window in both modes and the cursors, to check the layout after a change.
 
