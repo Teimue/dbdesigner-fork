@@ -3792,7 +3792,8 @@ begin
 
     theOpenDialog.Title:=DMMain.GetTranslatedMessage('Open a Model ...', 9);
     theOpenDialog.DefaultExt:='xml';
-    theOpenDialog.Filter:=DMMain.GetTranslatedMessage('DB-Model files (*.xml)|*.xml', 10);
+    theOpenDialog.Filter:=DMMain.GetTranslatedMessage('DB-Model files (*.xml)|*.xml', 10)+
+      '|'+DMMain.GetTranslatedMessage('All files', 90)+' (*.*)|*.*';
     theOpenDialog.Width:=600;
     theOpenDialog.Height:=450;
 

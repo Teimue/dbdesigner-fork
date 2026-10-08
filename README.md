@@ -292,6 +292,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Dialogs and palettes**
 
+- The dialogs to open and to place a model offer "All files (*.*)" as a second file type.
 - Model palette: the tables in the list have the colour of their region again; a selected table keeps the colour and is marked by a small square behind its name. The context menu opens on a right click on the table name, and a selected node keeps its icon.
 - Every dialog was gone through with `--screenshots`: the forms are laid out in fixed pixels for a font of 8 points and are now fitted to the application font; the contents of group boxes are no longer cut off (CLX places them relative to the frame, the LCL below the caption).
 - Right justified and centred labels keep their place in front of their field instead of sticking to the control before them.
