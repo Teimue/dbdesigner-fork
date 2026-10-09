@@ -583,7 +583,9 @@ begin
     TypeSelectForm:=TForm.Create(self);
     try
       TypeSelectForm.Name:='TypeSelectForm';
-      TypeSelectForm.FormStyle:=fsStayOnTop;
+      //above this dialog, not above other programs
+      TypeSelectForm.PopupMode:=pmExplicit;
+      TypeSelectForm.PopupParent:=self;
       {$IFDEF MSWINDOWS}
       TypeSelectForm.BorderStyle:=TFormBorderStyle(bsNone);
       {$ENDIF}

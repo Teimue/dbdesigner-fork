@@ -125,7 +125,12 @@ begin
     png.Assign(bmp);
     png.SaveToFile(FileName);
     Report.Add(ExtractFileName(FileName)+#9+F.ClassName+#9+
-      IntToStr(bmp.Width)+'x'+IntToStr(bmp.Height));
+      IntToStr(bmp.Width)+'x'+IntToStr(bmp.Height)
+      {$IFDEF MSWINDOWS}
+      //a window that lies above all other programs
+      +BoolToStr((Windows.GetWindowLong(F.Handle, GWL_EXSTYLE) and WS_EX_TOPMOST)<>0, #9'TOPMOST', '')
+      {$ENDIF}
+      );
   finally
     png.Free;
     bmp.Free;

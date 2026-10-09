@@ -78,6 +78,8 @@ type
 
     //Initialze a form by setting the default font
     procedure InitForm(theForm: TForm; SetFloatOnTop: Boolean = False; Translate: Boolean = True);
+    //Keep a form above the windows of the program (not above other programs)
+    procedure FloatOverProgram(theForm: TForm);
     //Fit the layout of a dialog to the application font, see InitForm
     procedure FitFormLayout(theForm: TForm);
     //A number of pixels of the dialog design in the scale of FitFormLayout
@@ -1851,18 +1853,56 @@ begin
   Marker.Watch(theForm, UIDPI);
 end;
 
+//The editors, palettes and some dialogs are meant to float above the main
+//window. Their forms said fsStayOnTop for that, which CLX took back while
+//the program was not active. In the LCL it makes a window the topmost one
+//of the whole desktop: the dialogs lay above other programs too, also with
+//the main window in the background.
+//Instead the form becomes a window that is owned by another window of the
+//program (the dialog that opens it, else the main window): it stays above
+//that one and goes to the background with it.
+procedure TDMMain.FloatOverProgram(theForm: TForm);
+var Above: TCustomForm;
+begin
+  if(theForm=Application.MainForm)or(theForm.ClassNameIs('TMainForm'))or
+    //shown before the main window, or only while a table is dragged
+    (theForm.ClassNameIs('TSplashForm'))or(theForm.ClassNameIs('TEditorQueryDragTargetForm'))then
+    Exit;
+
+  //A dialog that is opened from a modal dialog lies above that one
+  Above:=Screen.ActiveCustomForm;
+  if(Above=nil)or(Above=theForm)or(Not(fsModal in Above.FormState))then
+  begin
+    if(theForm.Owner is TCustomForm)and(theForm.Owner<>theForm)and
+      (TCustomForm(theForm.Owner).ClassNameIs('TMainForm'))then
+      Above:=TCustomForm(theForm.Owner)
+    else
+      Above:=Application.MainForm;
+  end;
+
+  if(theForm.FormStyle=fsStayOnTop)then
+    theForm.FormStyle:=fsNormal;
+
+  if(Above<>nil)and(Above<>theForm)then
+  begin
+    theForm.PopupMode:=pmExplicit;
+    theForm.PopupParent:=Above;
+  end;
+end;
+
 procedure TDMMain.InitForm(theForm: TForm; SetFloatOnTop: Boolean = False; Translate: Boolean = True);
 begin
+  //Above the windows of the program, not above other programs. Before the
+  //form gets its window
+  if(SetFloatOnTop)or(theForm.FormStyle=fsStayOnTop)then
+    FloatOverProgram(theForm);
+
   //Once per form, before the font of the form is set
   FitFormLayout(theForm);
 
   theForm.Font.Name:=ApplicationFontName;
   theForm.Font.Size:=ApplicationFontSize;
   theForm.Font.Style:=ApplicationFontStyle;
-
-  //Make Editors float on top if requested by the user
-  if(SetFloatOnTop)then
-    theForm.FormStyle:=fsStayOnTop;
 
   //Make Translation
   if(Translate)then
