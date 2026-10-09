@@ -19,6 +19,10 @@ program DBDesignerMCP;
 //   change_column   another name, datatype or other properties of a column
 //   delete_table, delete_column, delete_relation
 //   add_index, delete_index
+//   move_table      another place in the diagram
+//   list_regions, add_region, change_region, delete_region
+//   list_notes, add_note, change_note, delete_note
+//   get_model_settings, change_model_settings
 //   save_model      write the model to its file or to another one
 //   list_connections       the database connections stored in DBDesigner
 //   connect_database       connect to a Firebird database
@@ -50,7 +54,7 @@ uses
 
 const
   ServerName = 'dbdesigner-fork';
-  ServerVersion = '0.4.0';
+  ServerVersion = '0.5.0';
   //The newest protocol version comes first, it is the answer to a client
   //that asks for a version not in this list
   ProtocolVersions: array[0..2] of string = ('2025-06-18', '2025-03-26', '2024-11-05');
@@ -461,6 +465,8 @@ begin
         'primary_key', PrimaryKeyColumns(Table)]);
       if(Table.IsLinkedObject)then
         Item.Add('linked', True);
+      if(Table.GetRegion<>nil)then
+        Item.Add('region', U(TEERRegion(Table.GetRegion).ObjName));
       if(Table.Comments<>'')then
         Item.Add('comments', U(Table.Comments));
       TJSONArray(Result).Add(Item);
@@ -468,6 +474,13 @@ begin
   finally
     Tables.Free;
   end;
+end;
+
+//Place and size of an object in the diagram, in the units of the model
+function PositionToJSON(Obj: TEERObj): TJSONObject;
+begin
+  Result:=TJSONObject.Create(['x', Obj.Obj_X, 'y', Obj.Obj_Y,
+    'width', Obj.Obj_W, 'height', Obj.Obj_H]);
 end;
 
 function TableToJSON(Table: TEERTable): TJSONObject;
@@ -498,6 +511,9 @@ begin
     Result.Add('comments', U(Table.Comments));
   if(Table.IsLinkedObject)then
     Result.Add('linked', True);
+  Result.Add('position', PositionToJSON(Table));
+  if(Table.GetRegion<>nil)then
+    Result.Add('region', U(TEERRegion(Table.GetRegion).ObjName));
   Result.Add('columns', Columns);
   Result.Add('indices', Indices);
   Result.Add('relations_to_parents', Parents);
@@ -1380,6 +1396,470 @@ begin
   Result:=TableToJSON(Table);
 end;
 
+// ---------------------------------------------------------------------------
+// Diagram: positions, regions, notes
+
+//An object has to lie inside the canvas of the model
+procedure NeedInsideCanvas(x, y, w, h: integer);
+begin
+  if(x<0)or(y<0)or(x+w>Model.EERModel_Width)or(y+h>Model.EERModel_Height)then
+    raise EToolError.CreateFmt('The place %d, %d with the size %d x %d is outside '+
+      'of the canvas of the model (%d x %d).',
+      [x, y, w, h, Model.EERModel_Width, Model.EERModel_Height]);
+end;
+
+function ToolMoveTable(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  if(Not(HasArg(Args, 'x')))or(Not(HasArg(Args, 'y')))then
+    raise EToolError.Create('The arguments "x" and "y" are missing.');
+  NeedInsideCanvas(ArgInt(Args, 'x', 0), ArgInt(Args, 'y', 0), Table.Obj_W, Table.Obj_H);
+
+  Table.Obj_X:=ArgInt(Args, 'x', 0);
+  Table.Obj_Y:=ArgInt(Args, 'y', 0);
+  Table.RefreshObj;
+  //The lines of the relations follow
+  Table.RefreshRelations;
+  Model.ModelHasChanged;
+
+  Result:=TJSONObject.Create(['name', U(Table.ObjName),
+    'position', PositionToJSON(Table)]);
+  if(Table.GetRegion<>nil)then
+    TJSONObject(Result).Add('region', U(TEERRegion(Table.GetRegion).ObjName));
+end;
+
+function NeedRegion(const RegionName: string): TEERRegion;
+begin
+  NeedModel;
+  if(RegionName='')then
+    raise EToolError.Create('The argument "region" is missing.');
+  Result:=Model.GetEERObjectByName(EERRegion, RegionName);
+  if(Result=nil)then
+    raise EToolError.CreateFmt('There is no region "%s" in the model. '+
+      'list_regions shows the regions.', [RegionName]);
+end;
+
+function RegionColorName(Region: TEERRegion): string;
+begin
+  if(Region.RegionColor>=0)and(Region.RegionColor<Model.RegionColors.Count)then
+    Result:=Model.RegionColors.Names[Region.RegionColor]
+  else
+    Result:=IntToStr(Region.RegionColor);
+end;
+
+//The names of the colours the model has for its regions
+function RegionColorNames: string;
+var i: integer;
+begin
+  Result:='';
+  for i:=0 to Model.RegionColors.Count-1 do
+    Result:=Result+IfThen(i>0, ', ')+Model.RegionColors.Names[i];
+end;
+
+procedure SetRegionColor(Region: TEERRegion; const ColorName: string);
+var i, Found: integer;
+begin
+  Found:=-1;
+  for i:=0 to Model.RegionColors.Count-1 do
+    if(CompareText(Model.RegionColors.Names[i], ColorName)=0)then
+      Found:=i;
+  if(Found<0)then
+    raise EToolError.CreateFmt('The model has no region colour "%s". Its colours: %s',
+      [ColorName, RegionColorNames]);
+  Region.RegionColor:=Found;
+end;
+
+//A region holds the objects that lie completely inside of it
+function RegionToJSON(Region: TEERRegion): TJSONObject;
+var Tables: TList;
+  Names: TJSONArray;
+  i: integer;
+begin
+  Names:=TJSONArray.Create;
+  Tables:=TList.Create;
+  try
+    Region.GetEERObjsInRegion([EERTable], Tables);
+    Model.SortEERObjectListByObjName(Tables);
+    for i:=0 to Tables.Count-1 do
+      Names.Add(U(TEERTable(Tables[i]).ObjName));
+  finally
+    Tables.Free;
+  end;
+
+  Result:=TJSONObject.Create(['name', U(Region.ObjName),
+    'position', PositionToJSON(Region),
+    'color', U(RegionColorName(Region)),
+    'tables', Names]);
+  if(Region.Comments<>'')then
+    Result.Add('comments', U(Region.Comments));
+end;
+
+function ToolListRegions(Args: TJSONObject): TJSONData;
+var Regions: TList;
+  i: integer;
+begin
+  NeedModel;
+  Result:=TJSONArray.Create;
+  Regions:=GetObjects(EERRegion);
+  try
+    for i:=0 to Regions.Count-1 do
+      TJSONArray(Result).Add(RegionToJSON(TEERRegion(Regions[i])));
+  finally
+    Regions.Free;
+  end;
+end;
+
+function ToolAddRegion(Args: TJSONObject): TJSONData;
+const
+  //Space around the tables, and for the name of the region above them
+  Margin = 20;
+  TitleHeight = 20;
+var Region: TEERRegion;
+  Names: TJSONArray;
+  Table: TEERTable;
+  RegionName: string;
+  x, y, w, h, x2, y2, i: integer;
+begin
+  NeedModel;
+  RegionName:=Trim(ArgStr(Args, 'name'));
+  if(RegionName<>'')and(Model.GetEERObjectByName(EERRegion, RegionName)<>nil)then
+    raise EToolError.CreateFmt('The model has a region "%s" already.', [RegionName]);
+
+  Names:=nil;
+  if(HasArg(Args, 'tables'))and(Args.Types['tables']=jtArray)then
+    Names:=Args.Arrays['tables'];
+  if(Names<>nil)and(Names.Count>0)then
+  begin
+    //The rectangle around the tables
+    x:=MaxInt;
+    y:=MaxInt;
+    x2:=0;
+    y2:=0;
+    for i:=0 to Names.Count-1 do
+    begin
+      if(Names.Types[i]<>jtString)then
+        raise EToolError.Create('"tables" has to be a list of table names.');
+      Table:=NeedTable(Names.Strings[i]);
+      if(Table.Obj_X<x)then x:=Table.Obj_X;
+      if(Table.Obj_Y<y)then y:=Table.Obj_Y;
+      if(Table.Obj_X+Table.Obj_W>x2)then x2:=Table.Obj_X+Table.Obj_W;
+      if(Table.Obj_Y+Table.Obj_H>y2)then y2:=Table.Obj_Y+Table.Obj_H;
+    end;
+    x:=x-Margin;
+    y:=y-Margin-TitleHeight;
+    if(x<0)then x:=0;
+    if(y<0)then y:=0;
+    w:=x2+Margin-x;
+    h:=y2+Margin-y;
+    if(x+w>Model.EERModel_Width)then w:=Model.EERModel_Width-x;
+    if(y+h>Model.EERModel_Height)then h:=Model.EERModel_Height-y;
+  end
+  else
+  begin
+    if(Not(HasArg(Args, 'x') and HasArg(Args, 'y') and HasArg(Args, 'width') and
+      HasArg(Args, 'height')))then
+      raise EToolError.Create('Give "tables" (the region is laid around them) or '+
+        '"x", "y", "width" and "height".');
+    x:=ArgInt(Args, 'x', 0);
+    y:=ArgInt(Args, 'y', 0);
+    w:=ArgInt(Args, 'width', 0);
+    h:=ArgInt(Args, 'height', 0);
+  end;
+  if(w<20)or(h<20)then
+    raise EToolError.Create('A region is at least 20 wide and 20 high.');
+  NeedInsideCanvas(x, y, w, h);
+
+  Region:=Model.NewRegion(x, y, w, h, False);
+  if(Region=nil)then
+    raise EToolError.Create('The region could not be made.');
+  try
+    if(RegionName<>'')then
+      Region.ObjName:=RegionName;
+    if(ArgStr(Args, 'color')<>'')then
+      SetRegionColor(Region, ArgStr(Args, 'color'));
+    Region.Comments:=ArgStr(Args, 'comments');
+  except
+    Region.Free;
+    raise;
+  end;
+  Region.RefreshObj;
+  Model.ModelHasChanged;
+
+  Result:=RegionToJSON(Region);
+end;
+
+function ToolChangeRegion(Args: TJSONObject): TJSONData;
+var Region: TEERRegion;
+  NewName: string;
+  Other: Pointer;
+  x, y, w, h: integer;
+begin
+  Region:=NeedRegion(ArgStr(Args, 'region'));
+  if(Not(HasArg(Args, 'new_name') or HasArg(Args, 'x') or HasArg(Args, 'y') or
+    HasArg(Args, 'width') or HasArg(Args, 'height') or HasArg(Args, 'color') or
+    HasArg(Args, 'comments')))then
+    raise EToolError.Create('Nothing to change: give new_name, x, y, width, '+
+      'height, color or comments.');
+
+  NewName:=Trim(ArgStr(Args, 'new_name'));
+  if(HasArg(Args, 'new_name'))then
+  begin
+    if(NewName='')then
+      raise EToolError.Create('"new_name" is empty.');
+    Other:=Model.GetEERObjectByName(EERRegion, NewName);
+    if(Other<>nil)and(Other<>Pointer(Region))then
+      raise EToolError.CreateFmt('The model has a region "%s" already.', [NewName]);
+  end;
+
+  x:=ArgInt(Args, 'x', Region.Obj_X);
+  y:=ArgInt(Args, 'y', Region.Obj_Y);
+  w:=ArgInt(Args, 'width', Region.Obj_W);
+  h:=ArgInt(Args, 'height', Region.Obj_H);
+  if(w<20)or(h<20)then
+    raise EToolError.Create('A region is at least 20 wide and 20 high.');
+  NeedInsideCanvas(x, y, w, h);
+  if(HasArg(Args, 'color'))then
+    SetRegionColor(Region, ArgStr(Args, 'color'));
+
+  if(NewName<>'')then
+    Region.ObjName:=NewName;
+  Region.Obj_X:=x;
+  Region.Obj_Y:=y;
+  Region.Obj_W:=w;
+  Region.Obj_H:=h;
+  if(HasArg(Args, 'comments'))then
+    Region.Comments:=ArgStr(Args, 'comments');
+
+  Region.RefreshObj;
+  Model.ModelHasChanged;
+  Result:=RegionToJSON(Region);
+end;
+
+function ToolDeleteRegion(Args: TJSONObject): TJSONData;
+var Region: TEERRegion;
+begin
+  Region:=NeedRegion(ArgStr(Args, 'region'));
+  //The tables in it stay where they are
+  Result:=TJSONObject.Create(['deleted_region', RegionToJSON(Region)]);
+  Region.DeleteObj;
+  Model.ModelHasChanged;
+end;
+
+function NeedNote(const NoteName: string): TEERNote;
+begin
+  NeedModel;
+  if(NoteName='')then
+    raise EToolError.Create('The argument "note" is missing.');
+  Result:=Model.GetEERObjectByName(EERNote, NoteName);
+  if(Result=nil)then
+    raise EToolError.CreateFmt('There is no note "%s" in the model. '+
+      'list_notes shows the notes.', [NoteName]);
+end;
+
+function NoteToJSON(Note: TEERNote): TJSONObject;
+begin
+  Result:=TJSONObject.Create(['name', U(Note.ObjName),
+    'text', U(TrimRight(StringReplace(Note.GetNoteText, #13#10, #10, [rfReplaceAll]))),
+    'position', PositionToJSON(Note)]);
+  if(Note.GetRegion<>nil)then
+    Result.Add('region', U(TEERRegion(Note.GetRegion).ObjName));
+end;
+
+function ToolListNotes(Args: TJSONObject): TJSONData;
+var Notes: TList;
+  i: integer;
+begin
+  NeedModel;
+  Result:=TJSONArray.Create;
+  Notes:=GetObjects(EERNote);
+  try
+    for i:=0 to Notes.Count-1 do
+      TJSONArray(Result).Add(NoteToJSON(TEERNote(Notes[i])));
+  finally
+    Notes.Free;
+  end;
+end;
+
+function ToolAddNote(Args: TJSONObject): TJSONData;
+var Note: TEERNote;
+  NoteName: string;
+begin
+  NeedModel;
+  if(Trim(ArgStr(Args, 'text'))='')then
+    raise EToolError.Create('The argument "text" is missing.');
+  NoteName:=Trim(ArgStr(Args, 'name'));
+  if(NoteName<>'')and(Model.GetEERObjectByName(EERNote, NoteName)<>nil)then
+    raise EToolError.CreateFmt('The model has a note "%s" already.', [NoteName]);
+
+  Note:=Model.NewNote(ArgInt(Args, 'x', 40), ArgInt(Args, 'y', 40), False);
+  try
+    if(NoteName<>'')then
+      Note.ObjName:=NoteName;
+    Note.SetNoteText(ArgStr(Args, 'text'));
+    //The size of the note comes from its text
+    Note.RefreshObj;
+
+    //Without a position: the nearest place where no other object is
+    if(Not(HasArg(Args, 'x')))or(Not(HasArg(Args, 'y')))then
+      with Model.GetFreeObjPos(Note.Obj_X, Note.Obj_Y, Note.Obj_W, Note.Obj_H, Note) do
+      begin
+        Note.Obj_X:=X;
+        Note.Obj_Y:=Y;
+      end;
+    NeedInsideCanvas(Note.Obj_X, Note.Obj_Y, Note.Obj_W, Note.Obj_H);
+    Note.RefreshObj;
+  except
+    Note.Free;
+    raise;
+  end;
+  Model.ModelHasChanged;
+
+  Result:=NoteToJSON(Note);
+end;
+
+function ToolChangeNote(Args: TJSONObject): TJSONData;
+var Note: TEERNote;
+  NewName, OldText: string;
+  Other: Pointer;
+  x, y: integer;
+begin
+  Note:=NeedNote(ArgStr(Args, 'note'));
+  if(Not(HasArg(Args, 'new_name') or HasArg(Args, 'text') or HasArg(Args, 'x') or
+    HasArg(Args, 'y')))then
+    raise EToolError.Create('Nothing to change: give new_name, text, x or y.');
+
+  NewName:=Trim(ArgStr(Args, 'new_name'));
+  if(HasArg(Args, 'new_name'))then
+  begin
+    if(NewName='')then
+      raise EToolError.Create('"new_name" is empty.');
+    Other:=Model.GetEERObjectByName(EERNote, NewName);
+    if(Other<>nil)and(Other<>Pointer(Note))then
+      raise EToolError.CreateFmt('The model has a note "%s" already.', [NewName]);
+  end;
+  if(HasArg(Args, 'text'))and(Trim(ArgStr(Args, 'text'))='')then
+    raise EToolError.Create('"text" is empty. delete_note removes a note.');
+
+  x:=ArgInt(Args, 'x', Note.Obj_X);
+  y:=ArgInt(Args, 'y', Note.Obj_Y);
+  OldText:=Note.GetNoteText;
+  if(HasArg(Args, 'text'))then
+  begin
+    Note.SetNoteText(ArgStr(Args, 'text'));
+    Note.RefreshObj;
+  end;
+  try
+    NeedInsideCanvas(x, y, Note.Obj_W, Note.Obj_H);
+  except
+    Note.SetNoteText(OldText);
+    Note.RefreshObj;
+    raise;
+  end;
+
+  if(NewName<>'')then
+    Note.ObjName:=NewName;
+  Note.Obj_X:=x;
+  Note.Obj_Y:=y;
+  Note.RefreshObj;
+  Model.ModelHasChanged;
+  Result:=NoteToJSON(Note);
+end;
+
+function ToolDeleteNote(Args: TJSONObject): TJSONData;
+var Note: TEERNote;
+begin
+  Note:=NeedNote(ArgStr(Args, 'note'));
+  Result:=TJSONObject.Create(['deleted_note', NoteToJSON(Note)]);
+  Note.DeleteObj;
+  Model.ModelHasChanged;
+end;
+
+// ---------------------------------------------------------------------------
+// Settings of the model
+
+function ModelSettingsToJSON: TJSONObject;
+begin
+  Result:=TJSONObject.Create;
+  Result.Add('model_name', U(Model.GetModelName));
+  Result.Add('comments', U(Model.ModelComments));
+  Result.Add('version', U(Model.VersionStr));
+  Result.Add('file', U(ModelFile));
+  Result.Add('unsaved_changes', Model.IsChanged);
+  Result.Add('database_type', U(Model.DatabaseType));
+  //How the model names the foreign key columns it makes
+  Result.Add('foreign_key_prefix', U(Model.FKPrefix));
+  Result.Add('foreign_key_postfix', U(Model.FKPostfix));
+  Result.Add('foreign_key_constraint_for_new_relations', Model.ActivateRefDefForNewRelations);
+  Result.Add('index_for_foreign_keys', Model.CreateFKRefDefIndex);
+  Result.Add('table_name_in_relation_captions', Model.TableNameInRefs);
+  Result.Add('sql_for_linked_tables', Model.CreateSQLforLinkedObjects);
+  Result.Add('use_position_grid', Model.UsePositionGrid);
+  Result.Add('position_grid_x', Model.PositionGrid.X);
+  Result.Add('position_grid_y', Model.PositionGrid.Y);
+  Result.Add('canvas_width', Model.EERModel_Width);
+  Result.Add('canvas_height', Model.EERModel_Height);
+  Result.Add('region_colors', U(RegionColorNames));
+end;
+
+function ToolGetModelSettings(Args: TJSONObject): TJSONData;
+begin
+  NeedModel;
+  Result:=ModelSettingsToJSON;
+end;
+
+function ToolChangeModelSettings(Args: TJSONObject): TJSONData;
+const
+  Settings: array[0..11] of string = ('model_name', 'comments', 'version',
+    'foreign_key_prefix', 'foreign_key_postfix',
+    'foreign_key_constraint_for_new_relations', 'index_for_foreign_keys',
+    'table_name_in_relation_captions', 'sql_for_linked_tables',
+    'use_position_grid', 'position_grid_x', 'position_grid_y');
+var i, Given: integer;
+begin
+  NeedModel;
+  Given:=0;
+  for i:=Low(Settings) to High(Settings) do
+    if(HasArg(Args, Settings[i]))then
+      inc(Given);
+  if(Given=0)then
+    raise EToolError.Create('Nothing to change. The settings that can be changed: '+
+      'model_name, comments, version, foreign_key_prefix, foreign_key_postfix, '+
+      'foreign_key_constraint_for_new_relations, index_for_foreign_keys, '+
+      'table_name_in_relation_captions, sql_for_linked_tables, use_position_grid, '+
+      'position_grid_x, position_grid_y.');
+
+  if(HasArg(Args, 'model_name'))and(Trim(ArgStr(Args, 'model_name'))='')then
+    raise EToolError.Create('"model_name" is empty.');
+  if(ArgInt(Args, 'position_grid_x', 1)<1)or(ArgInt(Args, 'position_grid_y', 1)<1)then
+    raise EToolError.Create('The position grid is at least 1.');
+
+  if(HasArg(Args, 'model_name'))then
+    Model.SetModelName(Trim(ArgStr(Args, 'model_name')));
+  if(HasArg(Args, 'comments'))then
+    Model.ModelComments:=ArgStr(Args, 'comments');
+  if(HasArg(Args, 'version'))then
+    Model.VersionStr:=Trim(ArgStr(Args, 'version'));
+  if(HasArg(Args, 'foreign_key_prefix'))then
+    Model.FKPrefix:=ArgStr(Args, 'foreign_key_prefix');
+  if(HasArg(Args, 'foreign_key_postfix'))then
+    Model.FKPostfix:=ArgStr(Args, 'foreign_key_postfix');
+  Model.ActivateRefDefForNewRelations:=ArgBool(Args,
+    'foreign_key_constraint_for_new_relations', Model.ActivateRefDefForNewRelations);
+  Model.CreateFKRefDefIndex:=ArgBool(Args, 'index_for_foreign_keys', Model.CreateFKRefDefIndex);
+  Model.TableNameInRefs:=ArgBool(Args, 'table_name_in_relation_captions', Model.TableNameInRefs);
+  Model.CreateSQLforLinkedObjects:=ArgBool(Args, 'sql_for_linked_tables',
+    Model.CreateSQLforLinkedObjects);
+  Model.UsePositionGrid:=ArgBool(Args, 'use_position_grid', Model.UsePositionGrid);
+  Model.PositionGrid.X:=ArgInt(Args, 'position_grid_x', Model.PositionGrid.X);
+  Model.PositionGrid.Y:=ArgInt(Args, 'position_grid_y', Model.PositionGrid.Y);
+
+  //The indices of the foreign keys follow their setting
+  Model.CheckAllRelations;
+  Model.ModelHasChanged;
+  Result:=ModelSettingsToJSON;
+end;
+
 function ToolSaveModel(Args: TJSONObject): TJSONData;
 var FileName, Backup: string;
 begin
@@ -1762,11 +2242,12 @@ end;
 //something (a file, data in a database) and which reach a database
 function Tool(const Name, Description, InputSchema: string): TJSONObject;
 const
-  ReadOnlyTools: array[0..6] of string = ('open_model', 'list_tables',
+  ReadOnlyTools: array[0..9] of string = ('open_model', 'list_tables',
     'describe_table', 'list_relations', 'export_sql', 'list_connections',
-    'list_database_tables');
-  DestructiveTools: array[0..5] of string = ('save_model', 'sync_database',
-    'delete_table', 'delete_column', 'delete_relation', 'delete_index');
+    'list_database_tables', 'list_regions', 'list_notes', 'get_model_settings');
+  DestructiveTools: array[0..7] of string = ('save_model', 'sync_database',
+    'delete_table', 'delete_column', 'delete_relation', 'delete_index',
+    'delete_region', 'delete_note');
   DatabaseTools: array[0..4] of string = ('connect_database',
     'disconnect_database', 'list_database_tables', 'reverse_engineer',
     'sync_database');
@@ -1950,6 +2431,93 @@ begin
       '{"type":"object","properties":{"table":{"type":"string","descripti'+
       'on":"Name of the table"},"index":{"type":"string","description":"N'+
       'ame of the index"}},"required":["table","index"]}'),
+    Tool('move_table',
+      'Move a table of the open model to another place in the diagram. de'+
+      'scribe_table shows the place and the size of a table. A table belo'+
+      'ngs to the region it lies completely inside of.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"x":{"type":"integer","description":"Posi'+
+      'tion in the diagram, in the units of the model"},"y":{"type":"inte'+
+      'ger"}},"required":["table","x","y"]}'),
+    Tool('list_regions',
+      'The regions of the open model: coloured rectangles that group the '+
+      'tables lying completely inside of them. With their place, size, co'+
+      'lour and tables.',
+      '{"type":"object","properties":{}}'),
+    Tool('add_region',
+      'Add a region to the open model: around the named tables (other tab'+
+      'les inside that rectangle belong to it as well, see the result), o'+
+      'r at a place with a size. Returns the region with its tables.',
+      '{"type":"object","properties":{"name":{"type":"string","descriptio'+
+      'n":"Name of the region; default Region_<number>"},"tables":{"type"'+
+      ':"array","items":{"type":"string"},"description":"The region is la'+
+      'id around these tables"},"x":{"type":"integer","description":"Posi'+
+      'tion in the diagram, in the units of the model"},"y":{"type":"inte'+
+      'ger"},"width":{"type":"integer"},"height":{"type":"integer"},"colo'+
+      'r":{"type":"string","description":"One of the region colours of th'+
+      'e model, see get_model_settings; default: the next one"},"comments'+
+      '":{"type":"string"}}}'),
+    Tool('change_region',
+      'Change a region of the open model: name, place, size, colour or co'+
+      'mments. Only what is given is changed. The tables do not move with'+
+      ' the region.',
+      '{"type":"object","properties":{"region":{"type":"string","descript'+
+      'ion":"Name of the region"},"new_name":{"type":"string"},"x":{"type'+
+      '":"integer","description":"Position in the diagram, in the units o'+
+      'f the model"},"y":{"type":"integer"},"width":{"type":"integer"},"h'+
+      'eight":{"type":"integer"},"color":{"type":"string"},"comments":{"t'+
+      'ype":"string"}},"required":["region"]}'),
+    Tool('delete_region',
+      'Delete a region of the open model. The tables in it stay.',
+      '{"type":"object","properties":{"region":{"type":"string","descript'+
+      'ion":"Name of the region"}},"required":["region"]}'),
+    Tool('list_notes',
+      'The notes of the open model: texts placed in the diagram.',
+      '{"type":"object","properties":{}}'),
+    Tool('add_note',
+      'Add a note with a text to the diagram of the open model. Without x'+
+      ' and y it is placed where no other object is.',
+      '{"type":"object","properties":{"text":{"type":"string","descriptio'+
+      'n":"Text of the note, may have several lines"},"name":{"type":"str'+
+      'ing","description":"Name of the note; default Note_<number>"},"x":'+
+      '{"type":"integer","description":"Position in the diagram, in the u'+
+      'nits of the model"},"y":{"type":"integer"}},"required":["text"]}'),
+    Tool('change_note',
+      'Change a note of the open model: text, name or place. Only what is'+
+      ' given is changed.',
+      '{"type":"object","properties":{"note":{"type":"string","descriptio'+
+      'n":"Name of the note"},"new_name":{"type":"string"},"text":{"type"'+
+      ':"string"},"x":{"type":"integer","description":"Position in the di'+
+      'agram, in the units of the model"},"y":{"type":"integer"}},"requir'+
+      'ed":["note"]}'),
+    Tool('delete_note',
+      'Delete a note of the open model.',
+      '{"type":"object","properties":{"note":{"type":"string","descriptio'+
+      'n":"Name of the note"}},"required":["note"]}'),
+    Tool('get_model_settings',
+      'The settings of the open model: name, comments, version, file, whe'+
+      'ther it has unsaved changes, how foreign key columns are named, wh'+
+      'ether new relations get a foreign key constraint and an index, the'+
+      ' position grid, the size of the canvas, the region colours.',
+      '{"type":"object","properties":{}}'),
+    Tool('change_model_settings',
+      'Change settings of the open model. Only what is given is changed. '+
+      'Prefix and postfix of foreign key columns are for the relations ma'+
+      'de afterwards. Returns all settings.',
+      '{"type":"object","properties":{"model_name":{"type":"string"},"com'+
+      'ments":{"type":"string"},"version":{"type":"string","description":'+
+      '"e.g. 1.0.0.0"},"foreign_key_prefix":{"type":"string","description'+
+      '":"Put in front of the name of a primary key column to name its fo'+
+      'reign key column"},"foreign_key_postfix":{"type":"string"},"foreig'+
+      'n_key_constraint_for_new_relations":{"type":"boolean","description'+
+      '":"Default of the program for relations made in its diagram"},"ind'+
+      'ex_for_foreign_keys":{"type":"boolean","description":"An index in '+
+      'the child table for every relation with a foreign key constraint"}'+
+      ',"table_name_in_relation_captions":{"type":"boolean"},"sql_for_lin'+
+      'ked_tables":{"type":"boolean","description":"Write SQL for tables '+
+      'linked from other models"},"use_position_grid":{"type":"boolean"},'+
+      '"position_grid_x":{"type":"integer"},"position_grid_y":{"type":"in'+
+      'teger"}}}'),
     Tool('save_model',
       'Write the open model to its file, or to path. The file as it was i'+
       's kept as <file>.bak. A file other than the one of the model is re'+
@@ -2060,6 +2628,28 @@ begin
       Data:=ToolAddRelation(Args)
     else if(Name='save_model')then
       Data:=ToolSaveModel(Args)
+    else if(Name='move_table')then
+      Data:=ToolMoveTable(Args)
+    else if(Name='list_regions')then
+      Data:=ToolListRegions(Args)
+    else if(Name='add_region')then
+      Data:=ToolAddRegion(Args)
+    else if(Name='change_region')then
+      Data:=ToolChangeRegion(Args)
+    else if(Name='delete_region')then
+      Data:=ToolDeleteRegion(Args)
+    else if(Name='list_notes')then
+      Data:=ToolListNotes(Args)
+    else if(Name='add_note')then
+      Data:=ToolAddNote(Args)
+    else if(Name='change_note')then
+      Data:=ToolChangeNote(Args)
+    else if(Name='delete_note')then
+      Data:=ToolDeleteNote(Args)
+    else if(Name='get_model_settings')then
+      Data:=ToolGetModelSettings(Args)
+    else if(Name='change_model_settings')then
+      Data:=ToolChangeModelSettings(Args)
     else if(Name='rename_table')then
       Data:=ToolRenameTable(Args)
     else if(Name='change_column')then
@@ -2218,6 +2808,11 @@ begin
   //and the model needs a parent
   Application.CreateForm(TForm, ParentForm);
   DMMain:=TDMMain.Create(ParentForm);
+  //The settings files have the name of the program in their names. The
+  //server works with the settings of DBDesigner Fork (defaults of a new
+  //model, region colours, options of the SQL code), not with a file of
+  //its own
+  DMMain.ProgName:='DBDesignerFork';
   DMDB:=TDMDB.Create(ParentForm);
   DMEER:=TDMEER.Create(ParentForm);
 
