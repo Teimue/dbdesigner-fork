@@ -2,15 +2,16 @@ object EERSynchronisationForm: TEERSynchronisationForm
   Left = 452
   Top = 227
   ActiveControl = ChangeDBRBtn
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'Database Synchronisation'
   ClientHeight = 518
   ClientWidth = 395
   Color = clBtnFace
+  Constraints.MinHeight = 518
+  Constraints.MinWidth = 395
   KeyPreview = True
   Position = poMainFormCenter
   Scaled = False
-  WindowState = wsMaximized
   OnClose = FormClose
   OnCreate = FormCreate
   OnDestroy = FormDestroy
@@ -156,6 +157,7 @@ object EERSynchronisationForm: TEERSynchronisationForm
       Top = 20
       Width = 351
       Height = 7
+      Anchors = [akTop, akLeft, akRight]
       Shape = bsTopLine
     end
   end
@@ -271,6 +273,7 @@ object EERSynchronisationForm: TEERSynchronisationForm
       Top = 24
       Width = 29
       Height = 25
+      Anchors = [akTop, akRight]
       Flat = True
       Glyph.Data = {
         C6060000424DC60600000000000036000000280000001B000000140000000100
@@ -335,6 +338,7 @@ object EERSynchronisationForm: TEERSynchronisationForm
       Top = 26
       Width = 317
       Height = 21
+      Anchors = [akTop, akLeft, akRight]
       ReadOnly = True
       TabOrder = 0
     end
@@ -349,6 +353,7 @@ object EERSynchronisationForm: TEERSynchronisationForm
       Top = 62
       Width = 351
       Height = 145
+      Anchors = [akTop, akLeft, akRight]
       Caption = 'Options'
       TabOrder = 2
       object Bevel2: TBevel
@@ -356,6 +361,7 @@ object EERSynchronisationForm: TEERSynchronisationForm
         Top = 46
         Width = 315
         Height = 7
+        Anchors = [akTop, akLeft, akRight]
         Shape = bsTopLine
       end
       object ChangeDBRBtn: TRadioButton

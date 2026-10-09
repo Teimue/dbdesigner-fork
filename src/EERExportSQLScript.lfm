@@ -1,8 +1,12 @@
 object EERExportSQLScriptFrom: TEERExportSQLScriptFrom
+  OnResize = FormResize
+  Constraints.MinHeight = 579
+  Constraints.MinWidth = 537
+  BorderIcons = [biSystemMenu]
   Left = 311
   Top = 113
   ActiveControl = ExportSelTablesCBox
-  BorderStyle = bsDialog
+  BorderStyle = bsSizeable
   Caption = 'Export SQL Script'
   ClientHeight = 579
   ClientWidth = 537
@@ -15,6 +19,7 @@ object EERExportSQLScriptFrom: TEERExportSQLScriptFrom
   Font.Height = -11
   Font.Name = 'Sans'
   object Settings: TGroupBox
+    Anchors = [akTop, akLeft, akRight]
     Left = 0
     Top = 1
     Width = 536
@@ -40,6 +45,7 @@ object EERExportSQLScriptFrom: TEERExportSQLScriptFrom
       TabOrder = 1
     end
     object RegionsListBox: TCheckListBox
+      Anchors = [akTop, akLeft, akRight, akBottom]
       Left = 202
       Top = 22
       Width = 191
@@ -59,6 +65,7 @@ object EERExportSQLScriptFrom: TEERExportSQLScriptFrom
     SizeGrip = False
   end
   object SQLCreatesSettingGBox: TGroupBox
+    Anchors = [akLeft, akRight, akBottom]
     Left = 0
     Top = 84
     Width = 536
@@ -142,6 +149,7 @@ object EERExportSQLScriptFrom: TEERExportSQLScriptFrom
     BevelOuter = bvNone
     TabOrder = 3
     object CopyBtn: TSpeedButton
+      Anchors = [akTop, akRight]
       Left = 180
       Top = 0
       Width = 158
@@ -302,6 +310,7 @@ object EERExportSQLScriptFrom: TEERExportSQLScriptFrom
     end
   end
   object AdvSQLCreatesSettingGBox: TGroupBox
+    Anchors = [akLeft, akRight, akBottom]
     Left = 0
     Top = 200
     Width = 536

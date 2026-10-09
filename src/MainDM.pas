@@ -1724,9 +1724,20 @@ begin
           if(delta>minTop-3)then
             delta:=minTop-3;
           for k:=0 to G.ControlCount-1 do
-            if(G.Controls[k].Align=alNone)and
-              (Not(akBottom in G.Controls[k].Anchors))then
-              G.Controls[k].Top:=G.Controls[k].Top-delta;
+            if(G.Controls[k].Align=alNone)then
+            begin
+              if(Not(akBottom in G.Controls[k].Anchors))then
+                G.Controls[k].Top:=G.Controls[k].Top-delta
+              //A control that follows the height of the box: its top moves
+              //up like the others. Its bottom has to come up by what the
+              //client area is smaller than the box (the LCL does that for
+              //the controls that are anchored to the bottom only, but
+              //setting the bounds here makes them the new base of the anchor)
+              else if(akTop in G.Controls[k].Anchors)then
+                G.Controls[k].SetBounds(G.Controls[k].Left, G.Controls[k].Top-delta,
+                  G.Controls[k].Width,
+                  G.Controls[k].Height+delta-(G.Height-G.ClientHeight));
+            end;
         end;
       end;
   finally

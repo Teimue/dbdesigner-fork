@@ -1,12 +1,12 @@
 object TipsForm: TTipsForm
+  Constraints.MinHeight = 259
+  Constraints.MinWidth = 456
   Left = 484
   Top = 287
   Width = 456
   Height = 259
-  VertScrollBar.Range = 233
-  HorzScrollBar.Range = 373
   ActiveControl = TipMemo
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'DBDesigner Fork Tips'
   Color = clBtnFace
   FormStyle = fsNormal

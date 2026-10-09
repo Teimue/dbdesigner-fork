@@ -1,8 +1,10 @@
 object OptionsForm: TOptionsForm
+  Constraints.MinHeight = 372
+  Constraints.MinWidth = 800
   Left = 210
   Top = 220
   ActiveControl = PageControl
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'DBDesigner Options'
   ClientHeight = 372
   ClientWidth = 800
@@ -404,6 +406,7 @@ object OptionsForm: TOptionsForm
         OnChange = DefDatabaseTypeCBoxChange
       end
       object ReservedWordsMemo: TMemo
+        Anchors = [akTop, akLeft, akBottom]
         Left = 120
         Top = 8
         Width = 191

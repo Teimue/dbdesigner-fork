@@ -13,7 +13,8 @@ unit UIScreenshots;
 //     DBDesignerFork --screenshots <directory>
 //
 //   The program opens the order example, shows one dialog after the other,
-//   writes <dialog>[_<page>].png into the directory and ends. Like --selftest
+//   writes <dialog>[_<page>].png into the directory and ends. A dialog that
+//   can be resized is saved a second time, enlarged (Large_<dialog>). Like --selftest
 //   it runs with read-only settings. The dialogs that need a database are
 //   shown with a SQLite database of two tables.
 //
@@ -213,7 +214,7 @@ procedure TShooter.OnTimer(Sender: TObject);
 var i, n: integer;
   F: TCustomForm;
   Shown: TList;
-  DPIRect: TRect;
+  DPIRect, GrowRect: TRect;
 begin
   ShotTimer.Enabled:=False;
   if(ShotFired)then
@@ -242,6 +243,17 @@ begin
           SaveFormPages(F, ShotName)
         else
           SaveFormPages(F, ShotName+'_'+F.ClassName);
+        //... and enlarged, when it can be resized
+        if(n=0)and(F.Parent=nil)and(F.WindowState=wsNormal)and
+          (F.BorderStyle in [bsSizeable, bsSizeToolWin])then
+        begin
+          GrowRect:=F.BoundsRect;
+          F.SetBounds(F.Left, F.Top, MulDiv(F.Width, 3, 2), MulDiv(F.Height, 3, 2));
+          Pump(250);
+          SaveFormPages(F, 'Large_'+ShotName);
+          F.BoundsRect:=GrowRect;
+          Pump(120);
+        end;
         {$IFDEF MSWINDOWS}
         //... and as it looks on a display of 96 DPI
         if(n=0)and(Screen.PixelsPerInch<>96)and(F.Parent=nil)then

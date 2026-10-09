@@ -1,15 +1,17 @@
 object EditorDatatypeForm: TEditorDatatypeForm
+  Constraints.MinHeight = 411
+  Constraints.MinWidth = 395
   Left = 526
   Top = 288
   ActiveControl = DatatypeNameEd
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'Editor Datatype'
   ClientHeight = 411
   ClientWidth = 395
   Color = clBtnFace
   FormStyle = fsStayOnTop
   KeyPreview = True
-  Position = poDefault
+  Position = poDefaultPosOnly
   Scaled = False
   OnClose = FormClose
   OnCreate = FormCreate
@@ -57,6 +59,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
     Text = 'Numeric Types'
   end
   object DescriptionMemo: TMemo
+    Anchors = [akTop, akLeft, akRight]
     Left = 20
     Top = 72
     Width = 351
@@ -70,6 +73,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
     Caption = 'Description'
   end
   object GroupBox1: TGroupBox
+    Anchors = [akTop, akLeft, akBottom]
     Left = 20
     Top = 137
     Width = 171
@@ -127,6 +131,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
       OnClick = DelParamBtnClick
     end
     object ParamRequiredCBox: TCheckBox
+      Anchors = [akLeft, akBottom]
       Left = 14
       Top = 82
       Width = 145
@@ -135,6 +140,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
       TabOrder = 0
     end
     object ParamsListBox: TListBox
+      Anchors = [akTop, akLeft, akBottom]
       Left = 14
       Top = 20
       Width = 127
@@ -142,6 +148,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
       TabOrder = 1
     end
     object EditValueAsStringCBox: TCheckBox
+      Anchors = [akLeft, akBottom]
       Left = 14
       Top = 103
       Width = 141
@@ -151,6 +158,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
     end
   end
   object GroupBox2: TGroupBox
+    Anchors = [akTop, akLeft, akRight, akBottom]
     Left = 206
     Top = 137
     Width = 165
@@ -158,6 +166,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
     Caption = 'Options'
     TabOrder = 7
     object AddOptionBtn: TSpeedButton
+      Anchors = [akTop, akRight]
       Left = 142
       Top = 18
       Width = 13
@@ -183,6 +192,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
       OnClick = AddOptionBtnClick
     end
     object DelOptionBtn: TSpeedButton
+      Anchors = [akTop, akRight]
       Left = 142
       Top = 34
       Width = 13
@@ -209,6 +219,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
       OnClick = DelOptionBtnClick
     end
     object OptionsCListBox: TCheckListBox
+      Anchors = [akTop, akLeft, akRight, akBottom]
       Left = 14
       Top = 20
       Width = 127
@@ -477,6 +488,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
       OnClick = SubmitBtnClick
     end
     object Bevel1: TBevel
+      Anchors = [akTop, akLeft, akRight]
       Left = 20
       Top = 0
       Width = 351
@@ -485,6 +497,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
     end
   end
   object GroupBox3: TGroupBox
+    Anchors = [akLeft, akRight, akBottom]
     Left = 20
     Top = 304
     Width = 351
@@ -498,6 +511,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
       Caption = 'Physical Datatype:'
     end
     object PhysicalDatatypeEd: TEdit
+      Anchors = [akTop, akLeft, akRight]
       Left = 130
       Top = 18
       Width = 201
@@ -506,6 +520,7 @@ object EditorDatatypeForm: TEditorDatatypeForm
     end
   end
   object EnablePhysicalMappingCBox: TCheckBox
+    Anchors = [akLeft, akBottom]
     Left = 20
     Top = 284
     Width = 251

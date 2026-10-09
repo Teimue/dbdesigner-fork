@@ -98,6 +98,7 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
+    procedure FormResize(Sender: TObject);
     procedure SetModel(theEERModel: TEERModel; mode: integer = 0);
     function GetSQLScript: string;
     procedure ExportBtnClick(Sender: TObject);
@@ -119,6 +120,10 @@ type
     function GetSqlGeneratorOrSequence(DataBaseType:string):string;
 
     function GetDtExclusionSqlTableDef(DbType, TbName, ColName: string): string;
+  private
+    //space between the Settings group and the group below it
+    SettingsGap: integer;
+    LayoutReady: Boolean;
   public
     { Public declarations }
     EERModel: TEERModel;
@@ -138,6 +143,9 @@ uses MainDM, EERDM, GUIDM, StrUtils;
 procedure TEERExportSQLScriptFrom.FormCreate(Sender: TObject);
 begin
   DMMain.InitForm(self);
+
+  SettingsGap:=SQLCreatesSettingGBox.Top-(Settings.Top+Settings.Height);
+  LayoutReady:=True;
 
   theRegions:=TList.Create;
 
@@ -159,6 +167,24 @@ begin
   //
 end;
 
+//The window can be resized: the Settings group with the list of the regions
+//takes the height that is left above the groups below it, which keep their
+//distance to the bottom
+procedure TEERExportSQLScriptFrom.FormResize(Sender: TObject);
+var h: integer;
+begin
+  if(Not(LayoutReady))then
+    Exit;
+
+  if(SQLCreatesSettingGBox.Visible)then
+    h:=SQLCreatesSettingGBox.Top-SettingsGap-Settings.Top
+  else
+    h:=Panel1.Top-8-Settings.Top;
+
+  if(h>0)then
+    Settings.Height:=h;
+end;
+
 procedure TEERExportSQLScriptFrom.SetModel(theEERModel: TEERModel; mode: integer);
 var i: integer;
 begin
@@ -178,7 +204,11 @@ begin
     //follows. Done on Height, not ClientHeight: before the handle exists the
     //LCL reports a stale ClientHeight for the form, so a ClientHeight
     //assignment lands 339 px too high (db-ui-bug-catalog #17).
-    Height:=Height-(Panel1.Top-(Settings.Top+Settings.Height+8));
+    //(the smaller window is the smallest one then)
+    i:=Height-(Panel1.Top-(Settings.Top+Settings.Height+8));
+    Constraints.MinHeight:=0;
+    Height:=i;
+    Constraints.MinHeight:=i;
   end;
 
   RegionsListBox.Items.Clear;

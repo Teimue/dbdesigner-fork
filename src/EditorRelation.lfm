@@ -1,15 +1,17 @@
 object EditorRelationForm: TEditorRelationForm
+  Constraints.MinHeight = 472
+  Constraints.MinWidth = 414
   Left = 574
   Top = 226
   ActiveControl = RelationNameEd
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'Relation Editor'
   ClientHeight = 472
   ClientWidth = 414
   Color = clBtnFace
   FormStyle = fsStayOnTop
   KeyPreview = True
-  Position = poDefault
+  Position = poDefaultPosOnly
   Scaled = False
   OnClose = FormClose
   OnCreate = FormCreate
@@ -27,6 +29,7 @@ object EditorRelationForm: TEditorRelationForm
     Caption = 'Relation Name'
   end
   object RelationNameEd: TEdit
+    Anchors = [akTop, akLeft, akRight]
     Left = 16
     Top = 24
     Width = 131
@@ -34,12 +37,14 @@ object EditorRelationForm: TEditorRelationForm
     TabOrder = 1
   end
   object Label17: TLabel
+    Anchors = [akTop, akRight]
     Left = 162
     Top = 10
     AutoSize = True
     Caption = 'Relation Kind'
   end
   object RelKindComboBox: TComboBox
+    Anchors = [akTop, akRight]
     Left = 162
     Top = 24
     Width = 131
@@ -58,6 +63,7 @@ object EditorRelationForm: TEditorRelationForm
     Text = '1:1'
   end
   object GroupBox3: TGroupBox
+    Anchors = [akTop, akLeft, akRight, akBottom]
     Left = 16
     Top = 126
     Width = 381
@@ -65,6 +71,7 @@ object EditorRelationForm: TEditorRelationForm
     Caption = 'Foreign Keys'
     TabOrder = 4
     object FKGrid: TStringGrid
+      Anchors = [akTop, akLeft, akRight, akBottom]
       Left = 16
       Top = 22
       Width = 345
@@ -79,6 +86,7 @@ object EditorRelationForm: TEditorRelationForm
     end
   end
   object Panel1: TPanel
+    Anchors = [akLeft, akRight, akBottom]
     Left = 16
     Top = 278
     Width = 381
@@ -88,6 +96,7 @@ object EditorRelationForm: TEditorRelationForm
     Caption = 'Panel1'
     TabOrder = 5
     object RelPageControl: TPageControl
+      Anchors = [akTop, akLeft, akRight, akBottom]
       Left = 8
       Top = 12
       Width = 361
@@ -116,6 +125,7 @@ object EditorRelationForm: TEditorRelationForm
           Visible = False
         end
         object MatchLU: TComboBox
+          Anchors = [akTop, akLeft, akRight]
           Left = 142
           Top = 88
           Width = 203
@@ -138,6 +148,7 @@ object EditorRelationForm: TEditorRelationForm
           Caption = 'On Delete:'
         end
         object OnDeleteLU: TComboBox
+          Anchors = [akTop, akLeft, akRight]
           Left = 142
           Top = 32
           Width = 203
@@ -162,6 +173,7 @@ object EditorRelationForm: TEditorRelationForm
           Caption = 'On Update:'
         end
         object OnUpdateLU: TComboBox
+          Anchors = [akTop, akLeft, akRight]
           Left = 142
           Top = 60
           Width = 203
@@ -202,6 +214,7 @@ object EditorRelationForm: TEditorRelationForm
       object CommentSheet: TTabSheet
         Caption = 'CommentSheet'
         object CommentsMemo: TMemo
+          Anchors = [akTop, akLeft, akRight, akBottom]
           Left = 2
           Top = 2
           Width = 351
@@ -212,6 +225,7 @@ object EditorRelationForm: TEditorRelationForm
     end
   end
   object RelPageCBox: TComboBox
+    Anchors = [akLeft, akBottom]
     Left = 30
     Top = 269
     Width = 163
@@ -229,6 +243,7 @@ object EditorRelationForm: TEditorRelationForm
     OnCloseUp = RelPageCBoxCloseUp
   end
   object GroupBox1: TGroupBox
+    Anchors = [akTop, akLeft, akRight]
     Left = 16
     Top = 56
     Width = 381
@@ -513,12 +528,14 @@ object EditorRelationForm: TEditorRelationForm
     end
   end
   object Label4: TLabel
+    Anchors = [akTop, akRight]
     Left = 309
     Top = 10
     AutoSize = True
     Caption = 'Visibility'
   end
   object VisibilityCBox: TComboBox
+    Anchors = [akTop, akRight]
     Left = 308
     Top = 24
     Width = 89

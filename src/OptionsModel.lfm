@@ -1,8 +1,10 @@
 object OptionsModelForm: TOptionsModelForm
+  Constraints.MinHeight = 500
+  Constraints.MinWidth = 900
   Left = 221
   Top = 225
   ActiveControl = PageControl
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'Model Options'
   ClientHeight = 500
   ClientWidth = 900
@@ -17,6 +19,7 @@ object OptionsModelForm: TOptionsModelForm
   Font.Height = -11
   Font.Name = 'Sans'
   object PageControlTitleShape: TShape
+    Anchors = [akTop, akLeft, akRight]
     Left = 186
     Top = 14
     Width = 700
@@ -58,6 +61,7 @@ object OptionsModelForm: TOptionsModelForm
         ParentFont = False
       end
       object RegionColorsMemo: TMemo
+        Anchors = [akTop, akLeft, akRight]
         Left = 348
         Top = 54
         Width = 330
@@ -87,6 +91,7 @@ object OptionsModelForm: TOptionsModelForm
         Caption = 'Default Font:'
       end
       object FontCBox: TComboBox
+        Anchors = [akTop, akLeft, akRight]
         Left = 448
         Top = 4
         Width = 228
@@ -103,6 +108,7 @@ object OptionsModelForm: TOptionsModelForm
         Caption = 'Comments:'
       end
       object ModelCommentsMemo: TMemo
+        Anchors = [akTop, akLeft, akBottom]
         Left = 88
         Top = 68
         Width = 240
@@ -357,6 +363,7 @@ object OptionsModelForm: TOptionsModelForm
       Caption = 'DatabaseSheet'
       ImageIndex = 2
       object NewTblPrefixBtn: TSpeedButton
+        Anchors = [akTop, akRight]
         Left = 646
         Top = 4
         Width = 23
@@ -392,6 +399,7 @@ object OptionsModelForm: TOptionsModelForm
         OnClick = NewTblPrefixBtnClick
       end
       object DelTblPrefixBtn: TSpeedButton
+        Anchors = [akTop, akRight]
         Left = 646
         Top = 28
         Width = 23
@@ -443,6 +451,7 @@ object OptionsModelForm: TOptionsModelForm
         Caption = 'Table Prefixes:'
       end
       object TablePrefixCLBox: TCheckListBox
+        Anchors = [akTop, akLeft, akRight]
         Left = 370
         Top = 4
         Width = 270
@@ -587,6 +596,7 @@ object OptionsModelForm: TOptionsModelForm
         Caption = 'Plugin Data:'
       end
       object PluginRecordsStringGrid: TStringGrid
+        Anchors = [akTop, akLeft, akBottom]
         Left = 4
         Top = 20
         Width = 250
@@ -605,6 +615,7 @@ object OptionsModelForm: TOptionsModelForm
         Caption = 'Data Sub-Parameters:'
       end
       object PluginParamsStringGrid: TStringGrid
+        Anchors = [akTop, akLeft, akRight, akBottom]
         Left = 268
         Top = 20
         Width = 410
@@ -617,6 +628,7 @@ object OptionsModelForm: TOptionsModelForm
         TabOrder = 3
       end
       object RemovePluginData: TBitBtn
+        Anchors = [akLeft, akBottom]
         Left = 4
         Top = 356
         Width = 250

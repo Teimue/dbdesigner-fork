@@ -1,15 +1,17 @@
 object DBConnEditorForm: TDBConnEditorForm
+  Constraints.MinHeight = 452
+  Constraints.MinWidth = 486
   Left = 319
   Top = 220
   ActiveControl = DBConnEd
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'Database Connection Editor'
   ClientHeight = 452
   ClientWidth = 486
   Color = clBtnFace
   FormStyle = fsStayOnTop
   KeyPreview = True
-  Position = poDefault
+  Position = poDefaultPosOnly
   Scaled = False
   OnClose = FormClose
   OnCreate = FormCreate
@@ -113,6 +115,7 @@ object DBConnEditorForm: TDBConnEditorForm
       E9EBEBE9EBEBE9EBEBE9EBEBE9EBEB000000}
   end
   object MainPageControl: TPageControl
+    Anchors = [akTop, akLeft, akRight, akBottom]
     Left = 26
     Top = 12
     Width = 431
@@ -143,6 +146,7 @@ object DBConnEditorForm: TDBConnEditorForm
         OnExit = DBConnEdExit
       end
       object ConnectionSettingsGBox: TGroupBox
+        Anchors = [akTop, akLeft, akRight, akBottom]
         Left = 16
         Top = 58
         Width = 391
@@ -150,6 +154,7 @@ object DBConnEditorForm: TDBConnEditorForm
         Caption = 'Connection Settings'
         TabOrder = 4
         object Bevel2: TBevel
+          Anchors = [akTop, akLeft, akRight]
           Left = 16
           Top = 61
           Width = 356
@@ -157,6 +162,7 @@ object DBConnEditorForm: TDBConnEditorForm
           Shape = bsTopLine
         end
         object Bevel3: TBevel
+          Anchors = [akTop, akLeft, akRight]
           Left = 16
           Top = 144
           Width = 356
@@ -178,6 +184,7 @@ object DBConnEditorForm: TDBConnEditorForm
           Caption = 'Database Name:'
         end
         object DBEd: TEdit
+          Anchors = [akTop, akLeft, akRight]
           Left = 98
           Top = 76
           Width = 274
@@ -193,6 +200,7 @@ object DBConnEditorForm: TDBConnEditorForm
           Caption = 'Description:'
         end
         object CommentEd: TMemo
+          Anchors = [akTop, akLeft, akRight, akBottom]
           Left = 98
           Top = 158
           Width = 274
@@ -216,6 +224,7 @@ object DBConnEditorForm: TDBConnEditorForm
           OnExit = UserNameEdExit
         end
         object PasswordEd: TEdit
+          Anchors = [akTop, akLeft, akRight]
           Left = 268
           Top = 110
           Width = 104
@@ -232,6 +241,7 @@ object DBConnEditorForm: TDBConnEditorForm
           Caption = 'Password:'
         end
         object PortLbl: TLabel
+          Anchors = [akTop, akRight]
           Left = 276
           Top = 30
           Width = 37
@@ -240,6 +250,7 @@ object DBConnEditorForm: TDBConnEditorForm
           Enabled = False
         end
         object PortEd: TEdit
+          Anchors = [akTop, akRight]
           Left = 316
           Top = 26
           Width = 54
@@ -248,6 +259,7 @@ object DBConnEditorForm: TDBConnEditorForm
           TabOrder = 3
         end
         object HostIPEd: TComboBox
+          Anchors = [akTop, akLeft, akRight]
           Left = 96
           Top = 26
           Width = 173
@@ -278,6 +290,7 @@ object DBConnEditorForm: TDBConnEditorForm
       Caption = ' Advanced'
       ImageIndex = 1
       object ResetDefaultParamsBtn: TSpeedButton
+        Anchors = [akLeft, akBottom]
         Left = 10
         Top = 307
         Width = 91
@@ -287,6 +300,7 @@ object DBConnEditorForm: TDBConnEditorForm
         OnClick = ResetDefaultParamsBtnClick
       end
       object AddParamBtn: TSpeedButton
+        Anchors = [akRight, akBottom]
         Left = 199
         Top = 307
         Width = 105
@@ -350,6 +364,7 @@ object DBConnEditorForm: TDBConnEditorForm
         OnClick = AddParamBtnClick
       end
       object DelParamBtn: TSpeedButton
+        Anchors = [akRight, akBottom]
         Left = 310
         Top = 307
         Width = 98
@@ -388,6 +403,7 @@ object DBConnEditorForm: TDBConnEditorForm
         OnClick = DelParamBtnClick
       end
       object ParamStrGrid: TStringGrid
+        Anchors = [akTop, akLeft, akRight, akBottom]
         Left = 10
         Top = 9
         Width = 399

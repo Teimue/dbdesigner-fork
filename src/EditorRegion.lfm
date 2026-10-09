@@ -1,15 +1,17 @@
 object EditorRegionForm: TEditorRegionForm
+  Constraints.MinHeight = 327
+  Constraints.MinWidth = 370
   Left = 569
   Top = 331
   ActiveControl = RegionNameEd
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'Region Editor'
   ClientHeight = 327
   ClientWidth = 370
   Color = clBtnFace
   FormStyle = fsStayOnTop
   KeyPreview = True
-  Position = poDefault
+  Position = poDefaultPosOnly
   Scaled = False
   OnClose = FormClose
   OnCreate = FormCreate
@@ -34,6 +36,7 @@ object EditorRegionForm: TEditorRegionForm
     TabOrder = 1
   end
   object ColorCBox: TComboBox
+    Anchors = [akTop, akLeft, akRight]
     Left = 166
     Top = 24
     Width = 183
@@ -59,6 +62,7 @@ object EditorRegionForm: TEditorRegionForm
     Caption = 'Color'
   end
   object GroupBox1: TGroupBox
+    Anchors = [akTop, akLeft, akRight]
     Left = 20
     Top = 62
     Width = 327
@@ -128,6 +132,7 @@ object EditorRegionForm: TEditorRegionForm
     end
   end
   object CommentsMemo: TMemo
+    Anchors = [akTop, akLeft, akRight, akBottom]
     Left = 20
     Top = 189
     Width = 325

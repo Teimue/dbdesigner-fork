@@ -310,6 +310,10 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Dialogs and palettes**
 
+- Ten dialogs can be resized, with their design size as the smallest one: Database Synchronisation (the progress log), Export SQL Script (the list of the regions), Model Options, Options, the connection editor, the relation, datatype, region and note editors and the tips. Lists, grids and text fields follow the size. Their size is not stored; they open in the design size.
+- The Database Synchronisation dialog opened maximized (`WindowState = wsMaximized` in the form file).
+- `--screenshots` saves a dialog that can be resized a second time, enlarged by half (`Large_<dialog>.png`), to check that the layout follows the size.
+- Group boxes: a control that is anchored to the top and the bottom of its box (a list that follows the height) is fitted to the client area of the box like the other controls (`FitFormLayout` in `src/MainDM.pas`).
 - Info page of the navigator palette: the labels are as wide as their translated texts in the application font and the fields follow them (a longer label such as "Verknüpft:" was cut off behind its field).
 - The submenu *Window > Style* (Standard, Motif, SGI, Platinum) is hidden: these are the styles of CLX/Qt, the LCL draws with the theme of the system and the items only set their check mark.
 - The dialogs to open and to place a model offer "All files (*.*)" as a second file type.

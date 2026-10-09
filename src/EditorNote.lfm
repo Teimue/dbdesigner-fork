@@ -1,15 +1,17 @@
 object EditorNoteForm: TEditorNoteForm
+  Constraints.MinHeight = 186
+  Constraints.MinWidth = 298
   Left = 509
   Top = 351
   ActiveControl = NoteMemo
-  BorderStyle = bsToolWindow
+  BorderStyle = bsSizeToolWin
   Caption = 'Note Editor'
   ClientHeight = 186
   ClientWidth = 298
   Color = clBtnFace
   FormStyle = fsStayOnTop
   KeyPreview = True
-  Position = poDefault
+  Position = poDefaultPosOnly
   Scaled = False
   OnClose = FormClose
   OnCreate = FormCreate
@@ -21,6 +23,7 @@ object EditorNoteForm: TEditorNoteForm
   Font.Height = -11
   Font.Name = 'Sans'
   object NoteMemo: TMemo
+    Anchors = [akTop, akLeft, akRight, akBottom]
     Left = 16
     Top = 24
     Width = 261
