@@ -47,6 +47,14 @@ program DBDesignerMCP;
 //
 // Message boxes of the application code are not shown, their text goes into
 // the result of the tool (see McpPromptDialog).
+//
+// Started with an argument the program does not serve the protocol but
+// registers itself in a client (the setup program uses this):
+//   --register-claude-code      claude mcp add --scope user dbdesigner ...
+//   --unregister-claude-code
+//   --register-claude-desktop   entry in claude_desktop_config.json
+//   --unregister-claude-desktop
+//   --version, --help
 
 {$I DBDesigner4.inc}
 {$APPTYPE CONSOLE}
@@ -56,13 +64,13 @@ uses
   Interfaces, // LCL
   Classes, SysUtils, StrUtils, Types, Forms, Controls, Graphics, Dialogs,
   InterfaceBase,
-  iostream, fpjson, jsonparser, LazUTF8, LConvEncoding, FileUtil,
+  iostream, fpjson, jsonparser, LazUTF8, LConvEncoding, FileUtil, Process,
   DB, SQLDB,
   MainDM, DBDM, EERDM, DBEERDM, DBEERFirebird, EERModel, EERSQLScript;
 
 const
   ServerName = 'dbdesigner-fork';
-  ServerVersion = '0.8.0';
+  ServerVersion = '0.9.0';
   //The newest protocol version comes first, it is the answer to a client
   //that asks for a version not in this list
   ProtocolVersions: array[0..2] of string = ('2025-06-18', '2025-03-26', '2024-11-05');
@@ -4004,8 +4012,320 @@ begin
   end;
 end;
 
+// ---------------------------------------------------------------------------
+// Registration in a client (command line)
+
+const
+  //The name the server has in the client
+  RegisteredName = 'dbdesigner';
+
+function ThisProgram: string;
+begin
+  Result:=ExpandFileName(ParamStr(0));
+end;
+
+//Runs the command line program of Claude Code. False if it could not be
+//started; its exit code and what it wrote otherwise
+function RunClaude(const Args: array of string; out Text: string; out ExitCode: integer): Boolean;
+var Params: array of string;
+  i, First: integer;
+begin
+  //On Windows through the command interpreter: claude is a program or a
+  //command file (installed with npm), the interpreter finds both
+  {$IFDEF MSWINDOWS}
+  First:=2;
+  SetLength(Params, Length(Args)+First);
+  Params[0]:='/c';
+  Params[1]:='claude';
+  {$ELSE}
+  First:=0;
+  SetLength(Params, Length(Args));
+  {$ENDIF}
+  for i:=0 to High(Args) do
+    Params[First+i]:=Args[i];
+
+  Text:='';
+  ExitCode:=-1;
+  try
+    Result:=(RunCommandIndir('', {$IFDEF MSWINDOWS}'cmd.exe'{$ELSE}'claude'{$ENDIF},
+      Params, Text, ExitCode, [poStderrToOutPut, poNoConsole])=0);
+  except
+    Result:=False;
+  end;
+end;
+
+//Is the claude command there at all
+function ClaudeCodeFound: Boolean;
+var Text: string;
+  ExitCode: integer;
+begin
+  Result:=RunClaude(['--version'], Text, ExitCode) and (ExitCode=0);
+end;
+
+function RegisterClaudeCode: integer;
+var Text: string;
+  ExitCode: integer;
+begin
+  Result:=1;
+  if(Not(ClaudeCodeFound))then
+  begin
+    WriteLn('The command "claude" of Claude Code was not found. With Claude Code ',
+      'installed, register the server with:');
+    WriteLn('  claude mcp add --scope user ', RegisteredName, ' -- "', ThisProgram, '"');
+    Exit;
+  end;
+
+  //An entry of that name from an earlier installation is replaced
+  RunClaude(['mcp', 'remove', '--scope', 'user', RegisteredName], Text, ExitCode);
+  if(RunClaude(['mcp', 'add', '--scope', 'user', RegisteredName, '--', ThisProgram],
+    Text, ExitCode))and(ExitCode=0)then
+  begin
+    WriteLn('Registered in Claude Code as "', RegisteredName, '" for all projects of this user.');
+    Result:=0;
+  end
+  else
+  begin
+    WriteLn('Claude Code did not register the server:');
+    WriteLn(Trim(Text));
+  end;
+end;
+
+function UnregisterClaudeCode: integer;
+var Text: string;
+  ExitCode: integer;
+begin
+  Result:=0;
+  if(Not(ClaudeCodeFound))then
+    Exit;
+
+  //Only an entry that names this program: another server of the same name
+  //(a build of a developer) stays
+  if(Not(RunClaude(['mcp', 'get', RegisteredName], Text, ExitCode)))or
+    (Pos(LowerCase(ThisProgram), LowerCase(Text))=0)then
+  begin
+    WriteLn('Claude Code has no server "', RegisteredName, '" of this program.');
+    Exit;
+  end;
+
+  if(RunClaude(['mcp', 'remove', '--scope', 'user', RegisteredName], Text, ExitCode))and
+    (ExitCode=0)then
+    WriteLn('Removed from Claude Code.')
+  else
+  begin
+    WriteLn('Claude Code did not remove the server:');
+    WriteLn(Trim(Text));
+    Result:=1;
+  end;
+end;
+
+//The file in which Claude Desktop keeps its MCP servers. Installed as a
+//packaged app (from the Microsoft Store or the MSIX installer) it has its
+//own copy of the roaming application data in the folder of the package and
+//does not read %APPDATA%\Claude
+function ClaudeDesktopConfig: string;
+{$IFDEF MSWINDOWS}
+var Packages, Packaged: string;
+  Found: TSearchRec;
+{$ENDIF}
+begin
+  {$IFDEF MSWINDOWS}
+  Result:=IncludeTrailingPathDelimiter(GetEnvironmentVariable('APPDATA'))+
+    'Claude'+PathDelim+'claude_desktop_config.json';
+
+  Packages:=IncludeTrailingPathDelimiter(GetEnvironmentVariable('LOCALAPPDATA'))+
+    'Packages'+PathDelim;
+  if(FindFirst(Packages+'Claude_*', faDirectory, Found)=0)then
+  begin
+    repeat
+      Packaged:=Packages+Found.Name+PathDelim+'LocalCache'+PathDelim+'Roaming'+
+        PathDelim+'Claude'+PathDelim;
+      if(DirectoryExists(Packaged))then
+      begin
+        Result:=Packaged+'claude_desktop_config.json';
+        break;
+      end;
+    until(FindNext(Found)<>0);
+    FindClose(Found);
+  end;
+  {$ELSE}
+  Result:=IncludeTrailingPathDelimiter(GetEnvironmentVariable('HOME'))+
+    '.config'+PathDelim+'Claude'+PathDelim+'claude_desktop_config.json';
+  {$ENDIF}
+end;
+
+//The configuration of Claude Desktop as an object, an empty one if there
+//is no file yet. Raises if the file is there and is no JSON object: it is
+//left as it is then
+function LoadDesktopConfig(const FileName: string): TJSONObject;
+var Lines: TStringList;
+  Data: TJSONData;
+begin
+  Result:=nil;
+  if(Not(FileExists(FileName)))then
+  begin
+    Result:=TJSONObject.Create;
+    Exit;
+  end;
+
+  Lines:=TStringList.Create;
+  try
+    Lines.LoadFromFile(FileName);
+    if(Trim(Lines.Text)='')then
+    begin
+      Result:=TJSONObject.Create;
+      Exit;
+    end;
+    Data:=GetJSON(Lines.Text);
+    if(Data=nil)or(Data.JSONType<>jtObject)then
+    begin
+      Data.Free;
+      raise Exception.Create('it holds no JSON object');
+    end;
+    Result:=TJSONObject(Data);
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure SaveDesktopConfig(const FileName: string; Config: TJSONObject);
+var Lines: TStringList;
+begin
+  //The file as it was stays next to the new one
+  if(FileExists(FileName))then
+    CopyFile(FileName, FileName+'.bak');
+
+  Lines:=TStringList.Create;
+  try
+    Lines.Text:=Config.FormatJSON;
+    Lines.SaveToFile(FileName);
+  finally
+    Lines.Free;
+  end;
+end;
+
+function RegisterClaudeDesktop: integer;
+var FileName: string;
+  Config, Servers: TJSONObject;
+begin
+  Result:=1;
+  FileName:=ClaudeDesktopConfig;
+  if(Not(DirectoryExists(ExtractFilePath(FileName))))then
+  begin
+    WriteLn('Claude Desktop was not found (no directory ', ExtractFilePath(FileName), ').');
+    Exit;
+  end;
+
+  try
+    Config:=LoadDesktopConfig(FileName);
+  except
+    on E: Exception do
+    begin
+      WriteLn('The file ', FileName, ' was not changed: ', E.Message);
+      Exit;
+    end;
+  end;
+  try
+    if(Config.IndexOfName('mcpServers')<0)then
+      Config.Add('mcpServers', TJSONObject.Create);
+    if(Config.Types['mcpServers']<>jtObject)then
+    begin
+      WriteLn('The file ', FileName, ' was not changed: "mcpServers" is no object.');
+      Exit;
+    end;
+    Servers:=Config.Objects['mcpServers'];
+    if(Servers.IndexOfName(RegisteredName)>=0)then
+      Servers.Delete(RegisteredName);
+    Servers.Add(RegisteredName, TJSONObject.Create(['command', ThisProgram,
+      'args', TJSONArray.Create]));
+
+    SaveDesktopConfig(FileName, Config);
+    WriteLn('Registered in Claude Desktop as "', RegisteredName, '" (', FileName,
+      '). Claude Desktop reads the file when it starts.');
+    Result:=0;
+  finally
+    Config.Free;
+  end;
+end;
+
+function UnregisterClaudeDesktop: integer;
+var FileName: string;
+  Config, Servers, Entry: TJSONObject;
+begin
+  Result:=0;
+  FileName:=ClaudeDesktopConfig;
+  if(Not(FileExists(FileName)))then
+    Exit;
+
+  try
+    Config:=LoadDesktopConfig(FileName);
+  except
+    //A file that cannot be read has no entry to remove
+    Exit;
+  end;
+  try
+    if(Config.IndexOfName('mcpServers')<0)or(Config.Types['mcpServers']<>jtObject)then
+      Exit;
+    Servers:=Config.Objects['mcpServers'];
+    if(Servers.IndexOfName(RegisteredName)<0)or(Servers.Types[RegisteredName]<>jtObject)then
+      Exit;
+    //Only an entry that names this program
+    Entry:=Servers.Objects[RegisteredName];
+    if(Not(SameFileName(Entry.Get('command', ''), ThisProgram)))then
+    begin
+      WriteLn('Claude Desktop has a server "', RegisteredName, '" of another program, it stays.');
+      Exit;
+    end;
+
+    Servers.Delete(RegisteredName);
+    SaveDesktopConfig(FileName, Config);
+    WriteLn('Removed from Claude Desktop (', FileName, ').');
+  finally
+    Config.Free;
+  end;
+end;
+
+//The exit code of a start with arguments: 0 done, 1 not done, 2 unknown
+function RunCommandLine: integer;
+var Arg: string;
+begin
+  Arg:=LowerCase(ParamStr(1));
+  if(Arg='--register-claude-code')then
+    Result:=RegisterClaudeCode
+  else if(Arg='--unregister-claude-code')then
+    Result:=UnregisterClaudeCode
+  else if(Arg='--register-claude-desktop')then
+    Result:=RegisterClaudeDesktop
+  else if(Arg='--unregister-claude-desktop')then
+    Result:=UnregisterClaudeDesktop
+  else if(Arg='--version')then
+  begin
+    WriteLn(ServerName, ' ', ServerVersion);
+    Result:=0;
+  end
+  else
+  begin
+    WriteLn('DBDesignerMCP ', ServerVersion, ': MCP server for DBDesigner Fork models.');
+    WriteLn('Without arguments it serves the Model Context Protocol on stdin/stdout;');
+    WriteLn('an MCP client starts it that way.');
+    WriteLn;
+    WriteLn('  --register-claude-code       register it in Claude Code (all projects of the user)');
+    WriteLn('  --unregister-claude-code');
+    WriteLn('  --register-claude-desktop    register it in Claude Desktop');
+    WriteLn('  --unregister-claude-desktop');
+    WriteLn('  --version');
+    if(Arg='--help')or(Arg='-h')or(Arg='/?')then
+      Result:=0
+    else
+      Result:=2;
+  end;
+end;
+
 var Line: string;
 begin
+  //With an argument: registration in a client, no protocol
+  if(ParamCount>0)then
+    Halt(RunCommandLine);
+
   //stdout carries the protocol: the WriteLn output of the application code
   //must not get there
   AssignFile(Output, {$IFDEF MSWINDOWS}'NUL'{$ELSE}'/dev/null'{$ENDIF});

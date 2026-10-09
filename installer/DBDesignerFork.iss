@@ -1,6 +1,6 @@
-; Inno Setup script for DBDesigner Fork (Windows, 64 bit)
+﻿; Inno Setup script for DBDesigner Fork (Windows, 64 bit)
 ;
-; Build the program and the plugins first (see README.md), then
+; Build the program, the plugins and the MCP server first (see README.md), then
 ;   "C:\Program Files\Inno Setup 7\ISCC.exe" installer\DBDesignerFork.iss
 ; The setup program is written to installer\Output.
 ;
@@ -12,6 +12,15 @@
 #define AppName "DBDesigner Fork"
 #define AppExe "DBDesignerFork.exe"
 #define AppVersion GetVersionNumbersString(BinDir + "\" + AppExe)
+
+; The MCP server for AI assistants (mcp\DBDesignerMCP.lpi) is an optional
+; part of the setup. Without the program in bin the setup is built without it.
+#define McpExe "DBDesignerMCP.exe"
+#if FileExists(SourcePath + BinDir + "\" + McpExe)
+  #define WithMcp
+#else
+  #pragma warning "No " + McpExe + " in bin, the MCP server is left out"
+#endif
 
 ; Firebird client and embedded engine: taken from an unpacked Firebird zip kit (64 bit),
 ; by default next to the repository. Another place:
@@ -52,11 +61,23 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+#ifdef WithMcp
+; The MCP server and its registration are offered, not preselected. The
+; registrations need the server, so they are its subtasks.
+Name: "mcpserver"; Description: "{cm:McpServer}"; GroupDescription: "{cm:McpGroup}"; Flags: unchecked
+Name: "mcpserver\claudecode"; Description: "{cm:McpClaudeCode}"; GroupDescription: "{cm:McpGroup}"; Flags: unchecked
+Name: "mcpserver\claudedesktop"; Description: "{cm:McpClaudeDesktop}"; GroupDescription: "{cm:McpGroup}"; Flags: unchecked
+#endif
 
 [Files]
 ; program and plugins
 Source: "{#BinDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\DBDplugin_*.exe"; DestDir: "{app}"; Flags: ignoreversion
+#ifdef WithMcp
+; MCP server: a console program next to the program, it uses its Data and
+; Gfx directories and its client libraries
+Source: "{#BinDir}\{#McpExe}"; DestDir: "{app}"; Flags: ignoreversion; Tasks: mcpserver
+#endif
 
 ; licence
 Source: "{#BinDir}\Copying.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -133,6 +154,55 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app
 [CustomMessages]
 english.ManualName=DBDesigner 4 Manual
 german.ManualName=DBDesigner 4 Handbuch
+english.McpGroup=AI assistants (Model Context Protocol):
+german.McpGroup=KI-Assistenten (Model Context Protocol):
+english.McpServer=Install the MCP server (an AI assistant can read and change models with it)
+german.McpServer=MCP-Server installieren (damit kann ein KI-Assistent Modelle lesen und ändern)
+english.McpClaudeCode=Register the MCP server in Claude Code (for the current user)
+german.McpClaudeCode=MCP-Server in Claude Code registrieren (für den aktuellen Benutzer)
+english.McpClaudeDesktop=Register the MCP server in Claude Desktop (for the current user)
+german.McpClaudeDesktop=MCP-Server in Claude Desktop registrieren (für den aktuellen Benutzer)
+english.McpClaudeCodeFailed=The MCP server is installed, but it could not be registered in Claude Code: the command "claude" was not found or refused it.%n%nWith Claude Code installed, register it with:%n%nclaude mcp add --scope user dbdesigner -- "%1"
+german.McpClaudeCodeFailed=Der MCP-Server ist installiert, konnte aber nicht in Claude Code registriert werden: Der Befehl "claude" wurde nicht gefunden oder hat es abgelehnt.%n%nMit installiertem Claude Code lässt er sich so registrieren:%n%nclaude mcp add --scope user dbdesigner -- "%1"
+english.McpClaudeDesktopFailed=The MCP server is installed, but it could not be registered in Claude Desktop: Claude Desktop was not found, or its file claude_desktop_config.json could not be read.%n%nTo register it later, run:%n%n"%1" --register-claude-desktop
+german.McpClaudeDesktopFailed=Der MCP-Server ist installiert, konnte aber nicht in Claude Desktop registriert werden: Claude Desktop wurde nicht gefunden, oder seine Datei claude_desktop_config.json ließ sich nicht lesen.%n%nSpäter lässt er sich so registrieren:%n%n"%1" --register-claude-desktop
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+
+#ifdef WithMcp
+[UninstallRun]
+; The server takes its entries out of the clients again, only those that name
+; this installation. It does so for the user who runs the uninstaller.
+Filename: "{app}\{#McpExe}"; Parameters: "--unregister-claude-code"; RunOnceId: "McpClaudeCode"; Flags: runhidden skipifdoesntexist
+Filename: "{app}\{#McpExe}"; Parameters: "--unregister-claude-desktop"; RunOnceId: "McpClaudeDesktop"; Flags: runhidden skipifdoesntexist
+
+[Code]
+// The registration belongs to the user who started the setup, not to the
+// administrator account an installation for all users may run with: the
+// server registers itself (see mcp\DBDesignerMCP.pas), started as that user.
+// A failure does not undo the installation; a message says how to register
+// the server later.
+procedure RegisterMcpServer(const TaskName, Param, FailMessage: String);
+var
+  ResultCode: Integer;
+  Server: String;
+begin
+  if not WizardIsTaskSelected(TaskName) then
+    Exit;
+
+  Server := ExpandConstant('{app}\{#McpExe}');
+  if (not ExecAsOriginalUser(Server, Param, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or
+    (ResultCode <> 0) then
+    SuppressibleMsgBox(FmtMessage(CustomMessage(FailMessage), [Server]), mbInformation, MB_OK, IDOK);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    RegisterMcpServer('mcpserver\claudecode', '--register-claude-code', 'McpClaudeCodeFailed');
+    RegisterMcpServer('mcpserver\claudedesktop', '--register-claude-desktop', 'McpClaudeDesktopFailed');
+  end;
+end;
+#endif
