@@ -20,8 +20,12 @@ program DBDesignerMCP;
 //   delete_table, delete_column, delete_relation
 //   add_index, delete_index
 //   move_table      another place in the diagram
+//   arrange_tables  tables side by side in rows, without overlaps
 //   list_regions, add_region, change_region, delete_region
 //   list_notes, add_note, change_note, delete_note
+//   list_images, add_image, change_image, delete_image
+//   export_model_image     the diagram as a PNG, JPG or BMP file
+//   list_datatypes, add_datatype, change_datatype, delete_datatype
 //   get_model_settings, change_model_settings
 //   save_model      write the model to its file or to another one
 //   list_connections       the database connections stored in DBDesigner
@@ -47,14 +51,15 @@ program DBDesignerMCP;
 uses
   {$IFDEF UNIX}cthreads,{$ENDIF}
   Interfaces, // LCL
-  Classes, SysUtils, StrUtils, Forms, Controls, Dialogs, InterfaceBase,
+  Classes, SysUtils, StrUtils, Types, Forms, Controls, Graphics, Dialogs,
+  InterfaceBase,
   iostream, fpjson, jsonparser, LazUTF8, LConvEncoding, FileUtil,
   DB, SQLDB,
   MainDM, DBDM, EERDM, DBEERDM, DBEERFirebird, EERModel, EERSQLScript;
 
 const
   ServerName = 'dbdesigner-fork';
-  ServerVersion = '0.5.0';
+  ServerVersion = '0.6.0';
   //The newest protocol version comes first, it is the answer to a client
   //that asks for a version not in this list
   ProtocolVersions: array[0..2] of string = ('2025-06-18', '2025-03-26', '2024-11-05');
@@ -69,6 +74,12 @@ const
     ('PRIMARY', 'INDEX', 'UNIQUE', 'FULLTEXT');
   RefActionNames: array[0..4] of string =
     ('RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION', 'SET DEFAULT');
+
+  //Room that is kept free around a table that is placed without a
+  //position: a table grows with the columns it gets later, and the lines
+  //of the relations need space
+  PlaceGapX = 80;
+  PlaceGapY = 80;
 
 type
   //An error of a tool: the text goes to the client as the result
@@ -483,8 +494,30 @@ begin
     'width', Obj.Obj_W, 'height', Obj.Obj_H]);
 end;
 
+//The tables that lie over or under a table in the diagram
+function OverlappingTables(Table: TEERTable): TJSONArray;
+var Tables: TList;
+  Other: TEERTable;
+  i: integer;
+begin
+  Result:=TJSONArray.Create;
+  Tables:=GetObjects(EERTable);
+  try
+    for i:=0 to Tables.Count-1 do
+    begin
+      Other:=Tables[i];
+      if(Other<>Table)and
+        (Table.Obj_X<Other.Obj_X+Other.Obj_W)and(Other.Obj_X<Table.Obj_X+Table.Obj_W)and
+        (Table.Obj_Y<Other.Obj_Y+Other.Obj_H)and(Other.Obj_Y<Table.Obj_Y+Table.Obj_H)then
+        Result.Add(U(Other.ObjName));
+    end;
+  finally
+    Tables.Free;
+  end;
+end;
+
 function TableToJSON(Table: TEERTable): TJSONObject;
-var Columns, Indices, Parents, Children: TJSONArray;
+var Columns, Indices, Parents, Children, Overlaps: TJSONArray;
   i: integer;
 begin
   Columns:=TJSONArray.Create;
@@ -514,6 +547,12 @@ begin
   Result.Add('position', PositionToJSON(Table));
   if(Table.GetRegion<>nil)then
     Result.Add('region', U(TEERRegion(Table.GetRegion).ObjName));
+  //A table that got columns may have grown over its neighbours
+  Overlaps:=OverlappingTables(Table);
+  if(Overlaps.Count>0)then
+    Result.Add('overlaps_tables', Overlaps)
+  else
+    Overlaps.Free;
   Result.Add('columns', Columns);
   Result.Add('indices', Indices);
   Result.Add('relations_to_parents', Parents);
@@ -753,6 +792,22 @@ begin
   end;
 end;
 
+//Moves a table to the nearest place where it has free room on all sides:
+//the place is looked for with a frame of half the gap around the table
+procedure PlaceWithRoom(Table: TEERTable);
+var x, y: integer;
+begin
+  x:=Table.Obj_X-PlaceGapX div 2;
+  y:=Table.Obj_Y-PlaceGapY div 2;
+  if(x<0)then x:=0;
+  if(y<0)then y:=0;
+  with Model.GetFreeObjPos(x, y, Table.Obj_W+PlaceGapX, Table.Obj_H+PlaceGapY, Table) do
+  begin
+    Table.Obj_X:=X+PlaceGapX div 2;
+    Table.Obj_Y:=Y+PlaceGapY div 2;
+  end;
+end;
+
 function ToolAddTable(Args: TJSONObject): TJSONData;
 var TableName: string;
   Table: TEERTable;
@@ -789,11 +844,7 @@ begin
 
     //Without a position: the nearest place where no other object is
     if(Args.IndexOfName('x')<0)or(Args.IndexOfName('y')<0)then
-      with Model.GetFreeObjPos(Table.Obj_X, Table.Obj_Y, Table.Obj_W, Table.Obj_H, Table) do
-      begin
-        Table.Obj_X:=X;
-        Table.Obj_Y:=Y;
-      end;
+      PlaceWithRoom(Table);
     Table.RefreshObj;
   except
     Table.Free;
@@ -955,12 +1006,7 @@ begin
     Model.CheckAllRelations;
 
     JoinTable.RefreshObj;
-    with Model.GetFreeObjPos(JoinTable.Obj_X, JoinTable.Obj_Y,
-      JoinTable.Obj_W, JoinTable.Obj_H, JoinTable) do
-    begin
-      JoinTable.Obj_X:=X;
-      JoinTable.Obj_Y:=Y;
-    end;
+    PlaceWithRoom(JoinTable);
     JoinTable.RefreshObj;
 
     Model.ModelHasChanged;
@@ -1429,6 +1475,115 @@ begin
     TJSONObject(Result).Add('region', U(TEERRegion(Table.GetRegion).ObjName));
 end;
 
+//Tables side by side in rows, each row as high as its highest table. For
+//a model that was built without positions, or whose tables have grown
+//over each other
+function ToolArrangeTables(Args: TJSONObject): TJSONData;
+var Tables: TList;
+  Names: TJSONArray;
+  Table: TEERTable;
+  Item: TJSONObject;
+  x0, y0, RowWidth, x, y, RowHeight, i: integer;
+begin
+  NeedModel;
+  x0:=ArgInt(Args, 'x', 40);
+  y0:=ArgInt(Args, 'y', 40);
+  RowWidth:=ArgInt(Args, 'row_width', 1400);
+  if(RowWidth<200)then
+    raise EToolError.Create('"row_width" is at least 200.');
+
+  Tables:=TList.Create;
+  try
+    Names:=nil;
+    if(HasArg(Args, 'tables'))and(Args.Types['tables']=jtArray)then
+      Names:=Args.Arrays['tables'];
+    if(Names<>nil)and(Names.Count>0)then
+    begin
+      for i:=0 to Names.Count-1 do
+      begin
+        if(Names.Types[i]<>jtString)then
+          raise EToolError.Create('"tables" has to be a list of table names.');
+        Table:=NeedTable(Names.Strings[i]);
+        if(Tables.IndexOf(Table)<0)then
+          Tables.Add(Table);
+      end;
+    end
+    else
+    begin
+      //The regions hold the tables that lie in them: all tables in rows
+      //would take them out of their regions
+      if(Model.GetEERObjectCount([EERRegion])>0)then
+        raise EToolError.Create('The model has regions, and a table belongs to the '+
+          'region it lies in. Name the tables to arrange with "tables" and give '+
+          'the place with "x" and "y" (list_regions shows the regions).');
+      Model.GetEERObjectList([EERTable], Tables);
+      //A table comes after the tables it refers to
+      Model.SortEERObjectListByObjName(Tables);
+      try
+        Model.SortEERTableListByForeignKeyReferences(Tables);
+      except
+        //Circular relations: the order by name stays
+      end;
+    end;
+    if(Tables.Count=0)then
+      raise EToolError.Create('The model has no tables.');
+
+    //Check the whole arrangement before a table is moved
+    x:=x0;
+    y:=y0;
+    RowHeight:=0;
+    for i:=0 to Tables.Count-1 do
+    begin
+      Table:=Tables[i];
+      if(x>x0)and(x+Table.Obj_W>x0+RowWidth)then
+      begin
+        x:=x0;
+        y:=y+RowHeight+PlaceGapY;
+        RowHeight:=0;
+      end;
+      NeedInsideCanvas(x, y, Table.Obj_W, Table.Obj_H);
+      if(Table.Obj_H>RowHeight)then
+        RowHeight:=Table.Obj_H;
+      x:=x+Table.Obj_W+PlaceGapX;
+    end;
+
+    Result:=TJSONArray.Create;
+    x:=x0;
+    y:=y0;
+    RowHeight:=0;
+    for i:=0 to Tables.Count-1 do
+    begin
+      Table:=Tables[i];
+      if(x>x0)and(x+Table.Obj_W>x0+RowWidth)then
+      begin
+        x:=x0;
+        y:=y+RowHeight+PlaceGapY;
+        RowHeight:=0;
+      end;
+      Table.Obj_X:=x;
+      Table.Obj_Y:=y;
+      Table.RefreshObj;
+      if(Table.Obj_H>RowHeight)then
+        RowHeight:=Table.Obj_H;
+      x:=x+Table.Obj_W+PlaceGapX;
+    end;
+    //The lines of the relations, when all tables have their places
+    for i:=0 to Tables.Count-1 do
+    begin
+      Table:=Tables[i];
+      Table.RefreshRelations;
+      Item:=TJSONObject.Create(['name', U(Table.ObjName),
+        'position', PositionToJSON(Table)]);
+      if(Table.GetRegion<>nil)then
+        Item.Add('region', U(TEERRegion(Table.GetRegion).ObjName));
+      TJSONArray(Result).Add(Item);
+    end;
+  finally
+    Tables.Free;
+  end;
+  Model.ModelHasChanged;
+end;
+
 function NeedRegion(const RegionName: string): TEERRegion;
 begin
   NeedModel;
@@ -1776,6 +1931,550 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
+// Images
+
+function NeedImage(const ImageName: string): TEERImage;
+begin
+  NeedModel;
+  if(ImageName='')then
+    raise EToolError.Create('The argument "image" is missing.');
+  Result:=Model.GetEERObjectByName(EERImage, ImageName);
+  if(Result=nil)then
+    raise EToolError.CreateFmt('There is no image "%s" in the model. '+
+      'list_images shows the images.', [ImageName]);
+end;
+
+function ImageToJSON(Image: TEERImage): TJSONObject;
+begin
+  Result:=TJSONObject.Create(['name', U(Image.ObjName),
+    'position', PositionToJSON(Image),
+    'picture_width', Image.GetImgSize.cx,
+    'picture_height', Image.GetImgSize.cy,
+    'stretch', Image.GetStrechImg]);
+  if(Image.GetRegion<>nil)then
+    Result.Add('region', U(TEERRegion(Image.GetRegion).ObjName));
+end;
+
+//The picture of an image from a PNG or BMP file
+procedure LoadPicture(Image: TEERImage; const FileName: string);
+var Stream: TFileStream;
+begin
+  if(Not(FileExists(FileName)))then
+    raise EToolError.CreateFmt('The file "%s" does not exist.', [FileName]);
+  Stream:=TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  try
+    try
+      Image.LoadImgFromStream(Stream);
+    except
+      on E: Exception do
+        raise EToolError.CreateFmt('The file "%s" could not be read as a picture '+
+          '(PNG or BMP): %s', [FileName, E.Message]);
+    end;
+  finally
+    Stream.Free;
+  end;
+  if(Image.GetImgSize.cx<1)or(Image.GetImgSize.cy<1)then
+    raise EToolError.CreateFmt('The file "%s" holds no picture.', [FileName]);
+end;
+
+//Width and height from the arguments. With one of them the other follows
+//the proportions of the picture, with none it is the size of the picture
+procedure ImageSizeFromArgs(Image: TEERImage; Args: TJSONObject; out w, h: integer);
+var Size: TSize;
+begin
+  Size:=Image.GetImgSize;
+  w:=ArgInt(Args, 'width', 0);
+  h:=ArgInt(Args, 'height', 0);
+  if(HasArg(Args, 'width'))and(Not(HasArg(Args, 'height')))and(Size.cx>0)then
+    h:=Round(w*Size.cy/Size.cx)
+  else if(HasArg(Args, 'height'))and(Not(HasArg(Args, 'width')))and(Size.cy>0)then
+    w:=Round(h*Size.cx/Size.cy)
+  else if(Not(HasArg(Args, 'width')))and(Not(HasArg(Args, 'height')))then
+  begin
+    w:=Size.cx;
+    h:=Size.cy;
+  end;
+  if(w<2)or(h<2)then
+    raise EToolError.Create('An image is at least 2 wide and 2 high.');
+end;
+
+function ToolListImages(Args: TJSONObject): TJSONData;
+var Images: TList;
+  i: integer;
+begin
+  NeedModel;
+  Result:=TJSONArray.Create;
+  Images:=GetObjects(EERImage);
+  try
+    for i:=0 to Images.Count-1 do
+      TJSONArray(Result).Add(ImageToJSON(TEERImage(Images[i])));
+  finally
+    Images.Free;
+  end;
+end;
+
+function ToolAddImage(Args: TJSONObject): TJSONData;
+var Image: TEERImage;
+  ImageName: string;
+  w, h: integer;
+begin
+  NeedModel;
+  if(ArgStr(Args, 'path')='')then
+    raise EToolError.Create('The argument "path" is missing.');
+  ImageName:=Trim(ArgStr(Args, 'name'));
+  if(ImageName<>'')and(Model.GetEERObjectByName(EERImage, ImageName)<>nil)then
+    raise EToolError.CreateFmt('The model has an image "%s" already.', [ImageName]);
+
+  Image:=Model.NewImage(ArgInt(Args, 'x', 40), ArgInt(Args, 'y', 40), 0, 0, False);
+  try
+    LoadPicture(Image, ExpandFileName(ArgStr(Args, 'path')));
+    if(ImageName<>'')then
+      Image.ObjName:=ImageName;
+    Image.SetStrechImg(ArgBool(Args, 'stretch', True));
+    ImageSizeFromArgs(Image, Args, w, h);
+    Image.Obj_W:=w;
+    Image.Obj_H:=h;
+
+    //Without a position: the nearest place where no other object is
+    if(Not(HasArg(Args, 'x')))or(Not(HasArg(Args, 'y')))then
+      with Model.GetFreeObjPos(Image.Obj_X, Image.Obj_Y, w, h, Image) do
+      begin
+        Image.Obj_X:=X;
+        Image.Obj_Y:=Y;
+      end;
+    NeedInsideCanvas(Image.Obj_X, Image.Obj_Y, w, h);
+    Image.RefreshObj;
+  except
+    Image.Free;
+    raise;
+  end;
+  Model.ModelHasChanged;
+
+  Result:=ImageToJSON(Image);
+end;
+
+function ToolChangeImage(Args: TJSONObject): TJSONData;
+var Image: TEERImage;
+  NewName: string;
+  Other: Pointer;
+  x, y, w, h: integer;
+begin
+  Image:=NeedImage(ArgStr(Args, 'image'));
+  if(Not(HasArg(Args, 'new_name') or HasArg(Args, 'path') or HasArg(Args, 'x') or
+    HasArg(Args, 'y') or HasArg(Args, 'width') or HasArg(Args, 'height') or
+    HasArg(Args, 'stretch')))then
+    raise EToolError.Create('Nothing to change: give new_name, path, x, y, '+
+      'width, height or stretch.');
+
+  NewName:=Trim(ArgStr(Args, 'new_name'));
+  if(HasArg(Args, 'new_name'))then
+  begin
+    if(NewName='')then
+      raise EToolError.Create('"new_name" is empty.');
+    Other:=Model.GetEERObjectByName(EERImage, NewName);
+    if(Other<>nil)and(Other<>Pointer(Image))then
+      raise EToolError.CreateFmt('The model has an image "%s" already.', [NewName]);
+  end;
+
+  x:=ArgInt(Args, 'x', Image.Obj_X);
+  y:=ArgInt(Args, 'y', Image.Obj_Y);
+  w:=Image.Obj_W;
+  h:=Image.Obj_H;
+  if(HasArg(Args, 'width'))or(HasArg(Args, 'height'))then
+    ImageSizeFromArgs(Image, Args, w, h);
+  NeedInsideCanvas(x, y, w, h);
+
+  //Another picture in the place of the one the image has
+  if(HasArg(Args, 'path'))then
+    LoadPicture(Image, ExpandFileName(ArgStr(Args, 'path')));
+
+  if(NewName<>'')then
+    Image.ObjName:=NewName;
+  if(HasArg(Args, 'stretch'))then
+    Image.SetStrechImg(ArgBool(Args, 'stretch', True));
+  Image.Obj_X:=x;
+  Image.Obj_Y:=y;
+  Image.Obj_W:=w;
+  Image.Obj_H:=h;
+  Image.RefreshObj;
+  Model.ModelHasChanged;
+
+  Result:=ImageToJSON(Image);
+end;
+
+function ToolDeleteImage(Args: TJSONObject): TJSONData;
+var Image: TEERImage;
+begin
+  Image:=NeedImage(ArgStr(Args, 'image'));
+  Result:=TJSONObject.Create(['deleted_image', ImageToJSON(Image)]);
+  Image.DeleteObj;
+  Model.ModelHasChanged;
+end;
+
+//The diagram as the program exports it (File > Export > as Image): the
+//area of the objects at a zoom of 100 percent
+function ToolExportModelImage(Args: TJSONObject): TJSONData;
+var FileName, Ext: string;
+  Bmp: TBitmap;
+begin
+  NeedModel;
+  if(ArgStr(Args, 'path')='')then
+    raise EToolError.Create('The argument "path" is missing.');
+  FileName:=ExpandFileName(ArgStr(Args, 'path'));
+  Ext:=LowerCase(ExtractFileExt(FileName));
+  if(Ext<>'.png')and(Ext<>'.jpg')and(Ext<>'.jpeg')and(Ext<>'.bmp')then
+    raise EToolError.Create('The file name has to end with .png, .jpg or .bmp.');
+  if(FileExists(FileName))and(Not(ArgBool(Args, 'overwrite', False)))then
+    raise EToolError.CreateFmt('The file "%s" exists. Set "overwrite" to '+
+      'true to replace it.', [FileName]);
+
+  Bmp:=TBitmap.Create;
+  try
+    Model.PaintModelToImage(Bmp);
+    DMMain.SaveBitmap(Bmp, FileName, Ext);
+    Result:=TJSONObject.Create(['file', U(FileName),
+      'width', Bmp.Width, 'height', Bmp.Height]);
+  finally
+    Bmp.Free;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// Datatypes of the model
+
+function DatatypeGroupName(Group: integer): string;
+begin
+  if(Group>=0)and(Group<Model.DatatypeGroups.Count)then
+    Result:=TEERDatatypeGroup(Model.DatatypeGroups[Group]).GroupName
+  else
+    Result:=IntToStr(Group);
+end;
+
+function DatatypeGroupNames: string;
+var i: integer;
+begin
+  Result:='';
+  for i:=0 to Model.DatatypeGroups.Count-1 do
+    Result:=Result+IfThen(i>0, ', ')+TEERDatatypeGroup(Model.DatatypeGroups[i]).GroupName;
+end;
+
+//The number of columns that have the datatype
+function DatatypeUseCount(Datatype: TEERDatatype): integer;
+var Tables: TList;
+  i, j: integer;
+begin
+  Result:=0;
+  Tables:=TList.Create;
+  try
+    Model.GetEERObjectList([EERTable], Tables);
+    for i:=0 to Tables.Count-1 do
+      for j:=0 to TEERTable(Tables[i]).Columns.Count-1 do
+        if(TEERColumn(TEERTable(Tables[i]).Columns[j]).idDatatype=Datatype.id)then
+          inc(Result);
+  finally
+    Tables.Free;
+  end;
+end;
+
+function DatatypeToJSON(Datatype: TEERDatatype): TJSONObject;
+var Params, Options: TJSONArray;
+  i: integer;
+begin
+  Result:=TJSONObject.Create(['name', U(Datatype.TypeName), 'id', Datatype.id,
+    'group', U(DatatypeGroupName(Datatype.group))]);
+  if(Datatype.description<>'')then
+    Result.Add('description', U(Datatype.description));
+  if(Datatype.ParamCount>0)then
+  begin
+    Params:=TJSONArray.Create;
+    for i:=0 to Datatype.ParamCount-1 do
+      Params.Add(U(Datatype.Param[i]));
+    Result.Add('parameters', Params);
+    Result.Add('parameters_required', Datatype.ParamRequired);
+  end;
+  if(Datatype.OptionCount>0)then
+  begin
+    Options:=TJSONArray.Create;
+    for i:=0 to Datatype.OptionCount-1 do
+      Options.Add(U(Datatype.Options[i]));
+    Result.Add('options', Options);
+  end;
+  //The name the datatype has in the SQL code, if it is another one
+  if(Datatype.PhysicalMapping)and(Datatype.PhysicalTypeName<>'')then
+    Result.Add('sql_name', U(Datatype.PhysicalTypeName));
+  if(Datatype.id=Model.DefaultDataType)then
+    Result.Add('default_of_model', True);
+  Result.Add('used_by_columns', DatatypeUseCount(Datatype));
+end;
+
+//By "id", or by name. Models have datatypes of the same name in different
+//groups: the name stands for the first one, as everywhere in the program
+function NeedDatatype(Args: TJSONObject; const ArgName: string): TEERDatatype;
+begin
+  NeedModel;
+  Result:=nil;
+  if(ArgName='datatype')and(HasArg(Args, 'id'))then
+  begin
+    Result:=Model.GetDataType(ArgInt(Args, 'id', -1));
+    if(Result=nil)then
+      raise EToolError.CreateFmt('The model has no datatype with the id %d.',
+        [ArgInt(Args, 'id', -1)]);
+    Exit;
+  end;
+  if(ArgStr(Args, ArgName)='')then
+    raise EToolError.CreateFmt('The argument "%s" is missing.', [ArgName]);
+  Result:=Model.GetDataTypeByName(Trim(ArgStr(Args, ArgName)));
+  if(Result=nil)then
+    raise EToolError.CreateFmt('The model has no datatype "%s". list_datatypes '+
+      'shows its datatypes.', [ArgStr(Args, ArgName)]);
+end;
+
+//Up to 6 names from an array argument
+procedure NamesFromArg(Args: TJSONObject; const ArgName: string; Names: TStrings);
+var List: TJSONArray;
+  i: integer;
+begin
+  Names.Clear;
+  if(Args.Types[ArgName]<>jtArray)then
+    raise EToolError.CreateFmt('"%s" has to be a list of names.', [ArgName]);
+  List:=Args.Arrays[ArgName];
+  if(List.Count>6)then
+    raise EToolError.CreateFmt('A datatype has at most 6 %s.', [ArgName]);
+  for i:=0 to List.Count-1 do
+  begin
+    if(List.Types[i]<>jtString)or(Trim(List.Strings[i])='')then
+      raise EToolError.CreateFmt('"%s" has to be a list of names.', [ArgName]);
+    Names.Add(Trim(List.Strings[i]));
+  end;
+end;
+
+//The properties of a datatype that add_datatype and change_datatype share
+procedure SetDatatypeFromArgs(Datatype: TEERDatatype; Args: TJSONObject);
+var Names: TStringList;
+  i, Group: integer;
+begin
+  Names:=TStringList.Create;
+  try
+    if(HasArg(Args, 'group'))then
+    begin
+      Group:=-1;
+      for i:=0 to Model.DatatypeGroups.Count-1 do
+        if(CompareText(TEERDatatypeGroup(Model.DatatypeGroups[i]).GroupName,
+          ArgStr(Args, 'group'))=0)then
+          Group:=i;
+      if(Group<0)then
+        raise EToolError.CreateFmt('The model has no datatype group "%s". Its groups: %s',
+          [ArgStr(Args, 'group'), DatatypeGroupNames]);
+      Datatype.group:=Group;
+    end;
+    if(HasArg(Args, 'description'))then
+      Datatype.description:=ArgStr(Args, 'description');
+
+    if(HasArg(Args, 'parameters'))then
+    begin
+      NamesFromArg(Args, 'parameters', Names);
+      Datatype.ParamCount:=Names.Count;
+      for i:=0 to Names.Count-1 do
+        Datatype.Param[i]:=Names[i];
+    end;
+    if(HasArg(Args, 'parameters_required'))then
+      Datatype.ParamRequired:=ArgBool(Args, 'parameters_required', False);
+    if(Datatype.ParamCount=0)then
+      Datatype.ParamRequired:=False;
+
+    if(HasArg(Args, 'options'))then
+    begin
+      NamesFromArg(Args, 'options', Names);
+      Datatype.OptionCount:=Names.Count;
+      for i:=0 to Names.Count-1 do
+      begin
+        Datatype.Options[i]:=Names[i];
+        Datatype.OptionDefaults[i]:=False;
+      end;
+    end;
+
+    //An empty name: the datatype has its own name in the SQL code again
+    if(HasArg(Args, 'sql_name'))then
+    begin
+      Datatype.PhysicalTypeName:=Trim(ArgStr(Args, 'sql_name'));
+      Datatype.PhysicalMapping:=(Datatype.PhysicalTypeName<>'');
+    end;
+  finally
+    Names.Free;
+  end;
+end;
+
+//The tables show the names of the datatypes
+procedure RefreshAllTables;
+var Tables: TList;
+  i: integer;
+begin
+  Tables:=TList.Create;
+  try
+    Model.GetEERObjectList([EERTable], Tables);
+    for i:=0 to Tables.Count-1 do
+      TEERTable(Tables[i]).RefreshObj;
+  finally
+    Tables.Free;
+  end;
+end;
+
+function ToolListDatatypes(Args: TJSONObject): TJSONData;
+var i: integer;
+  Datatype: TEERDatatype;
+  Item: TJSONObject;
+  UsedOnly: Boolean;
+begin
+  NeedModel;
+  UsedOnly:=ArgBool(Args, 'used_only', False);
+
+  Result:=TJSONArray.Create;
+  for i:=0 to Model.Datatypes.Count-1 do
+  begin
+    Datatype:=TEERDatatype(Model.Datatypes[i]);
+    if(ArgStr(Args, 'group')<>'')and
+      (CompareText(DatatypeGroupName(Datatype.group), ArgStr(Args, 'group'))<>0)then
+      continue;
+    Item:=DatatypeToJSON(Datatype);
+    if(UsedOnly)and(Item.Integers['used_by_columns']=0)then
+      Item.Free
+    else
+      TJSONArray(Result).Add(Item);
+  end;
+end;
+
+function ToolAddDatatype(Args: TJSONObject): TJSONData;
+var Datatype: TEERDatatype;
+  TypeName: string;
+  NewID, i: integer;
+begin
+  NeedModel;
+  TypeName:=Trim(ArgStr(Args, 'name'));
+  if(TypeName='')then
+    raise EToolError.Create('The argument "name" is missing.');
+  if(Model.GetDataTypeByName(TypeName)<>nil)then
+    raise EToolError.CreateFmt('The model has a datatype "%s" already.', [TypeName]);
+
+  //The next id, as the datatype palette of the program finds it
+  NewID:=1;
+  for i:=0 to Model.Datatypes.Count-1 do
+    if(NewID<=TEERDatatype(Model.Datatypes[i]).id)then
+      NewID:=TEERDatatype(Model.Datatypes[i]).id+1;
+
+  Datatype:=TEERDatatype.Create(Model);
+  try
+    Datatype.id:=NewID;
+    Datatype.TypeName:=TypeName;
+    //The group of the user defined datatypes
+    Datatype.group:=4;
+    if(Datatype.group>=Model.DatatypeGroups.Count)then
+      Datatype.group:=Model.DatatypeGroups.Count-1;
+    Datatype.description:='';
+    Datatype.ParamCount:=0;
+    Datatype.OptionCount:=0;
+    Datatype.ParamRequired:=False;
+    Datatype.EditParamsAsString:=False;
+    Datatype.SynonymGroup:=0;
+    SetDatatypeFromArgs(Datatype, Args);
+  except
+    Datatype.Free;
+    raise;
+  end;
+  Model.Datatypes.Add(Datatype);
+  Model.ModelHasChanged;
+
+  Result:=DatatypeToJSON(Datatype);
+end;
+
+function ToolChangeDatatype(Args: TJSONObject): TJSONData;
+var Datatype, Other: TEERDatatype;
+  NewName: string;
+begin
+  Datatype:=NeedDatatype(Args, 'datatype');
+  if(Not(HasArg(Args, 'new_name') or HasArg(Args, 'group') or
+    HasArg(Args, 'description') or HasArg(Args, 'parameters') or
+    HasArg(Args, 'parameters_required') or HasArg(Args, 'options') or
+    HasArg(Args, 'sql_name')))then
+    raise EToolError.Create('Nothing to change: give new_name, group, description, '+
+      'parameters, parameters_required, options or sql_name.');
+
+  NewName:=Trim(ArgStr(Args, 'new_name'));
+  if(HasArg(Args, 'new_name'))then
+  begin
+    if(NewName='')then
+      raise EToolError.Create('"new_name" is empty.');
+    Other:=Model.GetDataTypeByName(NewName);
+    if(Other<>nil)and(Other<>Datatype)then
+      raise EToolError.CreateFmt('The model has a datatype "%s" already.', [NewName]);
+  end;
+
+  SetDatatypeFromArgs(Datatype, Args);
+  if(NewName<>'')then
+    Datatype.TypeName:=NewName;
+
+  RefreshAllTables;
+  Model.ModelHasChanged;
+  Result:=DatatypeToJSON(Datatype);
+end;
+
+function ToolDeleteDatatype(Args: TJSONObject): TJSONData;
+var Datatype, Replacement: TEERDatatype;
+  Tables: TList;
+  Column: TEERColumn;
+  Info: TJSONObject;
+  Used, i, j: integer;
+begin
+  Datatype:=NeedDatatype(Args, 'datatype');
+  if(Datatype.id=Model.DefaultDataType)then
+    raise EToolError.CreateFmt('%s is the default datatype of the model. Set '+
+      'another one with change_model_settings first.', [Datatype.TypeName]);
+
+  //The program puts the default datatype into the columns without asking
+  //which. Here the datatype for them has to be named
+  Used:=DatatypeUseCount(Datatype);
+  Replacement:=nil;
+  if(ArgStr(Args, 'replace_with')<>'')then
+  begin
+    Replacement:=NeedDatatype(Args, 'replace_with');
+    if(Replacement=Datatype)then
+      raise EToolError.Create('"replace_with" names the datatype that is to be deleted.');
+  end;
+  if(Used>0)and(Replacement=nil)then
+    raise EToolError.CreateFmt('%d column(s) have the datatype %s. Name the '+
+      'datatype they get with "replace_with".', [Used, Datatype.TypeName]);
+
+  Info:=DatatypeToJSON(Datatype);
+  if(Used>0)then
+  begin
+    Tables:=TList.Create;
+    try
+      Model.GetEERObjectList([EERTable], Tables);
+      for i:=0 to Tables.Count-1 do
+        for j:=0 to TEERTable(Tables[i]).Columns.Count-1 do
+        begin
+          Column:=TEERColumn(TEERTable(Tables[i]).Columns[j]);
+          if(Column.idDatatype=Datatype.id)then
+            Column.idDatatype:=Replacement.id;
+        end;
+    finally
+      Tables.Free;
+    end;
+  end;
+
+  //Out of the list of the common datatypes as well
+  i:=Model.CommonDataType.IndexOf(IntToStr(Datatype.id));
+  if(i>=0)then
+    Model.CommonDataType.Delete(i);
+  Model.Datatypes.Delete(Model.Datatypes.IndexOf(Datatype));
+
+  RefreshAllTables;
+  Model.ModelHasChanged;
+  Result:=TJSONObject.Create(['deleted_datatype', Info]);
+  if(Replacement<>nil)and(Used>0)then
+    TJSONObject(Result).Add('columns_changed_to', U(Replacement.TypeName));
+end;
+
+// ---------------------------------------------------------------------------
 // Settings of the model
 
 function ModelSettingsToJSON: TJSONObject;
@@ -1787,6 +2486,9 @@ begin
   Result.Add('file', U(ModelFile));
   Result.Add('unsaved_changes', Model.IsChanged);
   Result.Add('database_type', U(Model.DatabaseType));
+  if(Model.GetDataType(Model.DefaultDataType)<>nil)then
+    Result.Add('default_datatype',
+      U(TEERDatatype(Model.GetDataType(Model.DefaultDataType)).TypeName));
   //How the model names the foreign key columns it makes
   Result.Add('foreign_key_prefix', U(Model.FKPrefix));
   Result.Add('foreign_key_postfix', U(Model.FKPostfix));
@@ -1810,7 +2512,8 @@ end;
 
 function ToolChangeModelSettings(Args: TJSONObject): TJSONData;
 const
-  Settings: array[0..11] of string = ('model_name', 'comments', 'version',
+  Settings: array[0..12] of string = ('model_name', 'comments', 'version',
+    'default_datatype',
     'foreign_key_prefix', 'foreign_key_postfix',
     'foreign_key_constraint_for_new_relations', 'index_for_foreign_keys',
     'table_name_in_relation_captions', 'sql_for_linked_tables',
@@ -1824,13 +2527,17 @@ begin
       inc(Given);
   if(Given=0)then
     raise EToolError.Create('Nothing to change. The settings that can be changed: '+
-      'model_name, comments, version, foreign_key_prefix, foreign_key_postfix, '+
+      'model_name, comments, version, default_datatype, foreign_key_prefix, '+
+      'foreign_key_postfix, '+
       'foreign_key_constraint_for_new_relations, index_for_foreign_keys, '+
       'table_name_in_relation_captions, sql_for_linked_tables, use_position_grid, '+
       'position_grid_x, position_grid_y.');
 
   if(HasArg(Args, 'model_name'))and(Trim(ArgStr(Args, 'model_name'))='')then
     raise EToolError.Create('"model_name" is empty.');
+  //Raises if the model has no such datatype, before anything is changed
+  if(HasArg(Args, 'default_datatype'))then
+    NeedDatatype(Args, 'default_datatype');
   if(ArgInt(Args, 'position_grid_x', 1)<1)or(ArgInt(Args, 'position_grid_y', 1)<1)then
     raise EToolError.Create('The position grid is at least 1.');
 
@@ -1840,6 +2547,8 @@ begin
     Model.ModelComments:=ArgStr(Args, 'comments');
   if(HasArg(Args, 'version'))then
     Model.VersionStr:=Trim(ArgStr(Args, 'version'));
+  if(HasArg(Args, 'default_datatype'))then
+    Model.DefaultDataType:=NeedDatatype(Args, 'default_datatype').id;
   if(HasArg(Args, 'foreign_key_prefix'))then
     Model.FKPrefix:=ArgStr(Args, 'foreign_key_prefix');
   if(HasArg(Args, 'foreign_key_postfix'))then
@@ -2242,12 +2951,13 @@ end;
 //something (a file, data in a database) and which reach a database
 function Tool(const Name, Description, InputSchema: string): TJSONObject;
 const
-  ReadOnlyTools: array[0..9] of string = ('open_model', 'list_tables',
+  ReadOnlyTools: array[0..11] of string = ('open_model', 'list_tables',
     'describe_table', 'list_relations', 'export_sql', 'list_connections',
-    'list_database_tables', 'list_regions', 'list_notes', 'get_model_settings');
-  DestructiveTools: array[0..7] of string = ('save_model', 'sync_database',
+    'list_database_tables', 'list_regions', 'list_notes', 'get_model_settings',
+    'list_images', 'list_datatypes');
+  DestructiveTools: array[0..9] of string = ('save_model', 'sync_database',
     'delete_table', 'delete_column', 'delete_relation', 'delete_index',
-    'delete_region', 'delete_note');
+    'delete_region', 'delete_note', 'delete_image', 'delete_datatype');
   DatabaseTools: array[0..4] of string = ('connect_database',
     'disconnect_database', 'list_database_tables', 'reverse_engineer',
     'sync_database');
@@ -2506,18 +3216,124 @@ begin
       'de afterwards. Returns all settings.',
       '{"type":"object","properties":{"model_name":{"type":"string"},"com'+
       'ments":{"type":"string"},"version":{"type":"string","description":'+
-      '"e.g. 1.0.0.0"},"foreign_key_prefix":{"type":"string","description'+
-      '":"Put in front of the name of a primary key column to name its fo'+
-      'reign key column"},"foreign_key_postfix":{"type":"string"},"foreig'+
-      'n_key_constraint_for_new_relations":{"type":"boolean","description'+
-      '":"Default of the program for relations made in its diagram"},"ind'+
-      'ex_for_foreign_keys":{"type":"boolean","description":"An index in '+
-      'the child table for every relation with a foreign key constraint"}'+
-      ',"table_name_in_relation_captions":{"type":"boolean"},"sql_for_lin'+
-      'ked_tables":{"type":"boolean","description":"Write SQL for tables '+
-      'linked from other models"},"use_position_grid":{"type":"boolean"},'+
-      '"position_grid_x":{"type":"integer"},"position_grid_y":{"type":"in'+
-      'teger"}}}'),
+      '"e.g. 1.0.0.0"},"default_datatype":{"type":"string","description":'+
+      '"Name of the datatype new columns get in the table editor of the p'+
+      'rogram"},"foreign_key_prefix":{"type":"string","description":"Put '+
+      'in front of the name of a primary key column to name its foreign k'+
+      'ey column"},"foreign_key_postfix":{"type":"string"},"foreign_key_c'+
+      'onstraint_for_new_relations":{"type":"boolean","description":"Defa'+
+      'ult of the program for relations made in its diagram"},"index_for_'+
+      'foreign_keys":{"type":"boolean","description":"An index in the chi'+
+      'ld table for every relation with a foreign key constraint"},"table'+
+      '_name_in_relation_captions":{"type":"boolean"},"sql_for_linked_tab'+
+      'les":{"type":"boolean","description":"Write SQL for tables linked '+
+      'from other models"},"use_position_grid":{"type":"boolean"},"positi'+
+      'on_grid_x":{"type":"integer"},"position_grid_y":{"type":"integer"}'+
+      '}}'),
+    Tool('list_images',
+      'The images of the open model: pictures placed in the diagram, with'+
+      ' their place, their size there and the size of the picture.',
+      '{"type":"object","properties":{}}'),
+    Tool('add_image',
+      'Put a picture from a PNG or BMP file into the diagram of the open '+
+      'model. The picture is stored in the model file (as an uncompressed'+
+      ' bitmap, so a large picture makes the file large). Without x and y'+
+      ' it is placed where no other object is; without width and height i'+
+      't has the size of the picture, with one of them it keeps its propo'+
+      'rtions.',
+      '{"type":"object","properties":{"path":{"type":"string","descriptio'+
+      'n":"PNG or BMP file"},"name":{"type":"string","description":"Name '+
+      'of the image; default Image_<number>"},"x":{"type":"integer","desc'+
+      'ription":"Position in the diagram, in the units of the model"},"y"'+
+      ':{"type":"integer"},"width":{"type":"integer"},"height":{"type":"i'+
+      'nteger"},"stretch":{"type":"boolean","description":"Scale the pict'+
+      'ure to the size of the image (default true)"}},"required":["path"]'+
+      '}'),
+    Tool('change_image',
+      'Change an image of the open model: name, place, size, whether the '+
+      'picture is scaled, or another picture from a file. Only what is gi'+
+      'ven is changed.',
+      '{"type":"object","properties":{"image":{"type":"string","descripti'+
+      'on":"Name of the image"},"new_name":{"type":"string"},"path":{"typ'+
+      'e":"string","description":"PNG or BMP file with another picture"},'+
+      '"x":{"type":"integer","description":"Position in the diagram, in t'+
+      'he units of the model"},"y":{"type":"integer"},"width":{"type":"in'+
+      'teger"},"height":{"type":"integer"},"stretch":{"type":"boolean"}},'+
+      '"required":["image"]}'),
+    Tool('delete_image',
+      'Delete an image of the open model.',
+      '{"type":"object","properties":{"image":{"type":"string","descripti'+
+      'on":"Name of the image"}},"required":["image"]}'),
+    Tool('export_model_image',
+      'Write the diagram of the open model to a picture file, as the prog'+
+      'ram exports it: tables, relations, regions, notes and images, the '+
+      'area of the objects at 100 percent. Use it to look at the layout.',
+      '{"type":"object","properties":{"path":{"type":"string","descriptio'+
+      'n":"File to write, ending with .png, .jpg or .bmp"},"overwrite":{"'+
+      'type":"boolean","description":"Replace an existing file (default f'+
+      'alse)"}},"required":["path"]}'),
+    Tool('list_datatypes',
+      'The datatypes of the open model: name, id, group, parameters, opti'+
+      'ons, the name in the SQL code if it is another one, and how many c'+
+      'olumns have the datatype. A model may have datatypes of the same n'+
+      'ame in different groups.',
+      '{"type":"object","properties":{"group":{"type":"string","descripti'+
+      'on":"Only the datatypes of this group"},"used_only":{"type":"boole'+
+      'an","description":"Only datatypes that columns have (default false'+
+      ')"}}}'),
+    Tool('add_datatype',
+      'Add a datatype to the open model, in the group of the user defined'+
+      ' datatypes unless another one is named.',
+      '{"type":"object","properties":{"name":{"type":"string","descriptio'+
+      'n":"Name of the datatype"},"group":{"type":"string","description":'+
+      '"Datatype group of the model, see list_datatypes"},"description":{'+
+      '"type":"string"},"parameters":{"type":"array","items":{"type":"str'+
+      'ing"},"description":"Names of the parameters in the brackets, e.g.'+
+      ' [\"length\"] or [\"precision\",\"scale\"]; at most 6"},"parameter'+
+      's_required":{"type":"boolean","description":"A column has to give '+
+      'the parameters"},"options":{"type":"array","items":{"type":"string'+
+      '"},"description":"Words a column may add, e.g. UNSIGNED; at most 6'+
+      '"},"sql_name":{"type":"string","description":"The name written in '+
+      'the SQL code instead of the name of the datatype; empty for none"}'+
+      '},"required":["name"]}'),
+    Tool('change_datatype',
+      'Change a datatype of the open model: name, group, description, par'+
+      'ameters, options or the name in the SQL code. Only what is given i'+
+      's changed; the columns that have the datatype keep it.',
+      '{"type":"object","properties":{"datatype":{"type":"string","descri'+
+      'ption":"Name of the datatype"},"id":{"type":"integer","description'+
+      '":"Id of the datatype instead of its name, for one of several with'+
+      ' the same name"},"new_name":{"type":"string"},"group":{"type":"str'+
+      'ing","description":"Datatype group of the model, see list_datatype'+
+      's"},"description":{"type":"string"},"parameters":{"type":"array","'+
+      'items":{"type":"string"},"description":"Names of the parameters in'+
+      ' the brackets, e.g. [\"length\"] or [\"precision\",\"scale\"]; at '+
+      'most 6"},"parameters_required":{"type":"boolean","description":"A '+
+      'column has to give the parameters"},"options":{"type":"array","ite'+
+      'ms":{"type":"string"},"description":"Words a column may add, e.g. '+
+      'UNSIGNED; at most 6"},"sql_name":{"type":"string","description":"T'+
+      'he name written in the SQL code instead of the name of the datatyp'+
+      'e; empty for none"}}}'),
+    Tool('delete_datatype',
+      'Delete a datatype of the open model. If columns have it, replace_w'+
+      'ith has to name the datatype they get. The default datatype of the'+
+      ' model cannot be deleted.',
+      '{"type":"object","properties":{"datatype":{"type":"string","descri'+
+      'ption":"Name of the datatype"},"id":{"type":"integer","description'+
+      '":"Id of the datatype instead of its name"},"replace_with":{"type"'+
+      ':"string","description":"Datatype for the columns that have the de'+
+      'leted one"}}}'),
+    Tool('arrange_tables',
+      'Lay tables of the open model side by side in rows, without overlap'+
+      's and with room for the lines of the relations. Without tables: al'+
+      'l tables, in the order of their foreign keys (not for a model with'+
+      ' regions). Notes and images are not moved. Use export_model_image '+
+      'to look at the result.',
+      '{"type":"object","properties":{"tables":{"type":"array","items":{"'+
+      'type":"string"},"description":"Only these tables, in this order"},'+
+      '"x":{"type":"integer","description":"Place of the first table (def'+
+      'ault 40)"},"y":{"type":"integer"},"row_width":{"type":"integer","d'+
+      'escription":"Width after which a new row begins (default 1400)"}}}'),
     Tool('save_model',
       'Write the open model to its file, or to path. The file as it was i'+
       's kept as <file>.bak. A file other than the one of the model is re'+
@@ -2650,6 +3466,26 @@ begin
       Data:=ToolGetModelSettings(Args)
     else if(Name='change_model_settings')then
       Data:=ToolChangeModelSettings(Args)
+    else if(Name='list_images')then
+      Data:=ToolListImages(Args)
+    else if(Name='add_image')then
+      Data:=ToolAddImage(Args)
+    else if(Name='change_image')then
+      Data:=ToolChangeImage(Args)
+    else if(Name='delete_image')then
+      Data:=ToolDeleteImage(Args)
+    else if(Name='export_model_image')then
+      Data:=ToolExportModelImage(Args)
+    else if(Name='list_datatypes')then
+      Data:=ToolListDatatypes(Args)
+    else if(Name='add_datatype')then
+      Data:=ToolAddDatatype(Args)
+    else if(Name='change_datatype')then
+      Data:=ToolChangeDatatype(Args)
+    else if(Name='delete_datatype')then
+      Data:=ToolDeleteDatatype(Args)
+    else if(Name='arrange_tables')then
+      Data:=ToolArrangeTables(Args)
     else if(Name='rename_table')then
       Data:=ToolRenameTable(Args)
     else if(Name='change_column')then
