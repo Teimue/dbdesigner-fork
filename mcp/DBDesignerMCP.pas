@@ -70,7 +70,8 @@ uses
 
 const
   ServerName = 'dbdesigner-fork';
-  ServerVersion = '0.9.0';
+  //The version of DBDesigner Fork the server belongs to
+  ServerVersion = '2.1.0';
   //The newest protocol version comes first, it is the answer to a client
   //that asks for a version not in this list
   ProtocolVersions: array[0..2] of string = ('2025-06-18', '2025-03-26', '2024-11-05');
