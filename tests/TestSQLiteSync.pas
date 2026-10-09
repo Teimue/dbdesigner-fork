@@ -3,7 +3,9 @@ program TestSQLiteSync;
 // Database synchronisation against SQLite (src/DBEERSQLiteSync.pas), run on
 // bin/Examples/order.xml and a fresh database file in the temp directory:
 // create all tables, sync again without changes, column changes that ALTER
-// TABLE can do, changes that rebuild the table, a renamed table.
+// TABLE can do, changes that rebuild the table, a renamed table, and the
+// reverse engineering of the result with a foreign key from a table to
+// itself into a new model, which has to sync without changes again.
 //
 // Needs the application infrastructure (data modules, LCL):
 //   lazbuild tests/TestSQLiteSync.lpi && bin/TestSQLiteSync
@@ -20,14 +22,15 @@ uses
 
 var
   ParentForm: TForm;
-  Model: TEERModel;
+  Model, Model2, SyncModel: TEERModel;
   Conn: TDBConn;
-  Log: TStringList;
+  Log, theTables: TStringList;
   DBPath: string;
   Failures: integer = 0;
-  Product: TEERTable;
+  Product, Kunde: TEERTable;
+  SelfRel: TEERRel;
   theColumn: TEERColumn;
-  i: integer;
+  i, j: integer;
 
 procedure Check(Cond: Boolean; const What: string);
 begin
@@ -86,7 +89,7 @@ begin
   WriteLn;
   WriteLn('--- ', Title);
   Log.Clear;
-  DMDBEER.EERMySQLSyncDB(Model, Conn, Log, True, True, False);
+  DMDBEER.EERMySQLSyncDB(SyncModel, Conn, Log, True, True, False);
   WriteLn(Log.Text);
   Check(Not(LogHas('ERROR'))and(Not(LogHas('FAILED'))), 'no errors');
   Check(SQLVal('SELECT integrity_check FROM pragma_integrity_check')='ok', 'integrity_check');
@@ -114,6 +117,7 @@ begin
   //The main form: TDMDB.ConnectToDB posts an event to Application.MainForm
   Application.CreateForm(TForm, ParentForm);
   Log:=TStringList.Create;
+  theTables:=TStringList.Create;
   Conn:=TDBConn.Create;
   try
   try
@@ -124,6 +128,7 @@ begin
     Model:=TEERModel.Create(ParentForm);
     Model.Parent:=ParentForm;
     Model.LoadFromFile('bin'+PathDelim+'Examples'+PathDelim+'order.xml');
+    SyncModel:=Model;
 
     Conn.Name:='SyncTest';
     Conn.DriverName:='SQLite';
@@ -234,6 +239,60 @@ begin
     Sync('7. no changes after the rename');
     CheckNoChanges;
 
+    //------------------------------------------------------------
+    //A foreign key that references its own table
+    WriteLn;
+    WriteLn('--- 8. reverse engineering with a self-referencing foreign key');
+    DMDB.ExecSQL('CREATE TABLE kunde (id INTEGER NOT NULL PRIMARY KEY, name VARCHAR(40), '+
+      'werber_id INTEGER, FOREIGN KEY (werber_id) REFERENCES kunde (id) ON DELETE SET NULL)', True);
+    DMDB.ExecSQL('INSERT INTO kunde (id, name, werber_id) VALUES (1, ''first'', NULL)', True);
+    DMDB.ExecSQL('INSERT INTO kunde (id, name, werber_id) VALUES (2, ''second'', 1)', True);
+
+    Model2:=TEERModel.Create(ParentForm);
+    Model2.Parent:=ParentForm;
+    theTables.CommaText:=SQLVal('SELECT name FROM sqlite_master WHERE type=''table'' '+
+      'AND name NOT LIKE ''sqlite_%'' ORDER BY name');
+    Check(theTables.Count=13, '13 tables listed');
+    DMDBEER.EERSQLiteReverseEngineer(Model2, Conn, theTables, 5, True, True, nil);
+
+    SyncModel:=Model2;
+    Kunde:=nil;
+    for i:=0 to Model2.ComponentCount-1 do
+      if(Model2.Components[i] is TEERTable)then
+        if(CompareText(TEERTable(Model2.Components[i]).ObjName, 'kunde')=0)then
+          Kunde:=TEERTable(Model2.Components[i]);
+    Check(Kunde<>nil, 'table kunde in the model');
+    if(Kunde<>nil)then
+    begin
+      Check(Kunde.Columns.Count=3, '3 columns');
+      SelfRel:=nil;
+      j:=0;
+      for i:=0 to Kunde.RelEnd.Count-1 do
+        if(TEERRel(Kunde.RelEnd[i]).SrcTbl=Kunde)then
+        begin
+          SelfRel:=TEERRel(Kunde.RelEnd[i]);
+          inc(j);
+        end;
+      Check(j=1, 'one relation from kunde to itself');
+      if(SelfRel<>nil)then
+      begin
+        Check(SelfRel.RelKind=rk_1nNonId, 'the relation is non-identifying');
+        Check(Trim(SelfRel.FKFields.Text)='id=werber_id', 'mapping id=werber_id');
+        //The codes of TEERRel.RefDef: 2 = SET NULL, 3 = NO ACTION
+        Check((SelfRel.CreateRefDef)and
+          (SelfRel.RefDef.Values['OnDelete']='2')and
+          (SelfRel.RefDef.Values['OnUpdate']='3'),
+          'ON DELETE SET NULL, ON UPDATE NO ACTION');
+      end;
+    end;
+
+    Sync('9. the reverse engineered model has no changes');
+    CheckNoChanges;
+    Check(SQLVal('SELECT "table" || ''.'' || "to" || ''/'' || on_delete '+
+      'FROM pragma_foreign_key_list(''kunde'')')='kunde.id/SET NULL',
+      'foreign key of kunde still there');
+    Check(SQLVal('SELECT werber_id FROM kunde WHERE id=2')='1', 'rows kept');
+
     DMDB.SQLConn.Close;
   except
     on E: Exception do
@@ -245,6 +304,7 @@ begin
   end;
   finally
     Conn.Free;
+    theTables.Free;
     Log.Free;
   end;
 

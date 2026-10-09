@@ -559,8 +559,10 @@ begin
           parentTbl:=TEERTable(EERModel.GetEERObjectByName(EERTable,
             Q.FieldByName('REFTABLE').AsString));
 
-          //Referenced table not in the model (or self reference): skip this FK
-          if(parentTbl=nil)or(parentTbl=theTable)then
+          //Referenced table not in the model: skip this FK. A self reference
+          //(KUNDE.WERBER_ID -> KUNDE.ID) is an ordinary relation for the
+          //model; without it the next sync would drop the constraint
+          if(parentTbl=nil)then
           begin
             while(Not(Q.EOF))and(Q.FieldByName('FKNAME').AsString=fkName)do
               Q.Next;
@@ -598,8 +600,9 @@ begin
             Q.Next;
           end;
 
-          //FK columns that are all part of the child's PK: identifying relation
-          if(AllFKColsArePK)then
+          //FK columns that are all part of the child's PK: identifying relation.
+          //The model has no identifying relation from a table to itself
+          if(AllFKColsArePK)and(parentTbl<>theTable)then
             theRel.RelKind:=rk_1n;
 
           theRel.SrcTbl.RefreshRelations;
@@ -1040,17 +1043,22 @@ var
     end;
   end;
 
-  //Drop the foreign keys of other tables that reference the table
-  procedure DropReferencingForeignKeys(const tbl: string);
+  //Drop the foreign keys of other tables that reference the table.
+  //WithSelfRefs: and those of the table itself; they go with the table when
+  //it is dropped, but they block the drop of its primary key
+  procedure DropReferencingForeignKeys(const tbl: string; WithSelfRefs: Boolean = False);
   var Names, Tables, Sigs: TStringList;
+    where: string;
     k: integer;
   begin
     Names:=TStringList.Create;
     Tables:=TStringList.Create;
     Sigs:=TStringList.Create;
     try
-      LoadForeignKeys('pk.RDB$RELATION_NAME='+QuotedStr(tbl)+
-        ' AND rc.RDB$RELATION_NAME<>'+QuotedStr(tbl), Names, Tables, Sigs);
+      where:='pk.RDB$RELATION_NAME='+QuotedStr(tbl);
+      if(Not(WithSelfRefs))then
+        where:=where+' AND rc.RDB$RELATION_NAME<>'+QuotedStr(tbl);
+      LoadForeignKeys(where, Names, Tables, Sigs);
       for k:=0 to Names.Count-1 do
       begin
         Log.Add('Drop foreign key '+Names[k]+' on table '+Tables[k]);
@@ -1366,7 +1374,7 @@ var
         begin
           //The foreign keys that reference the key are added again when the
           //foreign keys are compared
-          DropReferencingForeignKeys(X);
+          DropReferencingForeignKeys(X, True);
           Exec('ALTER TABLE '+QId(X)+' DROP CONSTRAINT '+QId(PKName));
         end;
       end;

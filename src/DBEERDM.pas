@@ -757,8 +757,9 @@ begin
             DMDB.SchemaSQLQuery.Next;
           end;
 
-          //FK columns that are all part of the child's PK: identifying relation
-          if(AllFKColsArePK)then
+          //FK columns that are all part of the child's PK: identifying relation.
+          //The model has no identifying relation from a table to itself
+          if(AllFKColsArePK)and(parentTbl<>theTable)then
             theRel.RelKind:=rk_1n;
 
           theRel.SrcTbl.RefreshRelations;
@@ -1451,8 +1452,11 @@ begin
           parentTbl:=TEERTable(EERModel.GetEERObjectByName(EERTable,
             DMDB.SchemaSQLQuery.FieldByName('reftable').AsString));
 
-          //Referenced table not in the model (or self reference): skip this FK
-          if(parentTbl=nil)or(parentTbl=theTable)then
+          //Referenced table not in the model: skip this FK. A self reference
+          //(kunde.werber_id -> kunde.id) is an ordinary relation for the
+          //model; without it the next sync would rebuild the table without
+          //the foreign key
+          if(parentTbl=nil)then
           begin
             while(Not(DMDB.SchemaSQLQuery.EOF))and
               (DMDB.SchemaSQLQuery.FieldByName('fkid').AsString=fkId)do
@@ -1509,8 +1513,9 @@ begin
             DMDB.SchemaSQLQuery.Next;
           end;
 
-          //FK columns that are all part of the child's PK: identifying relation
-          if(AllFKColsArePK)then
+          //FK columns that are all part of the child's PK: identifying relation.
+          //The model has no identifying relation from a table to itself
+          if(AllFKColsArePK)and(parentTbl<>theTable)then
             theRel.RelKind:=rk_1n;
 
           theRel.SrcTbl.RefreshRelations;
@@ -1533,9 +1538,12 @@ begin
     if(CreateStdInserts)then
       EERReverseEngineerCreateStdInserts(EERModel, DbTables, limitStdIns);
 
-    StatusLbl.Caption:=DMMain.GetTranslatedMessage('Finished.', 151);
-    if(RevEngSkippedTables>0)then
-      StatusLbl.Caption:=StatusLbl.Caption+' '+IntToStr(RevEngSkippedTables)+' existing table(s) skipped.';
+    if(StatusLbl<>nil)then
+    begin
+      StatusLbl.Caption:=DMMain.GetTranslatedMessage('Finished.', 151);
+      if(RevEngSkippedTables>0)then
+        StatusLbl.Caption:=StatusLbl.Caption+' '+IntToStr(RevEngSkippedTables)+' existing table(s) skipped.';
+    end;
   finally
     DbTables.Free;
   end;
