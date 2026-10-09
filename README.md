@@ -311,6 +311,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Dialogs and palettes**
 
+- Dialogs that can be resized: the controls that follow the right or the bottom edge have their place and size as soon as the dialog is created, not only when it becomes visible. Until then they kept what the scaling had left them with, and the code of the dialog worked with that: the connection editor showed no password and description field and the port left of the host, the relation editor a name field of the wrong width, a label beside instead of above its list and a grid with narrow columns. The page setup dialog shows its preview in the full width for the same reason.
 - Table editor: changing the width of a column of the grid no longer ends in "List index (-1) out of bounds" (the click on the header row started to drag it like a row of the table).
 - Ten dialogs can be resized, with their design size as the smallest one: Database Synchronisation (the progress log), Export SQL Script (the list of the regions), Model Options, Options, the connection editor, the relation, datatype, region and note editors and the tips. Lists, grids and text fields follow the size. Their size is not stored; they open in the design size.
 - The Database Synchronisation dialog opened maximized (`WindowState = wsMaximized` in the form file).

@@ -356,6 +356,8 @@ function RunningSelfTest: Boolean; forward;
 type
   //Font and ParentFont are protected in TControl
   TLayoutControl = class(TControl);
+  //AlignControls is protected in TWinControl
+  TLayoutWinControl = class(TWinControl);
 
   //Marks a form whose layout FitFormLayout has done and keeps the size the
   //design has in that scale
@@ -1584,7 +1586,10 @@ begin
   for i:=0 to theForm.ComponentCount-1 do
     if(theForm.Components[i] is TLabel)then
       with TLabel(theForm.Components[i]) do
-        if(Alignment<>taLeftJustify)and(AutoSize)then
+        //... and a label that is anchored to the right only, see
+        //PinRightAnchoredLabels
+        if(AutoSize)and((Alignment<>taLeftJustify)or
+          ((akRight in Anchors)and(Not(akLeft in Anchors))and(Align=alNone)and(Not(WordWrap))))then
         begin
           AutoSize:=False;
           //the form stores no height for a label that sizes itself
@@ -1618,6 +1623,58 @@ begin
               else
                 SetBounds(Left-(w-Width) div 2, Top, w, Height);
             end;
+          end;
+  finally
+    bmp.Free;
+  end;
+end;
+
+//The LCL aligns the controls of a form (Align, and the anchors to the right
+//and the bottom) when the form becomes visible. Until then a control that
+//follows the size of its parent keeps what the scaling has left it with -
+//a width of 0, a place at the left - and the code of the form that runs
+//before (FormCreate, SetData, FormShow) works with these sizes: columns of
+//grids were made for a grid without width, and a control that got new
+//bounds in between stayed where it was. Align now, from the form down
+procedure RealizeLayout(aControl: TWinControl);
+var n: integer;
+  R: TRect;
+begin
+  //what TWinControl.AlignControl does
+  aControl.DisableAlign;
+  try
+    R:=TLayoutWinControl(aControl).GetLogicalClientRect;
+    TLayoutWinControl(aControl).AlignControls(nil, R);
+  finally
+    aControl.EnableAlign;
+  end;
+
+  for n:=0 to aControl.ControlCount-1 do
+    if(aControl.Controls[n] is TWinControl)then
+      RealizeLayout(TWinControl(aControl.Controls[n]));
+end;
+
+//A label above a control that follows the right edge of a dialog is
+//anchored to the right like the control. The LCL sizes such a label from its
+//right edge: a translation that is longer than the text of the design grew
+//to the left, over the label beside it. KeepAlignedLabels has switched the
+//automatic size off before the scaling; here, after the translation, the
+//label gets the width of its text from its left edge
+procedure PinRightAnchoredLabels(theForm: TForm);
+var i, w: integer;
+  bmp: Graphics.TBitmap;
+begin
+  bmp:=Graphics.TBitmap.Create;
+  try
+    for i:=0 to theForm.ComponentCount-1 do
+      if(theForm.Components[i] is TLabel)then
+        with TLabel(theForm.Components[i]) do
+          if(Not(AutoSize))and(Alignment=taLeftJustify)and(Align=alNone)and(Not(WordWrap))and
+            (akRight in Anchors)and(Not(akLeft in Anchors))then
+          begin
+            bmp.Canvas.Font.Assign(Font);
+            w:=bmp.Canvas.TextWidth(Caption);
+            SetBounds(Left, Top, w, Max(Height, bmp.Canvas.TextHeight('Ag')));
           end;
   finally
     bmp.Free;
@@ -1722,17 +1779,13 @@ begin
 
   theForm.DisableAutoSizing;
   try
-    //The fonts are set below
-    if(TextH>0)and(TextH<>DesignTextHeight)then
-      ScaleLayout(theForm, TextH/DesignTextHeight);
-
-    theForm.Font.Name:=ApplicationFontName;
-    theForm.Font.Size:=ApplicationFontSize;
-    theForm.Font.Style:=ApplicationFontStyle;
-    for i:=0 to theForm.ControlCount-1 do
-      UnifyFonts(theForm.Controls[i]);
-
-    //Group boxes: move the controls up by the height of the caption
+    //Group boxes: move the controls up by the height of the caption.
+    //In the scale of the design, before anything is scaled: setting the
+    //bounds of a control makes them, with the size its parent has at this
+    //moment, the base of its anchors. After the scaling the box has its
+    //new size already while the controls that are anchored to its right
+    //or bottom wait for the alignment - a control that was moved then
+    //kept its unscaled width (the fields of the connection editor)
     for i:=0 to theForm.ComponentCount-1 do
       if(theForm.Components[i] is TGroupBox)then
       begin
@@ -1740,8 +1793,8 @@ begin
         if(G.ControlCount=0)then
           continue;
 
-        //the caption is as high as the text
-        delta:=TextH;
+        //the caption is as high as the text of the design
+        delta:=DesignTextHeight;
 
         minTop:=MaxInt;
         for k:=0 to G.ControlCount-1 do
@@ -1771,9 +1824,22 @@ begin
             end;
         end;
       end;
+
+    //The fonts are set below
+    if(TextH>0)and(TextH<>DesignTextHeight)then
+      ScaleLayout(theForm, TextH/DesignTextHeight);
+
+    theForm.Font.Name:=ApplicationFontName;
+    theForm.Font.Size:=ApplicationFontSize;
+    theForm.Font.Style:=ApplicationFontStyle;
+    for i:=0 to theForm.ControlCount-1 do
+      UnifyFonts(theForm.Controls[i]);
+
   finally
     theForm.EnableAutoSizing;
   end;
+
+  RealizeLayout(theForm);
 
   //the bitmaps follow the DPI of the display
   ScaleFormGraphics(theForm);
@@ -1803,7 +1869,10 @@ begin
     TranslateForm(theForm);
 
   if(theForm.FindComponent(LayoutDoneName)<>nil)then
+  begin
     WidenAlignedLabels(theForm);
+    PinRightAnchoredLabels(theForm);
+  end;
 end;
 
 procedure TDMMain.LoadLanguageFromIniFile;
