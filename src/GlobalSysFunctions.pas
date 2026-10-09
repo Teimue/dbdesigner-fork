@@ -109,26 +109,16 @@ end;
 
 function GetSpecialFolder(Folder: Integer): String;
 var
-  pMalloc: IMalloc;
-  pidl: PItemIDList;
-  Path: PChar;
+  Path: array[0..MAX_PATH] of WideChar;
 begin
-  // get IMalloc interface pointer
-  if (SHGetMalloc(pMalloc) <> S_OK) then begin
-    raise EInOutError.Create('Couldn''t get pointer to IMalloc interface.');
-
-    Exit;
-  end;
-
-  // retrieve path
-  SHGetSpecialFolderLocation(0, Folder, pidl);
-  GetMem(Path, MAX_PATH);
-  SHGetPathFromIDList(pidl, Path);
-  Result := Path;
-  FreeMem(Path);
-
-  // free memory allocated by SHGetSpecialFolderLocation
-  pMalloc.Free(pidl);
+  //The wide function: the ANSI one gives the path in the code page of
+  //Windows, the strings of the program are UTF-8. With an umlaut in the
+  //user name the settings directory could not be created and the program
+  //tried to write its settings to the Data directory next to it
+  Result:='';
+  Path[0]:=#0;
+  if(SHGetSpecialFolderPathW(0, @Path[0], Folder, False))then
+    Result:=UTF8Encode(WideString(PWideChar(@Path[0])));
 end;
 {$ENDIF}
 
