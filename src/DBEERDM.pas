@@ -757,8 +757,9 @@ begin
             DMDB.SchemaSQLQuery.Next;
           end;
 
-          //FK columns that are all part of the child's PK: identifying relation
-          if(AllFKColsArePK)then
+          //FK columns that are all part of the child's PK: identifying relation.
+          //The model has no identifying relation from a table to itself
+          if(AllFKColsArePK)and(parentTbl<>theTable)then
             theRel.RelKind:=rk_1n;
 
           theRel.SrcTbl.RefreshRelations;
