@@ -15,6 +15,10 @@ program DBDesignerMCP;
 //   add_table       a new table, with its columns
 //   add_column      a new column of a table
 //   add_relation    a relation between two tables (foreign key)
+//   rename_table    another name for a table
+//   change_column   another name, datatype or other properties of a column
+//   delete_table, delete_column, delete_relation
+//   add_index, delete_index
 //   save_model      write the model to its file or to another one
 //   list_connections       the database connections stored in DBDesigner
 //   connect_database       connect to a Firebird database
@@ -46,7 +50,7 @@ uses
 
 const
   ServerName = 'dbdesigner-fork';
-  ServerVersion = '0.3.0';
+  ServerVersion = '0.4.0';
   //The newest protocol version comes first, it is the answer to a client
   //that asks for a version not in this list
   ProtocolVersions: array[0..2] of string = ('2025-06-18', '2025-03-26', '2024-11-05');
@@ -204,6 +208,11 @@ begin
     Result:=Default;
 end;
 
+function HasArg(Args: TJSONObject; const Name: string): Boolean;
+begin
+  Result:=(Args<>nil)and(Args.IndexOfName(Name)>=0)and(Args.Types[Name]<>jtNull);
+end;
+
 function ArgInt(Args: TJSONObject; const Name: string; Default: integer): integer;
 begin
   if(Args<>nil)and(Args.IndexOfName(Name)>=0)and(Args.Types[Name]=jtNumber)then
@@ -316,6 +325,9 @@ begin
   Result:=TJSONObject.Create(['name', U(Index.IndexName),
     'kind', NameInList(IndexKindNames, Index.IndexKind),
     'columns', Cols]);
+  //The index of a foreign key is made and removed with its relation
+  if(Index.FKRefDef_Obj_id>-1)then
+    Result.Add('foreign_key_index', True);
 end;
 
 function RelationToJSON(Rel: TEERRel): TJSONObject;
@@ -966,6 +978,408 @@ begin
     'child_table', TableToJSON(Child)]);
 end;
 
+function NeedColumn(Table: TEERTable; const ColName: string): TEERColumn;
+begin
+  if(ColName='')then
+    raise EToolError.Create('The argument "column" is missing.');
+  Result:=FindColumn(Table, ColName);
+  if(Result=nil)then
+    raise EToolError.CreateFmt('The table "%s" has no column "%s".',
+      [Table.ObjName, ColName]);
+end;
+
+function PrimaryKeyCount(Table: TEERTable): integer;
+var i: integer;
+begin
+  Result:=0;
+  for i:=0 to Table.Columns.Count-1 do
+    if(TEERColumn(Table.Columns[i]).PrimaryKey)then
+      inc(Result);
+end;
+
+//The relation that makes a foreign key column of the table
+function RelationOfColumn(Table: TEERTable; Column: TEERColumn): TEERRel;
+var i, j: integer;
+begin
+  Result:=nil;
+  for i:=0 to Table.RelEnd.Count-1 do
+    for j:=0 to TEERRel(Table.RelEnd[i]).FKFields.Count-1 do
+      if(CompareText(TEERRel(Table.RelEnd[i]).FKFields.ValueFromIndex[j], Column.ColName)=0)then
+        Result:=TEERRel(Table.RelEnd[i]);
+end;
+
+//After a change of the columns of a table: its primary index, the foreign
+//key columns of the tables that refer to it, its size in the diagram
+procedure TableChanged(Table: TEERTable);
+begin
+  Table.CheckPrimaryIndex;
+  Table.RefreshRelations;
+  Model.CheckAllRelations;
+  Table.RefreshObj;
+  Model.ModelHasChanged;
+end;
+
+function ToolRenameTable(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+  NewName, OldName: string;
+  Other: Pointer;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  NeedChangeable(Table);
+  NewName:=Trim(ArgStr(Args, 'new_name'));
+  if(NewName='')then
+    raise EToolError.Create('The argument "new_name" is missing.');
+  Other:=Model.GetEERObjectByName(EERTable, NewName);
+  if(Other<>nil)and(Other<>Pointer(Table))then
+    raise EToolError.CreateFmt('The model has a table "%s" already.', [NewName]);
+
+  //The synchronisation renames the table in the database when it finds the
+  //name the table had (as the table editor keeps it)
+  OldName:=Table.ObjName;
+  if(Table.PrevTableName='')then
+    Table.PrevTableName:=OldName;
+  Table.ObjName:=NewName;
+  if(Table.PrevTableName=NewName)then
+    Table.PrevTableName:='';
+
+  Table.RefreshObj;
+  Table.RefreshRelations;
+  Model.ModelHasChanged;
+
+  Result:=TableToJSON(Table);
+  TJSONObject(Result).Add('renamed_from', U(OldName));
+end;
+
+function ToolChangeColumn(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+  Column: TEERColumn;
+  Datatype: TEERDatatype;
+  Params, NewName, OldName: string;
+  Options: TStringList;
+  Rel: TEERRel;
+  i, j: integer;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  NeedChangeable(Table);
+  Column:=NeedColumn(Table, ArgStr(Args, 'column'));
+
+  if(Not(HasArg(Args, 'new_name') or HasArg(Args, 'datatype') or
+    HasArg(Args, 'primary_key') or HasArg(Args, 'not_null') or
+    HasArg(Args, 'auto_increment') or HasArg(Args, 'default') or
+    HasArg(Args, 'comments')))then
+    raise EToolError.Create('Nothing to change: give new_name, datatype, '+
+      'primary_key, not_null, auto_increment, default or comments.');
+
+  //Datatype and primary key of a foreign key column follow the relation
+  if(Column.IsForeignKey)and(HasArg(Args, 'datatype') or HasArg(Args, 'primary_key'))then
+    raise EToolError.CreateFmt('"%s" is a foreign key column: its datatype is '+
+      'the one of the referenced column, and whether it is part of the primary '+
+      'key is set by the kind of the relation.', [Column.ColName]);
+  //Without a primary key the relations from this table have nothing to refer to
+  if(HasArg(Args, 'primary_key'))and(Not(ArgBool(Args, 'primary_key', True)))and
+    (Column.PrimaryKey)and(PrimaryKeyCount(Table)=1)and(Table.RelStart.Count>0)then
+    raise EToolError.CreateFmt('"%s" is the only primary key column of "%s" and '+
+      'relations refer to it. Delete the relations first.', [Column.ColName, Table.ObjName]);
+
+  NewName:=Trim(ArgStr(Args, 'new_name'));
+  if(HasArg(Args, 'new_name'))then
+  begin
+    if(NewName='')then
+      raise EToolError.Create('"new_name" is empty.');
+    if(FindColumn(Table, NewName)<>nil)and(FindColumn(Table, NewName)<>Column)then
+      raise EToolError.CreateFmt('The table "%s" has a column "%s" already.',
+        [Table.ObjName, NewName]);
+  end;
+
+  //Check the datatype before anything is changed
+  Options:=TStringList.Create;
+  try
+    Options.CaseSensitive:=False;
+    if(HasArg(Args, 'datatype'))then
+    begin
+      ParseDatatype(ArgStr(Args, 'datatype'), Datatype, Params, Options);
+      Column.idDatatype:=Datatype.id;
+      Column.DatatypeParams:=Params;
+      for i:=0 to High(Column.OptionSelected) do
+        Column.OptionSelected[i]:=(i<Datatype.OptionCount)and
+          (Options.IndexOf(Datatype.Options[i])>=0);
+    end;
+  finally
+    Options.Free;
+  end;
+
+  if(NewName<>'')and(NewName<>Column.ColName)then
+  begin
+    //The synchronisation renames the column in the database when it finds
+    //the name the column had
+    OldName:=Column.ColName;
+    if(Column.PrevColName='')then
+      Column.PrevColName:=OldName;
+    Column.ColName:=NewName;
+    if(Column.PrevColName=NewName)then
+      Column.PrevColName:='';
+
+    //The relations know the columns by their names. A renamed primary key
+    //column keeps the foreign key columns that refer to it, a renamed
+    //foreign key column stays the column of its relation
+    for i:=0 to Table.RelStart.Count-1 do
+    begin
+      Rel:=TEERRel(Table.RelStart[i]);
+      for j:=0 to Rel.FKFields.Count-1 do
+        if(CompareText(Rel.FKFields.Names[j], OldName)=0)then
+          Rel.FKFields[j]:=NewName+'='+Rel.FKFields.ValueFromIndex[j];
+    end;
+    for i:=0 to Table.RelEnd.Count-1 do
+    begin
+      Rel:=TEERRel(Table.RelEnd[i]);
+      for j:=0 to Rel.FKFields.Count-1 do
+        if(CompareText(Rel.FKFields.ValueFromIndex[j], OldName)=0)then
+          Rel.FKFields[j]:=Rel.FKFields.Names[j]+'='+NewName;
+    end;
+  end;
+
+  if(HasArg(Args, 'primary_key'))then
+    Column.PrimaryKey:=ArgBool(Args, 'primary_key', Column.PrimaryKey);
+  if(HasArg(Args, 'not_null'))then
+    Column.NotNull:=ArgBool(Args, 'not_null', Column.NotNull);
+  if(Column.PrimaryKey)then
+    Column.NotNull:=True;
+  if(HasArg(Args, 'auto_increment'))then
+    Column.AutoInc:=ArgBool(Args, 'auto_increment', Column.AutoInc);
+  if(HasArg(Args, 'default'))then
+    Column.DefaultValue:=ArgStr(Args, 'default');
+  if(HasArg(Args, 'comments'))then
+    Column.Comments:=ArgStr(Args, 'comments');
+
+  TableChanged(Table);
+  Result:=TableToJSON(Table);
+end;
+
+function ToolDeleteColumn(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+  Column: TEERColumn;
+  Rel: TEERRel;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  NeedChangeable(Table);
+  Column:=NeedColumn(Table, ArgStr(Args, 'column'));
+
+  if(Column.IsForeignKey)then
+  begin
+    Rel:=RelationOfColumn(Table, Column);
+    if(Rel<>nil)then
+      raise EToolError.CreateFmt('"%s" is the foreign key column of the relation '+
+        '"%s" (%s -> %s). Delete the relation with delete_relation, the column '+
+        'goes with it.', [Column.ColName, Rel.ObjName, Rel.SrcTbl.ObjName, Rel.DestTbl.ObjName]);
+  end;
+  if(Column.PrimaryKey)and(PrimaryKeyCount(Table)=1)and(Table.RelStart.Count>0)then
+    raise EToolError.CreateFmt('"%s" is the only primary key column of "%s" and '+
+      'relations refer to it. Delete the relations first.', [Column.ColName, Table.ObjName]);
+
+  //Takes the column out of the indices as well
+  Table.DeleteColumn(Table.Columns.IndexOf(Column));
+
+  TableChanged(Table);
+  Result:=TableToJSON(Table);
+end;
+
+function ToolDeleteTable(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+  Rels: TJSONArray;
+  TableName: string;
+  i: integer;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  TableName:=Table.ObjName;
+
+  //The relations from and to the table go with it, and with them the
+  //foreign key columns in the other tables
+  Rels:=TJSONArray.Create;
+  for i:=0 to Table.RelStart.Count-1 do
+    Rels.Add(RelationToJSON(TEERRel(Table.RelStart[i])));
+  for i:=0 to Table.RelEnd.Count-1 do
+    if(TEERRel(Table.RelEnd[i]).SrcTbl<>Table)then
+      Rels.Add(RelationToJSON(TEERRel(Table.RelEnd[i])));
+
+  Table.DeleteObj;
+  Model.CheckAllRelations;
+  Model.ModelHasChanged;
+
+  Result:=TJSONObject.Create(['deleted_table', U(TableName),
+    'deleted_relations', Rels,
+    'tables_in_model', Model.GetEERObjectCount([EERTable])]);
+end;
+
+function ToolDeleteRelation(Args: TJSONObject): TJSONData;
+var Rels: TList;
+  Rel, Found: TEERRel;
+  Child: TEERTable;
+  Column: TEERColumn;
+  RelName, List: string;
+  Parent, ChildFilter: TEERTable;
+  Info: TJSONObject;
+  Count, i: integer;
+begin
+  NeedModel;
+  RelName:=Trim(ArgStr(Args, 'name'));
+  Parent:=nil;
+  ChildFilter:=nil;
+  if(ArgStr(Args, 'parent_table')<>'')then
+    Parent:=NeedTable(ArgStr(Args, 'parent_table'));
+  if(ArgStr(Args, 'child_table')<>'')then
+    ChildFilter:=NeedTable(ArgStr(Args, 'child_table'));
+  if(RelName='')and(Parent=nil)and(ChildFilter=nil)then
+    raise EToolError.Create('Name the relation: "name", or "parent_table" and '+
+      '"child_table". list_relations shows the relations.');
+
+  Found:=nil;
+  Count:=0;
+  List:='';
+  Rels:=GetObjects(EERRelation);
+  try
+    for i:=0 to Rels.Count-1 do
+    begin
+      Rel:=Rels[i];
+      if((RelName='')or(CompareText(Rel.ObjName, RelName)=0))and
+        ((Parent=nil)or(Rel.SrcTbl=Parent))and
+        ((ChildFilter=nil)or(Rel.DestTbl=ChildFilter))then
+      begin
+        Found:=Rel;
+        inc(Count);
+        List:=List+IfThen(Count>1, ', ')+Rel.ObjName+' ('+Rel.SrcTbl.ObjName+
+          ' -> '+Rel.DestTbl.ObjName+')';
+      end;
+    end;
+  finally
+    Rels.Free;
+  end;
+  if(Count=0)then
+    raise EToolError.Create('There is no such relation. list_relations shows the relations.');
+  if(Count>1)then
+    raise EToolError.Create('More than one relation fits: '+List+
+      '. Give "name" together with "parent_table" and "child_table".');
+
+  Child:=Found.DestTbl;
+  Info:=RelationToJSON(Found);
+
+  //The model removes the foreign key columns that have no relation any
+  //more. To keep them they become ordinary columns first
+  if(ArgBool(Args, 'keep_columns', False))then
+    for i:=0 to Found.FKFields.Count-1 do
+    begin
+      Column:=FindColumn(Child, Found.FKFields.ValueFromIndex[i]);
+      if(Column<>nil)then
+        Column.IsForeignKey:=False;
+    end;
+
+  //Checks all relations and refreshes the tables
+  Found.DeleteObj;
+  Model.ModelHasChanged;
+
+  Result:=TJSONObject.Create(['deleted_relation', Info,
+    'child_table', TableToJSON(Child)]);
+end;
+
+function ToolAddIndex(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+  Cols: TJSONArray;
+  Column: TEERColumn;
+  Index: TEERIndex;
+  IndexName: string;
+  Kind, ID, i: integer;
+  IDs: TStringList;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  NeedChangeable(Table);
+
+  Cols:=nil;
+  if(HasArg(Args, 'columns'))and(Args.Types['columns']=jtArray)then
+    Cols:=Args.Arrays['columns'];
+  if(Cols=nil)or(Cols.Count=0)then
+    raise EToolError.Create('"columns" has to name at least one column.');
+
+  Kind:=IndexInList(IndexKindNames, ArgStr(Args, 'kind', 'INDEX'));
+  if(Kind<=ik_PRIMARY)then
+    raise EToolError.Create('"kind" has to be INDEX, UNIQUE or FULLTEXT. The '+
+      'primary index is made from the primary key columns.');
+
+  ID:=DMMain.GetNextGlobalID;
+  IndexName:=Trim(ArgStr(Args, 'name'));
+  //The name the table editor proposes
+  if(IndexName='')then
+    IndexName:=Table.ObjName+'_index'+IntToStr(ID);
+  if(CompareText(IndexName, 'PRIMARY')=0)then
+    raise EToolError.Create('PRIMARY is the name of the primary index.');
+  for i:=0 to Table.Indices.Count-1 do
+    if(CompareText(TEERIndex(Table.Indices[i]).IndexName, IndexName)=0)then
+      raise EToolError.CreateFmt('The table "%s" has an index "%s" already.',
+        [Table.ObjName, IndexName]);
+
+  IDs:=TStringList.Create;
+  try
+    for i:=0 to Cols.Count-1 do
+    begin
+      if(Cols.Types[i]<>jtString)then
+        raise EToolError.Create('"columns" has to be a list of column names.');
+      Column:=NeedColumn(Table, Cols.Strings[i]);
+      if(IDs.IndexOf(IntToStr(Column.Obj_id))>=0)then
+        raise EToolError.CreateFmt('The column "%s" is named twice.', [Column.ColName]);
+      IDs.Add(IntToStr(Column.Obj_id));
+    end;
+
+    Index:=TEERIndex.Create(Table);
+    Index.Obj_id:=ID;
+    Index.IndexName:=IndexName;
+    Index.IndexKind:=Kind;
+    Index.Columns.Assign(IDs);
+    Table.Indices.Add(Index);
+    Index.Pos:=Table.Indices.Count-1;
+  finally
+    IDs.Free;
+  end;
+
+  Table.RefreshObj;
+  Model.ModelHasChanged;
+  Result:=TableToJSON(Table);
+end;
+
+function ToolDeleteIndex(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+  Index: TEERIndex;
+  IndexName: string;
+  i, Found: integer;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  NeedChangeable(Table);
+  IndexName:=Trim(ArgStr(Args, 'index'));
+  if(IndexName='')then
+    raise EToolError.Create('The argument "index" is missing.');
+
+  Found:=-1;
+  for i:=0 to Table.Indices.Count-1 do
+    if(CompareText(TEERIndex(Table.Indices[i]).IndexName, IndexName)=0)then
+      Found:=i;
+  if(Found<0)then
+    raise EToolError.CreateFmt('The table "%s" has no index "%s". describe_table '+
+      'shows its indices.', [Table.ObjName, IndexName]);
+
+  Index:=TEERIndex(Table.Indices[Found]);
+  if(Index.IndexKind=ik_PRIMARY)then
+    raise EToolError.Create('The primary index follows the primary key columns: '+
+      'change them with change_column.');
+  if(Index.FKRefDef_Obj_id>-1)then
+    raise EToolError.Create('This index belongs to a foreign key and goes with '+
+      'its relation (delete_relation).');
+
+  Table.Indices.Delete(Found);
+  for i:=0 to Table.Indices.Count-1 do
+    TEERIndex(Table.Indices[i]).Pos:=i;
+
+  Table.RefreshObj;
+  Model.ModelHasChanged;
+  Result:=TableToJSON(Table);
+end;
+
 function ToolSaveModel(Args: TJSONObject): TJSONData;
 var FileName, Backup: string;
 begin
@@ -1351,7 +1765,8 @@ const
   ReadOnlyTools: array[0..6] of string = ('open_model', 'list_tables',
     'describe_table', 'list_relations', 'export_sql', 'list_connections',
     'list_database_tables');
-  DestructiveTools: array[0..1] of string = ('save_model', 'sync_database');
+  DestructiveTools: array[0..5] of string = ('save_model', 'sync_database',
+    'delete_table', 'delete_column', 'delete_relation', 'delete_index');
   DatabaseTools: array[0..4] of string = ('connect_database',
     'disconnect_database', 'list_database_tables', 'reverse_engineer',
     'sync_database');
@@ -1470,6 +1885,71 @@ begin
       ']},"on_update":{"type":"string","enum":["RESTRICT","CASCADE","SET '+
       'NULL","NO ACTION","SET DEFAULT"]},"comments":{"type":"string"}},"r'+
       'equired":["parent_table","child_table"]}'),
+    Tool('rename_table',
+      'Give a table of the open model another name. The names of columns '+
+      'and relations stay as they are. The model keeps the former name, s'+
+      'o sync_database renames the table in the database instead of creat'+
+      'ing a new one. Returns the table.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"new_name":{"type":"string"}},"required":'+
+      '["table","new_name"]}'),
+    Tool('change_column',
+      'Change a column of a table of the open model: its name, datatype, '+
+      'primary key, not null, auto increment, default or comments. Only w'+
+      'hat is given is changed. The model keeps the former name of a rena'+
+      'med column, so sync_database renames it in the database; the relat'+
+      'ions go on using the column. Datatype and primary key of a foreign'+
+      ' key column cannot be changed, they follow the relation. A primary'+
+      ' key column that is added or removed is added to or removed from t'+
+      'he tables that refer to this one. Returns the table.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"column":{"type":"string","description":"'+
+      'Name of the column"},"new_name":{"type":"string"},"datatype":{"typ'+
+      'e":"string","description":"e.g. INTEGER, VARCHAR(45), DECIMAL(10,2'+
+      '), INTEGER UNSIGNED"},"primary_key":{"type":"boolean"},"not_null":'+
+      '{"type":"boolean"},"auto_increment":{"type":"boolean"},"default":{'+
+      '"type":"string","description":"Default value, empty for none"},"co'+
+      'mments":{"type":"string"}},"required":["table","column"]}'),
+    Tool('delete_column',
+      'Delete a column of a table of the open model; it is taken out of t'+
+      'he indices as well. A foreign key column is deleted with its relat'+
+      'ion (delete_relation). Returns the table.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"column":{"type":"string","description":"'+
+      'Name of the column"}},"required":["table","column"]}'),
+    Tool('delete_table',
+      'Delete a table of the open model with the relations from and to it'+
+      '; the foreign key columns in the tables that referred to it are re'+
+      'moved. Returns the deleted relations.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"}},"required":["table"]}'),
+    Tool('delete_relation',
+      'Delete a relation of the open model, named by its name or by paren'+
+      't and child table. Its foreign key columns are removed from the ch'+
+      'ild table, unless keep_columns is set: then they stay as ordinary '+
+      'columns. Returns the deleted relation and the child table.',
+      '{"type":"object","properties":{"name":{"type":"string","descriptio'+
+      'n":"Name of the relation"},"parent_table":{"type":"string"},"child'+
+      '_table":{"type":"string"},"keep_columns":{"type":"boolean","descri'+
+      'ption":"Keep the foreign key columns as ordinary columns (default '+
+      'false)"}}}'),
+    Tool('add_index',
+      'Add an index to a table of the open model. The primary index and t'+
+      'he indices of foreign keys are made by the model. Returns the tabl'+
+      'e.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"columns":{"type":"array","items":{"type"'+
+      ':"string"},"description":"Names of the columns, in the order of th'+
+      'e index"},"name":{"type":"string","description":"Name of the index'+
+      '; default <table>_index<number>"},"kind":{"type":"string","enum":['+
+      '"INDEX","UNIQUE","FULLTEXT"],"description":"Default INDEX"}},"requ'+
+      'ired":["table","columns"]}'),
+    Tool('delete_index',
+      'Delete an index of a table of the open model. Not the primary inde'+
+      'x and not the index of a foreign key. Returns the table.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"index":{"type":"string","description":"N'+
+      'ame of the index"}},"required":["table","index"]}'),
     Tool('save_model',
       'Write the open model to its file, or to path. The file as it was i'+
       's kept as <file>.bak. A file other than the one of the model is re'+
@@ -1580,6 +2060,20 @@ begin
       Data:=ToolAddRelation(Args)
     else if(Name='save_model')then
       Data:=ToolSaveModel(Args)
+    else if(Name='rename_table')then
+      Data:=ToolRenameTable(Args)
+    else if(Name='change_column')then
+      Data:=ToolChangeColumn(Args)
+    else if(Name='delete_column')then
+      Data:=ToolDeleteColumn(Args)
+    else if(Name='delete_table')then
+      Data:=ToolDeleteTable(Args)
+    else if(Name='delete_relation')then
+      Data:=ToolDeleteRelation(Args)
+    else if(Name='add_index')then
+      Data:=ToolAddIndex(Args)
+    else if(Name='delete_index')then
+      Data:=ToolDeleteIndex(Args)
     else if(Name='list_connections')then
       Data:=ToolListConnections(Args)
     else if(Name='connect_database')then
