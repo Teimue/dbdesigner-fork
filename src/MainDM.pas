@@ -351,6 +351,8 @@ uses {$IFDEF LINUX}BaseUnix, Unix, {$ENDIF}
   {$IFDEF LCLGTK2}glib2, gdk2, {$ENDIF}
   EditorString, StrUtils, LazUTF8, LConvEncoding, UIScale, LMessages, URIParser;
 
+function RunningSelfTest: Boolean; forward;
+
 type
   //Font and ParentFont are protected in TControl
   TLayoutControl = class(TControl);
@@ -1202,6 +1204,12 @@ end;
 
 procedure TDMMain.BrowsePage(s: string);
 begin
+  //--selftest and --screenshots click the help and web menu items too:
+  //no browser window or tab is opened for them (every run left four tabs
+  //in the browser of the user)
+  if(RunningSelfTest)then
+    Exit;
+
   if(HTMLBrowserAppl='')then
   begin
 {$IFDEF MSWINDOWS}

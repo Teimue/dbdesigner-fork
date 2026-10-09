@@ -357,6 +357,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Checked on Windows**
 
+- `--selftest` and `--screenshots` no longer open the browser: the self-test clicks the help and web items of the *Help* menu, and every run left four tabs (documentation, home page, project page twice) in the browser of the user.
 - `--selftest` (0 failures), `tests/TestSQLiteSync`, `tests/TestFirebirdSync` (embedded and over TCP) and `tests/TestTestDataGen` after every change; all dialogs and the plugins with `--screenshots` and screenshots at 144 DPI (150 % scaling), application font 8 and 10 points.
 - Not part of these checks: MySQL connections, a display of 96 DPI, a second display with another DPI (Windows magnifies the window there), PDF export and printing.
 
