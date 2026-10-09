@@ -559,8 +559,10 @@ begin
           parentTbl:=TEERTable(EERModel.GetEERObjectByName(EERTable,
             Q.FieldByName('REFTABLE').AsString));
 
-          //Referenced table not in the model (or self reference): skip this FK
-          if(parentTbl=nil)or(parentTbl=theTable)then
+          //Referenced table not in the model: skip this FK. A self reference
+          //(KUNDE.WERBER_ID -> KUNDE.ID) is an ordinary relation for the
+          //model; without it the next sync would drop the constraint
+          if(parentTbl=nil)then
           begin
             while(Not(Q.EOF))and(Q.FieldByName('FKNAME').AsString=fkName)do
               Q.Next;
@@ -598,8 +600,9 @@ begin
             Q.Next;
           end;
 
-          //FK columns that are all part of the child's PK: identifying relation
-          if(AllFKColsArePK)then
+          //FK columns that are all part of the child's PK: identifying relation.
+          //The model has no identifying relation from a table to itself
+          if(AllFKColsArePK)and(parentTbl<>theTable)then
             theRel.RelKind:=rk_1n;
 
           theRel.SrcTbl.RefreshRelations;

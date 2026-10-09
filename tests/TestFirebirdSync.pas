@@ -5,7 +5,8 @@ program TestFirebirdSync;
 // engine: create all tables, sync again without changes, column changes,
 // a changed primary key and foreign key, a renamed table, and the reverse
 // engineering of the result into a new model, which has to sync without
-// changes again. At the end the SQL create script for the FireBird target
+// changes again, also with a foreign key from a table to itself.
+// At the end the SQL create script for the FireBird target
 // (identity columns, then generator and triggers) is loaded into a fresh
 // database with isql, if isql lies next to the client library.
 //
@@ -31,12 +32,14 @@ uses
 
 var
   ParentForm: TForm;
-  Model, Model2, Model3: TEERModel;
+  Model, Model2, Model3, Model4: TEERModel;
   Conn: TDBConn;
   Log, theTables: TStringList;
   DBPath, FBClient, FBHost, RowCount, Isql, IsqlOut: string;
   Failures: integer = 0;
-  Product, Cart: TEERTable;
+  Product, Cart, Kunde: TEERTable;
+  SelfRel: TEERRel;
+  theList: TList;
   theColumn: TEERColumn;
   i, j: integer;
 
@@ -478,11 +481,90 @@ begin
     Sync(Model2, '11. the reverse engineered model has no changes');
     CheckNoChanges;
 
+    //------------------------------------------------------------
+    //A foreign key that references its own table
+    WriteLn;
+    WriteLn('--- 12. reverse engineering of a self-referencing foreign key');
+    DMDB.ExecSQL('CREATE TABLE KUNDE (ID INTEGER NOT NULL PRIMARY KEY, NAME VARCHAR(40), '+
+      'WERBER_ID INTEGER, CONSTRAINT KUNDE_WERBER FOREIGN KEY (WERBER_ID) REFERENCES KUNDE (ID) '+
+      'ON DELETE SET NULL)', True);
+    DMDB.ExecSQL('INSERT INTO KUNDE (ID, NAME, WERBER_ID) VALUES (1, ''first'', NULL)', True);
+    DMDB.ExecSQL('INSERT INTO KUNDE (ID, NAME, WERBER_ID) VALUES (2, ''second'', 1)', True);
+
+    Model4:=TEERModel.Create(ParentForm);
+    Model4.Parent:=ParentForm;
+    FirebirdGetTables(theTables);
+    Check(theTables.Count=13, '13 tables listed');
+    FirebirdReverseEngineer(Model4, theTables, 5, True, True, nil, nil, False, 0);
+
+    Kunde:=GetTable(Model4, 'KUNDE');
+    Check(Kunde<>nil, 'table KUNDE in the model');
+    if(Kunde<>nil)then
+    begin
+      Check(Kunde.Columns.Count=3, '3 columns');
+      SelfRel:=nil;
+      j:=0;
+      for i:=0 to Kunde.RelEnd.Count-1 do
+        if(TEERRel(Kunde.RelEnd[i]).SrcTbl=Kunde)then
+        begin
+          SelfRel:=TEERRel(Kunde.RelEnd[i]);
+          inc(j);
+        end;
+      Check(j=1, 'one relation from KUNDE to itself');
+      if(SelfRel<>nil)then
+      begin
+        Check(SelfRel.RelKind=rk_1nNonId, 'the relation is non-identifying');
+        Check(SelfRel.ObjName='KUNDE_WERBER', 'the relation has the name of the constraint');
+        Check(Trim(SelfRel.FKFields.Text)='ID=WERBER_ID', 'mapping ID=WERBER_ID');
+        //The codes of TEERRel.RefDef: 0 = RESTRICT, 2 = SET NULL
+        Check((SelfRel.CreateRefDef)and
+          (SelfRel.RefDef.Values['OnDelete']='2')and
+          (SelfRel.RefDef.Values['OnUpdate']='0'),
+          'ON DELETE SET NULL, ON UPDATE RESTRICT');
+      end;
+      theColumn:=TEERColumn(Kunde.GetColumnByName('WERBER_ID'));
+      Check((theColumn<>nil)and(theColumn.IsForeignKey)and(Not(theColumn.PrimaryKey)),
+        'WERBER_ID is a foreign key column');
+    end;
+
+    //The table order of the sync and of the SQL export
+    theList:=TList.Create;
+    try
+      Model4.GetEERObjectList([EERTable], theList);
+      Model4.SortEERTableListByForeignKeyReferences(theList);
+      Check(theList.Count=13, 'tables sorted by their foreign key references');
+    finally
+      theList.Free;
+    end;
+
+    Sync(Model4, '13. the model with the self reference has no changes');
+    CheckNoChanges;
+    Check(RefTablesOf('KUNDE')='KUNDE', 'foreign key of KUNDE still there');
+    Check(SQLVal('SELECT TRIM(RDB$CONSTRAINT_NAME) FROM RDB$RELATION_CONSTRAINTS '+
+      'WHERE RDB$CONSTRAINT_TYPE=''FOREIGN KEY'' AND RDB$RELATION_NAME=''KUNDE''')='KUNDE_WERBER',
+      'the constraint was not created again');
+
+    //The renamed table gets the foreign key to itself again
+    if(Kunde<>nil)then
+    begin
+      Kunde.PrevTableName:='KUNDE';
+      Kunde.ObjName:='WERBEKUNDE';
+
+      Sync(Model4, '14. renamed table with a self reference');
+      Check(SQLVal('SELECT COUNT(*) FROM RDB$RELATIONS WHERE RDB$RELATION_NAME=''KUNDE''')='0',
+        'old table dropped');
+      Check(RefTablesOf('WERBEKUNDE')='WERBEKUNDE', 'WERBEKUNDE references itself');
+      Check(SQLVal('SELECT WERBER_ID FROM WERBEKUNDE WHERE ID=2')='1', 'rows copied');
+
+      Sync(Model4, '15. no changes after the rename');
+      CheckNoChanges;
+    end;
+
     DMDB.SQLConn.Close;
 
     //------------------------------------------------------------
     WriteLn;
-    WriteLn('--- 12. SQL create script for the FireBird target');
+    WriteLn('--- 16. SQL create script for the FireBird target');
     Isql:=ExtractFilePath(FBClient)+{$IFDEF MSWINDOWS}'isql.exe'{$ELSE}'..'+PathDelim+'bin'+PathDelim+'isql'{$ENDIF};
     if(Not(FileExists(Isql)))then
       WriteLn('  skipped, no isql at ', Isql)

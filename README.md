@@ -154,7 +154,7 @@ Areas still requiring manual or integration testing:
 | `tests/TestMySQLShim.pas` | The shim's MySQL schema queries against a live MySQL 8 server |
 | `DBDesignerFork --screenshots <dir>` | Saves a picture of every dialog with every page (`src/UIScreenshots.pas`) to check the layout after a change of fonts, translations or scaling; runs with read-only settings like `--selftest` |
 | `tests/TestSQLiteSync.pas` | Database synchronisation against SQLite on the order example: create, ALTER TABLE changes, table rebuild, renamed table (`lazbuild tests/TestSQLiteSync.lpi`) |
-| `tests/TestFirebirdSync.pas` | Firebird on the order example, embedded engine or server: create, column / index / primary key / foreign key changes, renamed table, reverse engineering of the result, SQL create script loaded with isql (`lazbuild tests/TestFirebirdSync.lpi`, needs the Firebird client library) |
+| `tests/TestFirebirdSync.pas` | Firebird on the order example, embedded engine or server: create, column / index / primary key / foreign key changes, renamed table, reverse engineering of the result (also with a self-referencing foreign key), SQL create script loaded with isql (`lazbuild tests/TestFirebirdSync.lpi`, needs the Firebird client library) |
 | `tests/TestTestDataGen.pas` | The test data generator on the order example: the script is executed in a SQLite database created from the model (row counts, foreign keys, column lengths, same seed = same script), execution in one transaction with rollback on an error (`lazbuild tests/TestTestDataGen.lpi`) |
 | `tests/TestDataBrowser.pas` | The SELECT statements of the data browser for every database type (limit of rows, filter, sort order, names, values) and those for SQLite executed in a database file (`lazbuild tests/TestDataBrowser.lpi`) |
 | `tests/TestPasswordStore.pas` | The protection of stored database passwords: round trip, the protected text does not contain the password, a damaged or foreign text gives nothing (plain `fpc`, see the header) |
@@ -343,6 +343,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 - The password of a database connection can be stored (*Save password* in the connection selector). It is protected with the data protection API of Windows (`src/PasswordStore.pas`): only the same Windows user on the same computer can read it again, the list of the connections holds no password in plain text. Without the option the password is asked for at every connect, as before; on other systems the option is not offered.
 - **Firebird** (3 or newer; tested with Firebird 5, server and embedded): connect, reverse engineering, synchronisation and an SQL export that Firebird accepts (datatype mapping, reserved words, identity columns, `CONSTRAINT ... FOREIGN KEY`, `CREATE INDEX`, comments, triggers).
+- Firebird reverse engineering: a foreign key that references its own table (`KUNDE.WERBER_ID` -> `KUNDE.ID`) becomes a non-identifying relation from the table to itself. It was left out before, and a synchronisation of the reverse engineered model then dropped the constraint in the database.
 - **SQLite**: database synchronisation (ALTER TABLE where SQLite can, otherwise a rebuild of the table in one transaction).
 - 64-bit client libraries are loaded from the program directory.
 
