@@ -31,14 +31,15 @@ program DBDesignerMCP;
 //   get_model_settings, change_model_settings
 //   save_model      write the model to its file or to another one
 //   list_connections       the database connections stored in DBDesigner
-//   connect_database       connect to a Firebird database
+//   connect_database       connect to a Firebird, SQLite or MySQL database
 //   disconnect_database
 //   list_database_tables   the tables of the connected database
 //   reverse_engineer       tables of the database into the open model
 //   sync_database          change the database to match the open model
 //
-// The database tools work with Firebird only. The settings of the program
-// are read (stored connections) but never written.
+// The database tools work with Firebird, SQLite and MySQL, the databases
+// the port has connectors for. The settings of the program are read (stored
+// connections) but never written.
 //
 // Needs the application infrastructure (data modules, LCL), like the
 // programs in tests/: the model classes are controls. No window is shown.
@@ -61,7 +62,7 @@ uses
 
 const
   ServerName = 'dbdesigner-fork';
-  ServerVersion = '0.7.0';
+  ServerVersion = '0.8.0';
   //The newest protocol version comes first, it is the answer to a client
   //that asks for a version not in this list
   ProtocolVersions: array[0..2] of string = ('2025-06-18', '2025-03-26', '2024-11-05');
@@ -2811,7 +2812,7 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
-// Database tools (Firebird)
+// Database tools (Firebird, SQLite, MySQL)
 
 procedure NeedConnection;
 begin
@@ -2850,9 +2851,71 @@ begin
   SQLDB.TSQLTransaction(DMDB.SQLConn.Transaction).CommitRetaining;
 end;
 
+const
+  //The drivers the database tools work with, as DBConn.ini names them
+  SupportedDrivers: array[0..2] of string = ('Firebird', 'SQLite', 'MySQL');
+
 function IsFirebird(Conn: TDBConn): Boolean;
 begin
   Result:=(CompareText(Conn.DriverName, 'Firebird')=0);
+end;
+
+function IsSQLite(Conn: TDBConn): Boolean;
+begin
+  Result:=(CompareText(Conn.DriverName, 'SQLite')=0);
+end;
+
+function IsMySQL(Conn: TDBConn): Boolean;
+begin
+  Result:=(CompareText(Conn.DriverName, 'MySQL')=0);
+end;
+
+//A database that is a file of this computer: SQLite, and Firebird with the
+//embedded engine
+function IsFileDatabase(Conn: TDBConn): Boolean;
+begin
+  Result:=IsSQLite(Conn) or
+    (IsFirebird(Conn) and (Conn.Params.Values['HostName']=''));
+end;
+
+//The user tables of the connected database
+procedure GetDatabaseTables(Tables: TStringList);
+var i: integer;
+begin
+  if(IsFirebird(DBConn))then
+    FirebirdGetTables(Tables)
+  else
+  begin
+    DMDB.GetDBTables(Tables, nil, DBConn);
+    //The table in which the program stores models in a database
+    i:=Tables.IndexOf('DBDesigner4');
+    if(i>=0)then
+      Tables.Delete(i);
+  end;
+end;
+
+//The version the server (or the library) reports
+function DatabaseVersion: string;
+var Values: TStringList;
+begin
+  Result:='';
+  Values:=TStringList.Create;
+  try
+    try
+      if(IsFirebird(DBConn))then
+        QueryValues('SELECT RDB$GET_CONTEXT(''SYSTEM'', ''ENGINE_VERSION'') FROM RDB$DATABASE', Values)
+      else if(IsSQLite(DBConn))then
+        QueryValues('SELECT sqlite_version()', Values)
+      else
+        QueryValues('SELECT VERSION()', Values);
+      if(Values.Count>0)then
+        Result:=Values[0];
+    except
+      //A connection without this function is a connection all the same
+    end;
+  finally
+    Values.Free;
+  end;
 end;
 
 //A connection without its password
@@ -2863,7 +2926,9 @@ begin
   Result.Add('driver', U(Conn.DriverName));
   if(Conn.Description<>'')then
     Result.Add('description', U(Conn.Description));
-  if(Conn.Params.Values['HostName']<>'')then
+  if(IsSQLite(Conn))then
+    //A file, whatever the list of the connections has as host
+  else if(Conn.Params.Values['HostName']<>'')then
     Result.Add('host', U(Conn.Params.Values['HostName']))
   else if(IsFirebird(Conn))then
     Result.Add('host', '(embedded)');
@@ -2883,16 +2948,16 @@ begin
     Conn:=TDBConn(DMDB.DBConnections[i]);
     Item:=ConnectionToJSON(Conn);
     Item.Add('password_stored', Conn.Params.Values['Password']<>'');
-    //The database tools are for Firebird
-    Item.Add('usable', IsFirebird(Conn));
+    //Oracle, SQL Server and ODBC have no connector in this program
+    Item.Add('usable', IndexInList(SupportedDrivers, Conn.DriverName)>=0);
     TJSONArray(Result).Add(Item);
   end;
 end;
 
 function ToolConnectDatabase(Args: TJSONObject): TJSONData;
 var NewConn, Stored: TDBConn;
-  Values: TStringList;
-  Names: string;
+  Tables: TStringList;
+  Names, Driver, Version: string;
   i: integer;
 begin
   if(ArgStr(Args, 'connection')<>'')then
@@ -2915,43 +2980,72 @@ begin
   end
   else
   begin
+    i:=IndexInList(SupportedDrivers, ArgStr(Args, 'driver', 'Firebird'));
+    if(i<0)then
+      raise EToolError.Create('"driver" has to be one of: Firebird, SQLite, MySQL.');
+    Driver:=SupportedDrivers[i];
     if(ArgStr(Args, 'database')='')then
       raise EToolError.Create('Give "connection" (a stored connection, see '+
-        'list_connections) or "database" (file or alias of a Firebird database).');
+        'list_connections) or "database" (the file, alias or name of the database).');
 
-    //The defaults of the program for a Firebird connection
-    NewConn:=DMDB.GetNewDBConn('MCP', False, 'Firebird');
-    NewConn.DriverName:='Firebird';
+    //The defaults of the program for a connection of this driver
+    NewConn:=DMDB.GetNewDBConn('MCP', False, Driver);
+    NewConn.DriverName:=Driver;
     NewConn.Params.Values['Database']:=ArgStr(Args, 'database');
-    //No host name: the embedded engine
-    NewConn.Params.Values['HostName']:=ArgStr(Args, 'host');
-    if(ArgStr(Args, 'host')='')then
-      NewConn.Params.Values['Port']:=''
-    else if(Args.IndexOfName('port')>=0)then
-      NewConn.Params.Values['Port']:=IntToStr(ArgInt(Args, 'port', 3050));
-    if(NewConn.Params.Values['User_Name']='')or(ArgStr(Args, 'user')<>'')then
-      NewConn.Params.Values['User_Name']:=ArgStr(Args, 'user', 'SYSDBA');
+    if(Driver='SQLite')then
+    begin
+      //A file: no server, no user
+      NewConn.Params.Values['HostName']:='';
+    end
+    else
+    begin
+      //Firebird without a host name: the embedded engine. MySQL: localhost
+      if(Driver='Firebird')or(ArgStr(Args, 'host')<>'')then
+        NewConn.Params.Values['HostName']:=ArgStr(Args, 'host')
+      else if(NewConn.Params.Values['HostName']='')then
+        NewConn.Params.Values['HostName']:='localhost';
+      if(NewConn.Params.Values['HostName']='')then
+        NewConn.Params.Values['Port']:=''
+      else if(HasArg(Args, 'port'))then
+        NewConn.Params.Values['Port']:=IntToStr(ArgInt(Args, 'port', 0));
+      if(NewConn.Params.Values['User_Name']='')or(ArgStr(Args, 'user')<>'')then
+        NewConn.Params.Values['User_Name']:=ArgStr(Args, 'user',
+          IfThen(Driver='Firebird', 'SYSDBA', 'root'));
+    end;
   end;
 
   try
-    if(Not(IsFirebird(NewConn)))then
+    if(IndexInList(SupportedDrivers, NewConn.DriverName)<0)then
       raise EToolError.CreateFmt('The connection "%s" is a %s connection. The '+
-        'database tools work with Firebird only.', [NewConn.Name, NewConn.DriverName]);
+        'database tools work with Firebird, SQLite and MySQL.',
+        [NewConn.Name, NewConn.DriverName]);
 
     if(ArgStr(Args, 'password')<>'')then
       NewConn.Params.Values['Password']:=ArgStr(Args, 'password');
     if(ArgStr(Args, 'client_library')<>'')then
       NewConn.VendorLib:=ArgStr(Args, 'client_library');
 
-    //The embedded engine creates a database file that is not there
-    if(NewConn.Params.Values['HostName']='')and
+    //SQLite and the embedded engine of Firebird create a database file
+    //that is not there
+    if(IsFileDatabase(NewConn))and
       (Not(FileExists(NewConn.Params.Values['Database'])))and
       (Not(ArgBool(Args, 'create', False)))then
       raise EToolError.CreateFmt('The database file "%s" does not exist. Set '+
         '"create" to true to create it.', [NewConn.Params.Values['Database']]);
 
     CloseConnection;
-    DMDB.ConnectToDB(NewConn);
+    try
+      DMDB.ConnectToDB(NewConn);
+    except
+      //The message of the driver alone does not say what was tried
+      on E: Exception do
+        raise EToolError.CreateFmt('The %s database "%s"%s could not be opened: %s',
+          [NewConn.DriverName, NewConn.Params.Values['Database'],
+          IfThen(IsFileDatabase(NewConn), '', ' on '+NewConn.Params.Values['HostName']+
+            IfThen(NewConn.Params.Values['Port']<>'', ':'+NewConn.Params.Values['Port'])+
+            ' (user '+NewConn.Params.Values['User_Name']+')'),
+          E.Message]);
+    end;
     if(DMDB.CurrentDBConn=nil)then
       raise EToolError.Create('The connection could not be opened.');
   except
@@ -2961,15 +3055,15 @@ begin
   DBConn:=NewConn;
 
   Result:=ConnectionToJSON(DBConn);
-  Values:=TStringList.Create;
+  Version:=DatabaseVersion;
+  if(Version<>'')then
+    TJSONObject(Result).Add('version', U(Version));
+  Tables:=TStringList.Create;
   try
-    QueryValues('SELECT RDB$GET_CONTEXT(''SYSTEM'', ''ENGINE_VERSION'') FROM RDB$DATABASE', Values);
-    if(Values.Count>0)then
-      TJSONObject(Result).Add('firebird_version', Values[0]);
-    FirebirdGetTables(Values);
-    TJSONObject(Result).Add('tables', Values.Count);
+    GetDatabaseTables(Tables);
+    TJSONObject(Result).Add('tables', Tables.Count);
   finally
-    Values.Free;
+    Tables.Free;
   end;
 end;
 
@@ -2990,7 +3084,7 @@ begin
   Result:=TJSONArray.Create;
   DbTables:=TStringList.Create;
   try
-    FirebirdGetTables(DbTables);
+    GetDatabaseTables(DbTables);
     for i:=0 to DbTables.Count-1 do
     begin
       Item:=TJSONObject.Create(['name', U(DbTables[i])]);
@@ -3008,6 +3102,7 @@ var DbTables, Selected: TStringList;
   Wanted: TJSONArray;
   Added, Skipped: TJSONArray;
   Guess: string;
+  RefDefForNew: Boolean;
   i, j: integer;
 begin
   NeedModel;
@@ -3020,7 +3115,7 @@ begin
   DbTables:=TStringList.Create;
   Selected:=TStringList.Create;
   try
-    FirebirdGetTables(DbTables);
+    GetDatabaseTables(DbTables);
 
     Wanted:=nil;
     if(Args<>nil)and(Args.IndexOfName('tables')>=0)and(Args.Types['tables']=jtArray)then
@@ -3052,11 +3147,38 @@ begin
 
     if(Added.Count>0)then
     begin
-      //5 tables in a row; the foreign keys of the database become relations,
-      //further ones are guessed
-      FirebirdReverseEngineer(Model, Selected, 5,
-        ArgBool(Args, 'relations', True), Guess='by_primary_key',
-        nil, nil, False, 0);
+      //As the reverse engineering dialog of the program does: the model
+      //makes no indices and no names of its own for the foreign keys it
+      //reads, they are in the database as they are
+      if(Model.CreateFKRefDefIndex)or(Model.FKPrefix<>'')or(Model.FKPostfix<>'')then
+        TJSONObject(Result).Add('model_settings_changed', 'index_for_foreign_keys '+
+          'is off and foreign_key_prefix and foreign_key_postfix are empty now, as '+
+          'the reverse engineering of the program sets them.');
+      Model.CreateFKRefDefIndex:=False;
+      Model.TableNameInRefs:=False;
+      Model.FKPrefix:='';
+      Model.FKPostfix:='';
+
+      //5 tables in a row; the foreign keys of the database become relations
+      //with a foreign key constraint, further relations are guessed. A
+      //guessed relation gets no constraint, whatever the model sets for new
+      //relations: the database has none, and the synchronisation would add it
+      RefDefForNew:=Model.ActivateRefDefForNewRelations;
+      Model.ActivateRefDefForNewRelations:=False;
+      try
+        if(IsFirebird(DBConn))then
+          FirebirdReverseEngineer(Model, Selected, 5,
+            ArgBool(Args, 'relations', True), Guess='by_primary_key',
+            nil, nil, False, 0)
+        else if(IsSQLite(DBConn))then
+          DMDBEER.EERSQLiteReverseEngineer(Model, DBConn, Selected, 5,
+            ArgBool(Args, 'relations', True), Guess='by_primary_key', nil)
+        else
+          DMDBEER.EERMySQLReverseEngineer(Model, DBConn, Selected, 5,
+            ArgBool(Args, 'relations', True), Guess='by_primary_key', nil);
+      finally
+        Model.ActivateRefDefForNewRelations:=RefDefForNew;
+      end;
       Model.ModelHasChanged;
     end;
     TJSONObject(Result).Add('tables_in_model', Model.GetEERObjectCount([EERTable]));
@@ -3085,7 +3207,7 @@ begin
   ModelTables:=TList.Create;
   try
     DbTables.CaseSensitive:=False;
-    FirebirdGetTables(DbTables);
+    GetDatabaseTables(DbTables);
 
     Model.GetEERObjectList([EERTable], ModelTables);
     Model.SortEERObjectListByObjName(ModelTables);
@@ -3589,26 +3711,32 @@ begin
       'e"}}}'),
     Tool('list_connections',
       'The database connections stored in DBDesigner Fork (name, driver, '+
-      'host, database, user, whether the password is stored). No password'+
-      's are returned.',
+      'host, database, user, whether the password is stored, whether the '+
+      'database tools can use it). No passwords are returned.',
       '{"type":"object","properties":{}}'),
     Tool('connect_database',
-      'Connect to a Firebird database: a stored connection by its name (p'+
-      'referred, its stored password is used), or database with host, por'+
-      't and user. Without host the embedded engine opens the database fi'+
-      'le. One connection is open at a time.',
+      'Connect to a Firebird, SQLite or MySQL database: a stored connecti'+
+      'on by its name (preferred, its stored password is used), or driver'+
+      ' and database with host, port and user. SQLite is a database file;'+
+      ' Firebird without host opens a database file with the embedded eng'+
+      'ine. One connection is open at a time.',
       '{"type":"object","properties":{"connection":{"type":"string","desc'+
-      'ription":"Name of a stored connection, see list_connections"},"dat'+
-      'abase":{"type":"string","description":"Database file or alias, whe'+
-      'n no stored connection is used"},"host":{"type":"string","descript'+
-      'ion":"Server; leave it out for the embedded engine"},"port":{"type'+
-      '":"integer","description":"Default 3050"},"user":{"type":"string",'+
-      '"description":"Default SYSDBA"},"password":{"type":"string","descr'+
-      'iption":"Only if it is not stored with the connection"},"client_li'+
-      'brary":{"type":"string","description":"Path of fbclient.dll, if it'+
-      ' is not found next to the program or in an installed Firebird"},"c'+
-      'reate":{"type":"boolean","description":"Embedded engine: create th'+
-      'e database file if it does not exist (default false)"}}}'),
+      'ription":"Name of a stored connection, see list_connections"},"dri'+
+      'ver":{"type":"string","enum":["Firebird","SQLite","MySQL"],"descri'+
+      'ption":"When no stored connection is used; default Firebird"},"dat'+
+      'abase":{"type":"string","description":"Database file, alias or nam'+
+      'e, when no stored connection is used"},"host":{"type":"string","de'+
+      'scription":"Server. Firebird: leave it out for the embedded engine'+
+      '. MySQL: default localhost. Not for SQLite"},"port":{"type":"integ'+
+      'er","description":"Default 3050 for Firebird, 3306 for MySQL"},"us'+
+      'er":{"type":"string","description":"Default SYSDBA for Firebird, r'+
+      'oot for MySQL"},"password":{"type":"string","description":"Only if'+
+      ' it is not stored with the connection"},"client_library":{"type":"'+
+      'string","description":"Firebird: path of fbclient.dll, if it is no'+
+      't found next to the program or in an installed Firebird"},"create"'+
+      ':{"type":"boolean","description":"SQLite and the embedded engine o'+
+      'f Firebird: create the database file if it does not exist (default'+
+      ' false)"}}}'),
     Tool('disconnect_database',
       'Close the database connection.',
       '{"type":"object","properties":{}}'),
@@ -3617,11 +3745,14 @@ begin
       'as a table of that name.',
       '{"type":"object","properties":{}}'),
     Tool('reverse_engineer',
-      'Read tables of the connected Firebird database into the open model'+
-      ': columns, primary keys, indices, comments, and the foreign keys a'+
-      's relations. Tables that are in the model already are left as they'+
-      ' are. The database is only read; the change of the model is in mem'+
-      'ory until save_model.',
+      'Read tables of the connected database into the open model: columns'+
+      ', primary keys, indices, and the foreign keys as relations with a '+
+      'foreign key constraint. Further relations are guessed from the nam'+
+      'es; a guessed relation gets no constraint, so sync_database does n'+
+      'ot add one. Tables that are in the model already are left as they '+
+      'are. The database is only read; the change of the model is in memo'+
+      'ry until save_model. As in the program, the model then makes no in'+
+      'dices and no prefixed names for foreign keys (see the result).',
       '{"type":"object","properties":{"tables":{"type":"array","items":{"'+
       'type":"string"},"description":"Only these tables; default: all tab'+
       'les of the database"},"relations":{"type":"boolean","description":'+
@@ -3632,14 +3763,14 @@ begin
       'y columns of another table (many wrong relations when every table '+
       'has a primary key column of the same name)"}}}'),
     Tool('sync_database',
-      'Change the connected Firebird database to match the open model: mi'+
-      'ssing tables are created, existing ones altered (columns, indices,'+
-      ' primary and foreign keys; a column that is not in the model is dr'+
-      'opped with its data). Tables that are only in the database are kep'+
-      't. Without apply nothing is changed and the tables that would be c'+
-      'reated or compared are returned; call it that way first and show t'+
-      'he result to the user. With apply true the changes are made and ca'+
-      'nnot be undone.',
+      'Change the connected database to match the open model: missing tab'+
+      'les are created, existing ones altered (columns, indices, primary '+
+      'and foreign keys; a column that is not in the model is dropped wit'+
+      'h its data; SQLite rebuilds a table for changes it cannot alter). '+
+      'Tables that are only in the database are kept. Without apply nothi'+
+      'ng is changed and the tables that would be created or compared are'+
+      ' returned; call it that way first and show the result to the user.'+
+      ' With apply true the changes are made and cannot be undone.',
       '{"type":"object","properties":{"apply":{"type":"boolean","descript'+
       'ion":"Make the changes (default false: only report)"},"standard_in'+
       'serts":{"type":"boolean","description":"Run the standard inserts o'+
@@ -3812,7 +3943,8 @@ begin
     'instructions', 'Reads and changes DBDesigner Fork database models. Open '+
       'a model file with open_model (or start one with new_model) first, the '+
       'other tools work on the open model. Changes are in memory until '+
-      'save_model. The database tools (Firebird) need connect_database; '+
+      'save_model. The database tools (Firebird, SQLite, MySQL) need '+
+      'connect_database; '+
       'sync_database changes the database, call it without apply first.']);
 end;
 
