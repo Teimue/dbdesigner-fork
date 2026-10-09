@@ -976,7 +976,9 @@ begin
       ApplyDatatype(DropedDataType, ARow)
     else if(Source=Sender)then
     begin
-      if(ARow<>DragStartRow)then
+      //only a row of the table can be moved
+      if(ARow<>DragStartRow)and(DragStartRow>=1)and
+        (DragStartRow<=EERTable.Columns.Count)then
       begin
         //if(ssShift in DragShiftState)and(ssCtrl in DragShiftState)then
         if(ssShift in GetKeyShiftState)and
@@ -1366,6 +1368,15 @@ begin
 
   if(DoCellEdit=False)and(Button=mbLeft)then
     TEditorTableFieldEdit(EditorTableFieldEdit).ApplyChanges;
+
+  //The header row: the grid changes the width of a column there. It is no
+  //row of the table - selecting it and starting to drag it made the drop
+  //on a row move column -1 ("List index (-1) out of bounds")
+  if(ARow<1)then
+  begin
+    DragStartRow:=-1;
+    Exit;
+  end;
 
   {if(ACol=3)then
   begin

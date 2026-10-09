@@ -310,6 +310,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Dialogs and palettes**
 
+- Table editor: changing the width of a column of the grid no longer ends in "List index (-1) out of bounds" (the click on the header row started to drag it like a row of the table).
 - Ten dialogs can be resized, with their design size as the smallest one: Database Synchronisation (the progress log), Export SQL Script (the list of the regions), Model Options, Options, the connection editor, the relation, datatype, region and note editors and the tips. Lists, grids and text fields follow the size. Their size is not stored; they open in the design size.
 - The Database Synchronisation dialog opened maximized (`WindowState = wsMaximized` in the form file).
 - `--screenshots` saves a dialog that can be resized a second time, enlarged by half (`Large_<dialog>.png`), to check that the layout follows the size.
