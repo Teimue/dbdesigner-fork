@@ -798,6 +798,10 @@ begin
       NumberList.Add(FormatFloat('00000000', TEERTable(ObjList[i]).OrderPos));
 
     NumberList.Sort;
+    //every position once: models have tables with the same position
+    for i:=1 to NumberList.Count-1 do
+      if(StrToInt(NumberList[i])<=StrToInt(NumberList[i-1]))then
+        NumberList[i]:=FormatFloat('00000000', StrToInt(NumberList[i-1])+1);
 
     for i:=0 to ObjList.Count-1 do
 
@@ -828,6 +832,10 @@ begin
       NumberList.Add(FormatFloat('00000000', TEERTable(ObjList[i]).OrderPos));
 
     NumberList.Sort;
+    //every position once: models have tables with the same position
+    for i:=1 to NumberList.Count-1 do
+      if(StrToInt(NumberList[i])<=StrToInt(NumberList[i-1]))then
+        NumberList[i]:=FormatFloat('00000000', StrToInt(NumberList[i-1])+1);
 
     //Get regions
     EERModel.GetEERObjectList([EERRegion], RegionList);

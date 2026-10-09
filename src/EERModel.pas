@@ -7116,6 +7116,11 @@ end;
 function SortEERObjByOrderPosFunc(Item1, Item2: Pointer): Integer;
 begin
   SortEERObjByOrderPosFunc:=TEERObj(Item1).OrderPos-TEERObj(Item2).OrderPos;
+  //Models have objects with the same position (new objects were numbered by
+  //the count of objects, which repeats numbers after a delete): the name
+  //decides then, so that the order does not depend on the sort algorithm
+  if(Result=0)then
+    SortEERObjByOrderPosFunc:=CompareText(TEERObj(Item1).ObjName, TEERObj(Item2).ObjName);
 end;
 
 procedure TEERModel.SortEERObjectListByOrderPos(ObjectList: TList);
@@ -7569,6 +7574,7 @@ end;
 // -----------------------------------------------
 // Implementation of the EERModel - Objects
 constructor TEERObj.Create(AOwner: TComponent);
+var i: integer;
 begin
   inherited;
 
@@ -7606,10 +7612,17 @@ begin
   IDLinkedModel:=-1;
   Obj_id_Linked:=-1;
 
+  //Behind all other objects. Not the count of the objects: after a delete
+  //that gave a position another object has already
+  OrderPos:=-1;
   if(ParentEERModel<>nil)then
-    OrderPos:=ParentEERModel.GetEERObjectCount([EERAllObjects])+1
-  else
-    OrderPos:=-1;
+  begin
+    OrderPos:=ParentEERModel.GetEERObjectCount([EERAllObjects])+1;
+    for i:=0 to ParentEERModel.ComponentCount-1 do
+      if(ParentEERModel.Components[i] is TEERObj)and(ParentEERModel.Components[i]<>self)then
+        if(TEERObj(ParentEERModel.Components[i]).OrderPos>=OrderPos)then
+          OrderPos:=TEERObj(ParentEERModel.Components[i]).OrderPos+1;
+  end;
 end;
 
 procedure TEERObj.DoDblClick(Sender: TObject);

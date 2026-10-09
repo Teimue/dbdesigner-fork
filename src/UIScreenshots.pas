@@ -558,6 +558,7 @@ var i, k, Open: integer;
   EERFrm, EERFrm2, EERFrm3: TEERForm;
   ExportBmp: Graphics.TBitmap;
   GridModel: TEERModel;
+  Order: TStringList;
   PrevZoom: double;
   t: QWord;
 begin
@@ -606,6 +607,25 @@ begin
           on x: Exception do
             Report.Add('ModelImage'#9'EXCEPTION '+x.Message);
         end;
+
+    //The order of the tables in the model palette
+    try
+      if(PaletteModelFrom<>nil)then
+      begin
+        Order:=TStringList.Create;
+        try
+          for i:=0 to PaletteModelFrom.TablesTreeView.Items.Count-1 do
+            if(PaletteModelFrom.TablesTreeView.Items[i].Level=0)then
+              Order.Add(PaletteModelFrom.TablesTreeView.Items[i].Text);
+          Order.SaveToFile(OutDir+'ModelPalette.txt');
+        finally
+          Order.Free;
+        end;
+      end;
+    except
+      on x: Exception do
+        Report.Add('ModelPalette'#9'EXCEPTION '+x.Message);
+    end;
 
     //The info page of the navigator palette
     try
