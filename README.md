@@ -9,7 +9,7 @@
 
 ## Download
 
-**Windows (64 bit):** the setup program of [DBDesigner Fork 2.0.1](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.0.1) (pre-release) is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases). It installs the program, the plugins and the client libraries for SQLite, MySQL and Firebird (with the embedded engine); nothing else has to be installed. The setup program is not code signed, so Windows SmartScreen asks before it is started.
+**Windows (64 bit):** the setup program of [DBDesigner Fork 2.0.2](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.0.2) (pre-release) is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases). It installs the program, the plugins and the client libraries for SQLite, MySQL and Firebird (with the embedded engine); nothing else has to be installed. The setup program is not code signed, so Windows SmartScreen asks before it is started.
 
 **Linux:** build from source, see [Building with Lazarus](#building-with-lazarus).
 
@@ -285,6 +285,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 **Build and start**
 
 - The HTML documentation (F1, *Help*) opens with its pages: the frames of its start page pointed to plain Windows file names (`C:\...\header.html`), which a browser of today takes for an unknown protocol and leaves empty. They are `file:///` URLs now; the start pages of earlier calls are removed from the settings directory.
+- Release: version 2.0.2 is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.0.2) (tag `v2.0.2`, setup program 2.0.2.5, revision 2 in `DBDesignerFork.lpi`), built with the same client libraries and Firebird zip kit as 2.0.1. It can be installed over 2.0.0 and 2.0.1. New since 2.0.1: stored passwords of database connections, dialogs that can be resized and no longer lie above other programs, the repaired help, the order of the tables in the model palette, the table editor fix, see the entries of this section.
 - Release: version 2.0.1 is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.0.1) (tag `v2.0.1`, setup program 2.0.1.3), a pre-release like 2.0.0. It can be installed over 2.0.0.
 - Start of the installed program: "Unable to create file ...\Program Files\DBDesigner Fork\Data\DBDesignerFork_Settings.ini: access denied". The directory of the settings (`%APPDATA%\DBDesigner4`) was asked for with the ANSI function of Windows, so a path with a character outside of ASCII (an umlaut in the user name) came out wrong, the directory could not be created and the program fell back to `Data` next to it. `GetSpecialFolder` (`src/GlobalSysFunctions.pas`) uses the wide function now; this also holds for the documents directory of the example and for the plugins. Fixed in 2.0.1.3.
 - Version 2.0.1: the revision is set in `DBDesignerFork.lpi`, the build number counts on (the first build is 2.0.1.2). The setup program of this version was built with the 64 bit client libraries for SQLite and MySQL and with the Firebird zip kit `Firebird-5.0.4.1812-0-windows-x64.zip` (unpacked to `Firebird-5.0.4-x64` next to the repository).
