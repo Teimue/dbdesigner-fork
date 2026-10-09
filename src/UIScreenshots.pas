@@ -608,6 +608,16 @@ begin
             Report.Add('ModelImage'#9'EXCEPTION '+x.Message);
         end;
 
+    //The start page of the documentation (written, not opened in a browser)
+    try
+      AName:=DMMain.CreateHelpIndex('editors', 'table');
+      if(FileExists(AName))then
+        CopyFile(AName, OutDir+'HelpIndex.html');
+    except
+      on x: Exception do
+        Report.Add('HelpIndex'#9'EXCEPTION '+x.Message);
+    end;
+
     //The order of the tables in the model palette
     try
       if(PaletteModelFrom<>nil)then

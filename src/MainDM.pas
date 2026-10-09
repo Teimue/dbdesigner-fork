@@ -175,6 +175,9 @@ type
 
     //Display the online help web pages
     procedure ShowHelp(page, name: string);
+    //The start page of the documentation for a page and an anchor in it,
+    //written to the settings directory. Returns its file name
+    function CreateHelpIndex(page, name: string): string;
 
     //Get the pointer to a form with the passed name
     function GetFormByName(name: string): TForm;
@@ -346,7 +349,7 @@ implementation
 
 uses {$IFDEF LINUX}BaseUnix, Unix, {$ENDIF}
   {$IFDEF LCLGTK2}glib2, gdk2, {$ENDIF}
-  EditorString, StrUtils, LazUTF8, LConvEncoding, UIScale, LMessages;
+  EditorString, StrUtils, LazUTF8, LConvEncoding, UIScale, LMessages, URIParser;
 
 type
   //Font and ParentFont are protected in TControl
@@ -1219,28 +1222,48 @@ begin
   FormatText4SQL:=s;
 end;
 
-procedure TDMMain.ShowHelp(page, name: string);
-var fname: string;
-  Template: TStringList;
+function TDMMain.CreateHelpIndex(page, name: string): string;
+var Template: TStringList;
+  DocDir, Link: string;
+  sr: TSearchRec;
 begin
+  Result:='';
+  DocDir:=ExtractFilePath(Application.ExeName)+'Doc'+PathDelim;
+
+  //The pages of earlier calls
+  if(FindFirst(SettingsPath+'tmpindex*.html', faAnyFile, sr)=0)then
+  begin
+    repeat
+      SysUtils.DeleteFile(SettingsPath+sr.Name);
+    until FindNext(sr)<>0;
+    SysUtils.FindClose(sr);
+  end;
+
   Template:=TStringList.Create;
   try
-    fname:=SettingsPath+'tmpindex'+FormatDateTime('hhnnsszzz', now)+'.html';
-    Template.LoadFromFile(ExtractFilePath(Application.ExeName)+'Doc'+PathDelim+'template.html');
+    Template.LoadFromFile(DocDir+'template.html');
 
-    Template.Text:=ReplaceText(Template.Text, '$helpdir$', ExtractFilePath(Application.ExeName)+'Doc'+PathDelim);
-    Template.Text:=ReplaceText(Template.Text, '$helplink$', page+'.html#'+name);
+    //The frames need URLs. With the plain file names (C:\...\header.html) a
+    //browser takes "C:" for a protocol and leaves the frames empty
+    Link:=page+'.html';
+    if(name<>'')then
+      Link:=Link+'#'+name;
+    Template.Text:=ReplaceText(Template.Text, '$helpdir$', FilenameToURI(DocDir));
+    Template.Text:=ReplaceText(Template.Text, '$helplink$', Link);
 
-
-    Template.SaveToFile(fname);
-
-    //Application.Minimize;
-    BrowsePage(fname);
+    Result:=SettingsPath+'tmpindex'+FormatDateTime('hhnnsszzz', now)+'.html';
+    Template.SaveToFile(Result);
   finally
     Template.Free;
   end;
+end;
 
-  //MainForm.WindowState:=wsMinimized;
+procedure TDMMain.ShowHelp(page, name: string);
+var fname: string;
+begin
+  fname:=CreateHelpIndex(page, name);
+  if(fname<>'')then
+    BrowsePage(fname);
 end;
 
 function TDMMain.GetFormByName(name: string): TForm;
