@@ -5,7 +5,8 @@ program TestFirebirdSync;
 // engine: create all tables, sync again without changes, column changes,
 // a changed primary key and foreign key, a renamed table, and the reverse
 // engineering of the result into a new model, which has to sync without
-// changes again, also with a foreign key from a table to itself.
+// changes again, also with a foreign key from a table to itself (and a
+// renamed table and a changed primary key with it).
 // At the end the SQL create script for the FireBird target
 // (identity columns, then generator and triggers) is loaded into a fresh
 // database with isql, if isql lies next to the client library.
@@ -486,6 +487,7 @@ begin
     WriteLn;
     WriteLn('--- 12. reverse engineering of a self-referencing foreign key');
     DMDB.ExecSQL('CREATE TABLE KUNDE (ID INTEGER NOT NULL PRIMARY KEY, NAME VARCHAR(40), '+
+      'LAND INTEGER DEFAULT 1 NOT NULL, '+
       'WERBER_ID INTEGER, CONSTRAINT KUNDE_WERBER FOREIGN KEY (WERBER_ID) REFERENCES KUNDE (ID) '+
       'ON DELETE SET NULL)', True);
     DMDB.ExecSQL('INSERT INTO KUNDE (ID, NAME, WERBER_ID) VALUES (1, ''first'', NULL)', True);
@@ -501,7 +503,7 @@ begin
     Check(Kunde<>nil, 'table KUNDE in the model');
     if(Kunde<>nil)then
     begin
-      Check(Kunde.Columns.Count=3, '3 columns');
+      Check(Kunde.Columns.Count=4, '4 columns');
       SelfRel:=nil;
       j:=0;
       for i:=0 to Kunde.RelEnd.Count-1 do
@@ -558,13 +560,48 @@ begin
 
       Sync(Model4, '15. no changes after the rename');
       CheckNoChanges;
+
+      //LAND joins the primary key, the self reference follows with LAND_2.
+      //The foreign key of the table itself blocks the drop of the old key
+      if(SelfRel<>nil)then
+      begin
+        TEERColumn(Kunde.GetColumnByName('LAND')).PrimaryKey:=True;
+        Kunde.CheckPrimaryIndex;
+
+        theColumn:=TEERColumn.Create(Kunde);
+        theColumn.ColName:='LAND_2';
+        theColumn.Obj_id:=DMMain.GetNextGlobalID;
+        theColumn.idDatatype:=TEERColumn(Kunde.GetColumnByName('LAND')).idDatatype;
+        theColumn.DatatypeParams:=TEERColumn(Kunde.GetColumnByName('LAND')).DatatypeParams;
+        theColumn.PrimaryKey:=False;
+        theColumn.NotNull:=False;
+        theColumn.AutoInc:=False;
+        theColumn.IsForeignKey:=True;
+        Kunde.Columns.Add(theColumn);
+
+        SelfRel.FKFields.Text:='ID=WERBER_ID'#13#10'LAND=LAND_2';
+        SelfRel.FKFieldsComments.Text:=#13#10;
+
+        Sync(Model4, '16. changed primary key of a table with a self reference');
+        Check(LogHas('primary key'), 'primary key change logged');
+        Check(PrimaryKeyOf('WERBEKUNDE')='ID,LAND', 'new primary key of WERBEKUNDE');
+        Check(RefTablesOf('WERBEKUNDE')='WERBEKUNDE', 'WERBEKUNDE references itself');
+        Check(SQLVal('SELECT COUNT(*) FROM RDB$RELATION_CONSTRAINTS rc '+
+          'JOIN RDB$INDEX_SEGMENTS s ON s.RDB$INDEX_NAME=rc.RDB$INDEX_NAME '+
+          'WHERE rc.RDB$CONSTRAINT_TYPE=''FOREIGN KEY'' AND rc.RDB$RELATION_NAME=''WERBEKUNDE''')='2',
+          'the foreign key has two columns');
+        Check(SQLVal('SELECT COUNT(*) FROM WERBEKUNDE')='2', 'rows kept');
+
+        Sync(Model4, '17. no changes after the primary key change');
+        CheckNoChanges;
+      end;
     end;
 
     DMDB.SQLConn.Close;
 
     //------------------------------------------------------------
     WriteLn;
-    WriteLn('--- 16. SQL create script for the FireBird target');
+    WriteLn('--- 18. SQL create script for the FireBird target');
     Isql:=ExtractFilePath(FBClient)+{$IFDEF MSWINDOWS}'isql.exe'{$ELSE}'..'+PathDelim+'bin'+PathDelim+'isql'{$ENDIF};
     if(Not(FileExists(Isql)))then
       WriteLn('  skipped, no isql at ', Isql)

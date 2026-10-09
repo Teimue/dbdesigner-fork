@@ -1043,17 +1043,22 @@ var
     end;
   end;
 
-  //Drop the foreign keys of other tables that reference the table
-  procedure DropReferencingForeignKeys(const tbl: string);
+  //Drop the foreign keys of other tables that reference the table.
+  //WithSelfRefs: and those of the table itself; they go with the table when
+  //it is dropped, but they block the drop of its primary key
+  procedure DropReferencingForeignKeys(const tbl: string; WithSelfRefs: Boolean = False);
   var Names, Tables, Sigs: TStringList;
+    where: string;
     k: integer;
   begin
     Names:=TStringList.Create;
     Tables:=TStringList.Create;
     Sigs:=TStringList.Create;
     try
-      LoadForeignKeys('pk.RDB$RELATION_NAME='+QuotedStr(tbl)+
-        ' AND rc.RDB$RELATION_NAME<>'+QuotedStr(tbl), Names, Tables, Sigs);
+      where:='pk.RDB$RELATION_NAME='+QuotedStr(tbl);
+      if(Not(WithSelfRefs))then
+        where:=where+' AND rc.RDB$RELATION_NAME<>'+QuotedStr(tbl);
+      LoadForeignKeys(where, Names, Tables, Sigs);
       for k:=0 to Names.Count-1 do
       begin
         Log.Add('Drop foreign key '+Names[k]+' on table '+Tables[k]);
@@ -1369,7 +1374,7 @@ var
         begin
           //The foreign keys that reference the key are added again when the
           //foreign keys are compared
-          DropReferencingForeignKeys(X);
+          DropReferencingForeignKeys(X, True);
           Exec('ALTER TABLE '+QId(X)+' DROP CONSTRAINT '+QId(PKName));
         end;
       end;
