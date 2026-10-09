@@ -76,9 +76,9 @@ object DBConnSelectForm: TDBConnSelectForm
     TabOrder = 3
     object Panel4: TPanel
       Left = 0
-      Top = 182
+      Top = 160
       Width = 493
-      Height = 69
+      Height = 91
       Align = alBottom
       BevelOuter = bvNone
       TabOrder = 0
@@ -156,6 +156,14 @@ object DBConnSelectForm: TDBConnSelectForm
         Height = 21
         PasswordChar = '*'
         TabOrder = 2
+      end
+      object SavePwdCBox: TCheckBox
+        Left = 272
+        Top = 70
+        Width = 220
+        Height = 19
+        Caption = 'Save password'
+        TabOrder = 5
       end
       object ConnectBtn: TBitBtn
         Left = 402

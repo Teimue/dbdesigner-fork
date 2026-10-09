@@ -1299,6 +1299,10 @@ fr_TBitBtn_ConnectBtn=Connecter
 xx_TBitBtn_ConnectBtn=Connect
 
 [DBConnSelectForm]
+en_TCheckBox_SavePwdCBox=Save password
+de_TCheckBox_SavePwdCBox=Passwort speichern
+fr_TCheckBox_SavePwdCBox=Enregistrer le mot de passe
+xx_TCheckBox_SavePwdCBox=Save password
 en_TDBConnSelectForm_DBConnSelectForm=Select Database Connection
 de_TDBConnSelectForm_DBConnSelectForm=Datebankverbindung wählen
 fr_TDBConnSelectForm_DBConnSelectForm=Sélection connexion BD

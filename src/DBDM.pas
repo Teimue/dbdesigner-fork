@@ -61,6 +61,10 @@ type
     VendorLib: string;
     TableScope: TTableScopes;
     Params: TStringList;
+    //Keep the password in the list of the connections, protected by the
+    //system (see PasswordStore). Without it the password lives in Params
+    //for the session only, as it always did
+    SavePassword: Boolean;
   end;
 
   // Class to store a Database-Hosts
@@ -149,7 +153,7 @@ implementation
 
 {$R *.lfm}
 
-uses DBConnSelect, MainDM;
+uses DBConnSelect, MainDM, PasswordStore;
 
 procedure TDMDB.DataModuleCreate(Sender: TObject);
 begin
@@ -225,7 +229,7 @@ end;
 
 procedure TDMDB.ReadDBConnFromIniFile(theIni: TMemIniFile; dbconnName: string; theDBConn: TDBConn);
 var theDBConnParams: TStringList;
-  ospostfix: string;
+  ospostfix, StoredPwd: string;
 begin
   theDBConnParams:=TStringList.Create;
   try
@@ -280,6 +284,18 @@ begin
         Delete(IndexOfName('VendorLib'+ospostfix));
       if(IndexOfName('TableScope')<>-1)then
         Delete(IndexOfName('TableScope'));
+
+      //The stored password: only the user who stored it can read it
+      theDBConn.SavePassword:=(Values['SavePassword']='1')and(PasswordStoreAvailable);
+      StoredPwd:='';
+      if(theDBConn.SavePassword)then
+        StoredPwd:=UnprotectPassword(Values['PasswordEnc']);
+      if(IndexOfName('SavePassword')<>-1)then
+        Delete(IndexOfName('SavePassword'));
+      if(IndexOfName('PasswordEnc')<>-1)then
+        Delete(IndexOfName('PasswordEnc'));
+      if(StoredPwd<>'')then
+        Values['Password']:=StoredPwd;
     end;
 
     theDBConn.Params.Assign(theDBConnParams);
@@ -334,6 +350,17 @@ begin
           if(theDBConn.Params.Names[j]<>'Password')then
             theIni.WriteString(dbconnName, theDBConn.Params.Names[j], theDBConn.Params.Values[theDBConn.Params.Names[j]]);
 
+        //The password never goes into the file as it is. When the user
+        //wants it kept, it is stored protected by the system
+        if(theDBConn.SavePassword)and(PasswordStoreAvailable)then
+        begin
+          s:=ProtectPassword(theDBConn.Params.Values['Password']);
+          if(s<>'')then
+          begin
+            theIni.WriteString(dbconnName, 'SavePassword', '1');
+            theIni.WriteString(dbconnName, 'PasswordEnc', s);
+          end;
+        end;
       end;
     end;
 
@@ -1107,6 +1134,7 @@ begin
     VendorLib:=TDBConn(Source).VendorLib;
     TableScope:=TDBConn(Source).TableScope;
     Params.Text:=TDBConn(Source).Params.Text;
+    SavePassword:=TDBConn(Source).SavePassword;
   end;
 end;
 

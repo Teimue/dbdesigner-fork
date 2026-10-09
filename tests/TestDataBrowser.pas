@@ -15,11 +15,13 @@ uses
   {$IFDEF UNIX}cthreads,{$ENDIF}
   Interfaces, // LCL
   Classes, SysUtils, Forms, Controls, DB, SQLDB,
-  MainDM, DBDM, EERDM, DataBrowserSQL;
+  MainDM, DBDM, EERDM, DataBrowserSQL, PasswordStore, IniFiles;
 
 var
   ParentForm: TForm;
-  Conn: TDBConn;
+  Conn, PwdConn: TDBConn;
+  Ini: TMemIniFile;
+  IniPath: string;
   DBPath, s, tbl: string;
   Failures: integer = 0;
   i: integer;
@@ -147,6 +149,43 @@ begin
       'id', False, 500)), '7', 'a text filter');
 
     DMDB.SQLConn.Close;
+
+    //------------------------------------------------------------
+    WriteLn;
+    WriteLn('--- 3. a stored password in the list of the connections');
+    if(PasswordStoreAvailable)then
+    begin
+      IniPath:=GetTempDir+'dbdesigner_dbconn_test.ini';
+      if(FileExists(IniPath))then
+        DeleteFile(IniPath);
+      Ini:=TMemIniFile.Create(IniPath);
+      PwdConn:=TDBConn.Create;
+      try
+        Ini.WriteString('Test', 'DriverName', 'Firebird');
+        Ini.WriteString('Test', 'User_Name', 'SYSDBA');
+        Ini.WriteString('Test', 'SavePassword', '1');
+        Ini.WriteString('Test', 'PasswordEnc', ProtectPassword('master=key'));
+        Ini.WriteString('Other', 'DriverName', 'Firebird');
+        Ini.WriteString('Other', 'PasswordEnc', ProtectPassword('ignored'));
+
+        DMDB.ReadDBConnFromIniFile(Ini, 'Test', PwdConn);
+        Check(PwdConn.SavePassword, 'the connection keeps its password');
+        CheckEq(PwdConn.Params.Values['Password'], 'master=key', 'the password is read');
+        CheckEq(PwdConn.Params.Values['User_Name'], 'SYSDBA', 'the other parameters too');
+        Check((PwdConn.Params.IndexOfName('PasswordEnc')=-1)and(PwdConn.Params.IndexOfName('SavePassword')=-1),
+          'the stored form is no parameter of the connection');
+
+        DMDB.ReadDBConnFromIniFile(Ini, 'Other', PwdConn);
+        Check(Not(PwdConn.SavePassword), 'without the switch nothing is kept');
+        CheckEq(PwdConn.Params.Values['Password'], '', 'and no password is read');
+      finally
+        PwdConn.Free;
+        Ini.Free;
+        DeleteFile(IniPath);
+      end;
+    end
+    else
+      WriteLn('  (no password store on this system)');
   except
     on E: Exception do
     begin

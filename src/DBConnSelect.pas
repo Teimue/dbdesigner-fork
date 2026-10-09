@@ -61,6 +61,7 @@ type
     UsernameEd: TEdit;
     Label3: TLabel;
     PasswdEd: TEdit;
+    SavePwdCBox: TCheckBox;
     ConnectBtn: TBitBtn;
     Label6: TLabel;
     ConnectionsListView: TListView;
@@ -155,7 +156,7 @@ var
 
 implementation
 
-uses DBConnLogin, DBConnEditor, MainDM;
+uses DBConnLogin, DBConnEditor, MainDM, PasswordStore;
 
 {$R *.lfm}
 
@@ -166,6 +167,9 @@ begin
   ModalResultIsOK:=False;
 
   DBHosts:=TObjectList.Create;
+
+  //Storing the password needs the data protection of the system
+  SavePwdCBox.Visible:=PasswordStoreAvailable;
 
   //The rows are painted by DBConnTVCustomDrawItem
   DBConnTV.Color:=clWindow;
@@ -411,6 +415,10 @@ begin
        SelDBConn.Params.Values['DriverName']:=TypeLU.Items[TypeLU.ItemIndex];}
     SelDBConn.Params.Values['User_Name']:=UsernameEd.Text;
     SelDBConn.Params.Values['Password']:=PasswdEd.Text;
+    //kept in the list of the connections (FormDestroy stores it), protected
+    //by the system - or not at all
+    if(SavePwdCBox.Visible)then
+      SelDBConn.SavePassword:=SavePwdCBox.Checked;
 
     ModalResultIsOK:=True;
 
@@ -436,6 +444,7 @@ begin
       UsernameEd.Text:=SelDBConn.Params.Values['User_Name'];
       PasswdEd.Text:=SelDBConn.Params.Values['Password'];
       PasswdEd.SelectAll;
+      SavePwdCBox.Checked:=SelDBConn.SavePassword;
       //DescriptionMemo.Text:=SelDBConn.Description;
 
       if(Visible)then
@@ -449,6 +458,7 @@ begin
     DBConnEd.Text:='';
     UsernameEd.Text:='';
     PasswdEd.Text:='';
+    SavePwdCBox.Checked:=False;
 
     if(Visible)then
       DBConnEd.SetFocus;

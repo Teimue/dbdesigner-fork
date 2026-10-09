@@ -80,7 +80,7 @@ uses
 const
   INIVersion_DBDesigner4_Settings=4;
   INIVersion_DBDesigner4_DatabaseInfo=8;
-  INIVersion_DBDesigner4_Translations=21;
+  INIVersion_DBDesigner4_Translations=22;
   INIVersion_DBConn_DefaultSettings=5;
 
 type
