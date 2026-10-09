@@ -16,6 +16,8 @@ program DBDesignerMCP;
 //   add_column      a new column of a table
 //   add_relation    a relation between two tables (foreign key)
 //   rename_table    another name for a table
+//   change_table    comments, and for MySQL the engine and the table options
+//   get_standard_inserts, set_standard_inserts
 //   change_column   another name, datatype or other properties of a column
 //   delete_table, delete_column, delete_relation
 //   add_index, delete_index
@@ -59,7 +61,7 @@ uses
 
 const
   ServerName = 'dbdesigner-fork';
-  ServerVersion = '0.6.0';
+  ServerVersion = '0.7.0';
   //The newest protocol version comes first, it is the answer to a client
   //that asks for a version not in this list
   ProtocolVersions: array[0..2] of string = ('2025-06-18', '2025-03-26', '2024-11-05');
@@ -74,6 +76,14 @@ const
     ('PRIMARY', 'INDEX', 'UNIQUE', 'FULLTEXT');
   RefActionNames: array[0..4] of string =
     ('RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION', 'SET DEFAULT');
+
+  //The table types of the table editor (TEERTable.TableType). In the SQL
+  //code for MySQL they are the ENGINE: HEAP is written as MEMORY, BDB as
+  //InnoDB, MyISAM and ISAM are the default and give no clause
+  TableTypeNames: array[0..5] of string =
+    ('MyISAM', 'InnoDB', 'HEAP', 'BDB', 'ISAM', 'MERGE');
+  RowFormatNames: array[0..3] of string =
+    ('default', 'dynamic', 'fixed', 'compressed');
 
   //Room that is kept free around a table that is placed without a
   //position: a table grows with the columns it gets later, and the lines
@@ -516,6 +526,66 @@ begin
   end;
 end;
 
+//The number of lines of the standard inserts that are not empty
+function StandardInsertLines(Table: TEERTable): integer;
+var i: integer;
+begin
+  Result:=0;
+  for i:=0 to Table.StandardInserts.Count-1 do
+    if(Trim(Table.StandardInserts[i])<>'')then
+      inc(Result);
+end;
+
+//What the table has beyond columns, indices and relations, where it is set:
+//the MySQL engine and options, the standard inserts
+procedure AddTableOptionsToJSON(Table: TEERTable; Dest: TJSONObject);
+var Options: TJSONObject;
+
+  procedure AddNumber(const Key, OptionName: string);
+  begin
+    if(Table.TableOptions.Values[OptionName]<>'')then
+      Options.Add(Key, StrToIntDef(Table.TableOptions.Values[OptionName], 0));
+  end;
+
+  procedure AddFlag(const Key, OptionName: string);
+  begin
+    if(Table.TableOptions.Values[OptionName]='1')then
+      Options.Add(Key, True);
+  end;
+
+  procedure AddText(const Key, OptionName: string);
+  begin
+    if(Table.TableOptions.Values[OptionName]<>'')then
+      Options.Add(Key, U(Table.TableOptions.Values[OptionName]));
+  end;
+
+begin
+  Dest.Add('mysql_engine', NameInList(TableTypeNames, Table.TableType));
+  if(Table.Temporary)then
+    Dest.Add('temporary', True);
+
+  Options:=TJSONObject.Create;
+  AddNumber('next_auto_increment', 'NextAutoIncVal');
+  AddNumber('average_row_length', 'AverageRowLength');
+  AddNumber('min_rows', 'MinRowNumber');
+  AddNumber('max_rows', 'MaxRowNumber');
+  AddFlag('row_checksum', 'RowChecksum');
+  AddFlag('pack_keys', 'PackKeys');
+  AddFlag('delay_key_write', 'DelayKeyTblUpdates');
+  if(StrToIntDef(Table.TableOptions.Values['RowFormat'], 0)>0)then
+    Options.Add('row_format', NameInList(RowFormatNames,
+      StrToIntDef(Table.TableOptions.Values['RowFormat'], 0)));
+  AddText('data_directory', 'TblDataDir');
+  AddText('index_directory', 'TblIndexDir');
+  if(Options.Count>0)then
+    Dest.Add('mysql_options', Options)
+  else
+    Options.Free;
+
+  if(StandardInsertLines(Table)>0)then
+    Dest.Add('standard_insert_lines', StandardInsertLines(Table));
+end;
+
 function TableToJSON(Table: TEERTable): TJSONObject;
 var Columns, Indices, Parents, Children, Overlaps: TJSONArray;
   i: integer;
@@ -547,6 +617,7 @@ begin
   Result.Add('position', PositionToJSON(Table));
   if(Table.GetRegion<>nil)then
     Result.Add('region', U(TEERRegion(Table.GetRegion).ObjName));
+  AddTableOptionsToJSON(Table, Result);
   //A table that got columns may have grown over its neighbours
   Overlaps:=OverlappingTables(Table);
   if(Overlaps.Count>0)then
@@ -1110,6 +1181,129 @@ begin
 
   Result:=TableToJSON(Table);
   TJSONObject(Result).Add('renamed_from', U(OldName));
+end;
+
+function ToolChangeTable(Args: TJSONObject): TJSONData;
+const
+  Numbers: array[0..3, 0..1] of string = (
+    ('next_auto_increment', 'NextAutoIncVal'),
+    ('average_row_length', 'AverageRowLength'),
+    ('min_rows', 'MinRowNumber'),
+    ('max_rows', 'MaxRowNumber'));
+  Flags: array[0..2, 0..1] of string = (
+    ('row_checksum', 'RowChecksum'),
+    ('pack_keys', 'PackKeys'),
+    ('delay_key_write', 'DelayKeyTblUpdates'));
+  Texts: array[0..1, 0..1] of string = (
+    ('data_directory', 'TblDataDir'),
+    ('index_directory', 'TblIndexDir'));
+var Table: TEERTable;
+  Engine, RowFormat, Given, i: integer;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  NeedChangeable(Table);
+
+  Given:=0;
+  if(HasArg(Args, 'comments'))then inc(Given);
+  if(HasArg(Args, 'mysql_engine'))then inc(Given);
+  if(HasArg(Args, 'temporary'))then inc(Given);
+  if(HasArg(Args, 'row_format'))then inc(Given);
+  for i:=0 to High(Numbers) do
+    if(HasArg(Args, Numbers[i, 0]))then inc(Given);
+  for i:=0 to High(Flags) do
+    if(HasArg(Args, Flags[i, 0]))then inc(Given);
+  for i:=0 to High(Texts) do
+    if(HasArg(Args, Texts[i, 0]))then inc(Given);
+  if(Given=0)then
+    raise EToolError.Create('Nothing to change: give comments, mysql_engine, '+
+      'temporary, next_auto_increment, average_row_length, min_rows, max_rows, '+
+      'row_checksum, pack_keys, delay_key_write, row_format, data_directory or '+
+      'index_directory. rename_table changes the name.');
+
+  //Check the names before anything is changed
+  Engine:=Table.TableType;
+  if(HasArg(Args, 'mysql_engine'))then
+  begin
+    if(CompareText(ArgStr(Args, 'mysql_engine'), 'MEMORY')=0)then
+      Engine:=2
+    else
+      Engine:=IndexInList(TableTypeNames, ArgStr(Args, 'mysql_engine'));
+    if(Engine<0)then
+      raise EToolError.Create('"mysql_engine" has to be one of: MyISAM, InnoDB, '+
+        'HEAP (MEMORY), BDB, ISAM, MERGE.');
+  end;
+  RowFormat:=-1;
+  if(HasArg(Args, 'row_format'))then
+  begin
+    RowFormat:=IndexInList(RowFormatNames, ArgStr(Args, 'row_format'));
+    if(RowFormat<0)then
+      raise EToolError.Create('"row_format" has to be one of: default, dynamic, '+
+        'fixed, compressed.');
+  end;
+  for i:=0 to High(Numbers) do
+    if(HasArg(Args, Numbers[i, 0]))and(ArgInt(Args, Numbers[i, 0], 0)<0)then
+      raise EToolError.CreateFmt('"%s" is not negative; 0 is for none.', [Numbers[i, 0]]);
+
+  if(HasArg(Args, 'comments'))then
+    Table.Comments:=ArgStr(Args, 'comments');
+  Table.TableType:=Engine;
+  if(HasArg(Args, 'temporary'))then
+    Table.Temporary:=ArgBool(Args, 'temporary', Table.Temporary);
+
+  //The table options as the table editor stores them: a number or nothing,
+  //a flag as 1 or 0, the row format as its position in the list
+  for i:=0 to High(Numbers) do
+    if(HasArg(Args, Numbers[i, 0]))then
+    begin
+      if(ArgInt(Args, Numbers[i, 0], 0)>0)then
+        Table.TableOptions.Values[Numbers[i, 1]]:=IntToStr(ArgInt(Args, Numbers[i, 0], 0))
+      else
+        Table.TableOptions.Values[Numbers[i, 1]]:='';
+    end;
+  for i:=0 to High(Flags) do
+    if(HasArg(Args, Flags[i, 0]))then
+      Table.TableOptions.Values[Flags[i, 1]]:=IntToStr(Ord(ArgBool(Args, Flags[i, 0], False)));
+  if(RowFormat>=0)then
+    Table.TableOptions.Values['RowFormat']:=IntToStr(RowFormat);
+  for i:=0 to High(Texts) do
+    if(HasArg(Args, Texts[i, 0]))then
+      Table.TableOptions.Values[Texts[i, 1]]:=ArgStr(Args, Texts[i, 0]);
+
+  Table.RefreshObj;
+  Model.ModelHasChanged;
+  Result:=TableToJSON(Table);
+end;
+
+function ToolGetStandardInserts(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  Result:=TJSONObject.Create(['table', U(Table.ObjName),
+    'lines', StandardInsertLines(Table),
+    'sql', U(TrimRight(StringReplace(Table.StandardInserts.Text, #13#10, #10, [rfReplaceAll])))]);
+end;
+
+function ToolSetStandardInserts(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+  SQL: string;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  NeedChangeable(Table);
+  if(Not(HasArg(Args, 'sql')))then
+    raise EToolError.Create('The argument "sql" is missing (empty for no standard inserts).');
+
+  SQL:=TrimRight(ArgStr(Args, 'sql'));
+  if(ArgBool(Args, 'append', False))and(Trim(Table.StandardInserts.Text)<>'')and(SQL<>'')then
+    SQL:=TrimRight(Table.StandardInserts.Text)+#10+SQL;
+  //As the table editor stores them: no empty lines at the end, one line break
+  if(SQL='')then
+    Table.StandardInserts.Clear
+  else
+    Table.StandardInserts.Text:=SQL+#13#10;
+
+  Model.ModelHasChanged;
+  Result:=TJSONObject.Create(['table', U(Table.ObjName),
+    'lines', StandardInsertLines(Table)]);
 end;
 
 function ToolChangeColumn(Args: TJSONObject): TJSONData;
@@ -2486,6 +2680,7 @@ begin
   Result.Add('file', U(ModelFile));
   Result.Add('unsaved_changes', Model.IsChanged);
   Result.Add('database_type', U(Model.DatabaseType));
+  Result.Add('default_mysql_engine', NameInList(TableTypeNames, Model.DefaultTableType));
   if(Model.GetDataType(Model.DefaultDataType)<>nil)then
     Result.Add('default_datatype',
       U(TEERDatatype(Model.GetDataType(Model.DefaultDataType)).TypeName));
@@ -2512,8 +2707,8 @@ end;
 
 function ToolChangeModelSettings(Args: TJSONObject): TJSONData;
 const
-  Settings: array[0..12] of string = ('model_name', 'comments', 'version',
-    'default_datatype',
+  Settings: array[0..13] of string = ('model_name', 'comments', 'version',
+    'default_datatype', 'default_mysql_engine',
     'foreign_key_prefix', 'foreign_key_postfix',
     'foreign_key_constraint_for_new_relations', 'index_for_foreign_keys',
     'table_name_in_relation_captions', 'sql_for_linked_tables',
@@ -2527,7 +2722,8 @@ begin
       inc(Given);
   if(Given=0)then
     raise EToolError.Create('Nothing to change. The settings that can be changed: '+
-      'model_name, comments, version, default_datatype, foreign_key_prefix, '+
+      'model_name, comments, version, default_datatype, default_mysql_engine, '+
+      'foreign_key_prefix, '+
       'foreign_key_postfix, '+
       'foreign_key_constraint_for_new_relations, index_for_foreign_keys, '+
       'table_name_in_relation_captions, sql_for_linked_tables, use_position_grid, '+
@@ -2538,6 +2734,10 @@ begin
   //Raises if the model has no such datatype, before anything is changed
   if(HasArg(Args, 'default_datatype'))then
     NeedDatatype(Args, 'default_datatype');
+  if(HasArg(Args, 'default_mysql_engine'))and
+    (IndexInList(TableTypeNames, ArgStr(Args, 'default_mysql_engine'))<0)then
+    raise EToolError.Create('"default_mysql_engine" has to be one of: MyISAM, '+
+      'InnoDB, HEAP, BDB, ISAM, MERGE.');
   if(ArgInt(Args, 'position_grid_x', 1)<1)or(ArgInt(Args, 'position_grid_y', 1)<1)then
     raise EToolError.Create('The position grid is at least 1.');
 
@@ -2549,6 +2749,8 @@ begin
     Model.VersionStr:=Trim(ArgStr(Args, 'version'));
   if(HasArg(Args, 'default_datatype'))then
     Model.DefaultDataType:=NeedDatatype(Args, 'default_datatype').id;
+  if(HasArg(Args, 'default_mysql_engine'))then
+    Model.DefaultTableType:=IndexInList(TableTypeNames, ArgStr(Args, 'default_mysql_engine'));
   if(HasArg(Args, 'foreign_key_prefix'))then
     Model.FKPrefix:=ArgStr(Args, 'foreign_key_prefix');
   if(HasArg(Args, 'foreign_key_postfix'))then
@@ -2951,10 +3153,10 @@ end;
 //something (a file, data in a database) and which reach a database
 function Tool(const Name, Description, InputSchema: string): TJSONObject;
 const
-  ReadOnlyTools: array[0..11] of string = ('open_model', 'list_tables',
+  ReadOnlyTools: array[0..12] of string = ('open_model', 'list_tables',
     'describe_table', 'list_relations', 'export_sql', 'list_connections',
     'list_database_tables', 'list_regions', 'list_notes', 'get_model_settings',
-    'list_images', 'list_datatypes');
+    'list_images', 'list_datatypes', 'get_standard_inserts');
   DestructiveTools: array[0..9] of string = ('save_model', 'sync_database',
     'delete_table', 'delete_column', 'delete_relation', 'delete_index',
     'delete_region', 'delete_note', 'delete_image', 'delete_datatype');
@@ -3218,18 +3420,20 @@ begin
       'ments":{"type":"string"},"version":{"type":"string","description":'+
       '"e.g. 1.0.0.0"},"default_datatype":{"type":"string","description":'+
       '"Name of the datatype new columns get in the table editor of the p'+
-      'rogram"},"foreign_key_prefix":{"type":"string","description":"Put '+
-      'in front of the name of a primary key column to name its foreign k'+
-      'ey column"},"foreign_key_postfix":{"type":"string"},"foreign_key_c'+
-      'onstraint_for_new_relations":{"type":"boolean","description":"Defa'+
-      'ult of the program for relations made in its diagram"},"index_for_'+
-      'foreign_keys":{"type":"boolean","description":"An index in the chi'+
-      'ld table for every relation with a foreign key constraint"},"table'+
-      '_name_in_relation_captions":{"type":"boolean"},"sql_for_linked_tab'+
-      'les":{"type":"boolean","description":"Write SQL for tables linked '+
-      'from other models"},"use_position_grid":{"type":"boolean"},"positi'+
-      'on_grid_x":{"type":"integer"},"position_grid_y":{"type":"integer"}'+
-      '}}'),
+      'rogram"},"default_mysql_engine":{"type":"string","enum":["MyISAM",'+
+      '"InnoDB","HEAP","BDB","ISAM","MERGE"],"description":"Engine of new'+
+      ' tables"},"foreign_key_prefix":{"type":"string","description":"Put'+
+      ' in front of the name of a primary key column to name its foreign '+
+      'key column"},"foreign_key_postfix":{"type":"string"},"foreign_key_'+
+      'constraint_for_new_relations":{"type":"boolean","description":"Def'+
+      'ault of the program for relations made in its diagram"},"index_for'+
+      '_foreign_keys":{"type":"boolean","description":"An index in the ch'+
+      'ild table for every relation with a foreign key constraint"},"tabl'+
+      'e_name_in_relation_captions":{"type":"boolean"},"sql_for_linked_ta'+
+      'bles":{"type":"boolean","description":"Write SQL for tables linked'+
+      ' from other models"},"use_position_grid":{"type":"boolean"},"posit'+
+      'ion_grid_x":{"type":"integer"},"position_grid_y":{"type":"integer"'+
+      '}}}'),
     Tool('list_images',
       'The images of the open model: pictures placed in the diagram, with'+
       ' their place, their size there and the size of the picture.',
@@ -3334,6 +3538,47 @@ begin
       '"x":{"type":"integer","description":"Place of the first table (def'+
       'ault 40)"},"y":{"type":"integer"},"row_width":{"type":"integer","d'+
       'escription":"Width after which a new row begins (default 1400)"}}}'),
+    Tool('change_table',
+      'Change a table of the open model: its comments, and for MySQL the '+
+      'engine, the temporary flag and the table options. Only what is giv'+
+      'en is changed. Engine and options are written in the SQL code for '+
+      'MySQL only. rename_table changes the name. Returns the table.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"comments":{"type":"string"},"mysql_engin'+
+      'e":{"type":"string","enum":["MyISAM","InnoDB","HEAP","BDB","ISAM",'+
+      '"MERGE"],"description":"HEAP is written as MEMORY, BDB as InnoDB; '+
+      'MyISAM and ISAM give no ENGINE clause"},"temporary":{"type":"boole'+
+      'an","description":"CREATE TEMPORARY TABLE"},"next_auto_increment":'+
+      '{"type":"integer","description":"AUTO_INCREMENT; 0 for none"},"ave'+
+      'rage_row_length":{"type":"integer","description":"AVG_ROW_LENGTH; '+
+      '0 for none"},"min_rows":{"type":"integer","description":"MIN_ROWS;'+
+      ' 0 for none"},"max_rows":{"type":"integer","description":"MAX_ROWS'+
+      '; 0 for none"},"row_checksum":{"type":"boolean","description":"CHE'+
+      'CKSUM"},"pack_keys":{"type":"boolean","description":"PACK_KEYS"},"'+
+      'delay_key_write":{"type":"boolean","description":"DELAY_KEY_WRITE"'+
+      '},"row_format":{"type":"string","enum":["default","dynamic","fixed'+
+      '","compressed"]},"data_directory":{"type":"string","description":"'+
+      'DATA DIRECTORY; empty for none"},"index_directory":{"type":"string'+
+      '","description":"INDEX DIRECTORY; empty for none"}},"required":["t'+
+      'able"]}'),
+    Tool('get_standard_inserts',
+      'The standard inserts of a table of the open model: SQL statements '+
+      '(INSERT) stored with the table, for its basic data. describe_table'+
+      ' shows how many lines a table has.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"}},"required":["table"]}'),
+    Tool('set_standard_inserts',
+      'Set the standard inserts of a table of the open model: complete SQ'+
+      'L statements, each ending with a semicolon, written for the target'+
+      ' database. They replace the ones the table has, or are added to th'+
+      'em with append. export_sql writes them with standard_inserts, sync'+
+      '_database runs them for a newly created table with standard_insert'+
+      's.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"sql":{"type":"string","description":"The'+
+      ' statements, one per line; empty for none"},"append":{"type":"bool'+
+      'ean","description":"Add to the statements the table has (default f'+
+      'alse: replace them)"}},"required":["table","sql"]}'),
     Tool('save_model',
       'Write the open model to its file, or to path. The file as it was i'+
       's kept as <file>.bak. A file other than the one of the model is re'+
@@ -3486,6 +3731,12 @@ begin
       Data:=ToolDeleteDatatype(Args)
     else if(Name='arrange_tables')then
       Data:=ToolArrangeTables(Args)
+    else if(Name='change_table')then
+      Data:=ToolChangeTable(Args)
+    else if(Name='get_standard_inserts')then
+      Data:=ToolGetStandardInserts(Args)
+    else if(Name='set_standard_inserts')then
+      Data:=ToolSetStandardInserts(Args)
     else if(Name='rename_table')then
       Data:=ToolRenameTable(Args)
     else if(Name='change_column')then
