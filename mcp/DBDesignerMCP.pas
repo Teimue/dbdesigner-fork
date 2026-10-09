@@ -1,0 +1,1733 @@
+program DBDesignerMCP;
+
+// MCP server (Model Context Protocol) for DBDesigner models: JSON-RPC 2.0,
+// one message per line, on stdin/stdout. It works on the model classes of
+// the application (src/EERModel.pas), so it reads the files and writes the
+// SQL the same way as DBDesigner Fork itself.
+//
+// Tools:
+//   open_model      load a model file, it stays open for the other tools
+//   new_model       start an empty model
+//   list_tables     the tables of the open model
+//   describe_table  columns, indices and relations of one table
+//   list_relations  the relations of the model or of one table
+//   export_sql      the SQL script for a target database
+//   add_table       a new table, with its columns
+//   add_column      a new column of a table
+//   add_relation    a relation between two tables (foreign key)
+//   save_model      write the model to its file or to another one
+//   list_connections       the database connections stored in DBDesigner
+//   connect_database       connect to a Firebird database
+//   disconnect_database
+//   list_database_tables   the tables of the connected database
+//   reverse_engineer       tables of the database into the open model
+//   sync_database          change the database to match the open model
+//
+// The database tools work with Firebird only. The settings of the program
+// are read (stored connections) but never written.
+//
+// Needs the application infrastructure (data modules, LCL), like the
+// programs in tests/: the model classes are controls. No window is shown.
+//   lazbuild mcp/DBDesignerMCP.lpi   ->   bin/DBDesignerMCP
+//
+// Message boxes of the application code are not shown, their text goes into
+// the result of the tool (see McpPromptDialog).
+
+{$I DBDesigner4.inc}
+{$APPTYPE CONSOLE}
+
+uses
+  {$IFDEF UNIX}cthreads,{$ENDIF}
+  Interfaces, // LCL
+  Classes, SysUtils, StrUtils, Forms, Controls, Dialogs, InterfaceBase,
+  iostream, fpjson, jsonparser, LazUTF8, LConvEncoding, FileUtil,
+  DB, SQLDB,
+  MainDM, DBDM, EERDM, DBEERDM, DBEERFirebird, EERModel, EERSQLScript;
+
+const
+  ServerName = 'dbdesigner-fork';
+  ServerVersion = '0.3.0';
+  //The newest protocol version comes first, it is the answer to a client
+  //that asks for a version not in this list
+  ProtocolVersions: array[0..2] of string = ('2025-06-18', '2025-03-26', '2024-11-05');
+
+  //The names the SQL export uses for its targets (see EERExportSQLScript)
+  TargetDatabases: array[0..5] of string =
+    ('FireBird', 'My SQL', 'Oracle', 'PostgreSQL', 'SQL Server', 'SQLite');
+
+  RelKindNames: array[0..5] of string =
+    ('1:1', '1:n', '1:n non-identifying', 'n:m', '1:1 sub type', '1:1 non-identifying');
+  IndexKindNames: array[0..3] of string =
+    ('PRIMARY', 'INDEX', 'UNIQUE', 'FULLTEXT');
+  RefActionNames: array[0..4] of string =
+    ('RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION', 'SET DEFAULT');
+
+type
+  //An error of a tool: the text goes to the client as the result
+  EToolError = class(Exception);
+  //An error of the protocol: answered as a JSON-RPC error
+  ERpcError = class(Exception)
+  public
+    Code: integer;
+    constructor Create(ACode: integer; const Msg: string);
+  end;
+
+var
+  StdIn, StdOut: TIOStream;
+  InBuf: string = '';
+  ParentForm: TForm;
+  Model: TEERModel = nil;
+  //The file of the open model, empty for a new one
+  ModelFile: string = '';
+  //The connection to the database, owned here. DMDB.CurrentDBConn points to
+  //it while the connection is open
+  DBConn: TDBConn = nil;
+  //The texts of the message boxes the application code wanted to show
+  DialogMessages: TStringList;
+
+constructor ERpcError.Create(ACode: integer; const Msg: string);
+begin
+  inherited Create(Msg);
+  Code:=ACode;
+end;
+
+// ---------------------------------------------------------------------------
+// Message boxes
+
+//ShowMessage and MessageDlg end here: nobody can answer a dialog of a
+//server, so the text is kept and the dialog counts as cancelled
+function McpPromptDialog(const DialogCaption, DialogMessage: String;
+  DialogType: longint; Buttons: PLongint;
+  ButtonCount, DefaultIndex, EscapeResult: Longint;
+  UseDefaultPos: boolean; X, Y: Longint): Longint;
+begin
+  DialogMessages.Add(DialogMessage);
+  Result:=EscapeResult;
+end;
+
+function McpMessageBox(Text, Caption: PChar; Flags: Longint): Integer;
+begin
+  DialogMessages.Add(StrPas(Text));
+  Result:=2; //IDCANCEL
+end;
+
+// ---------------------------------------------------------------------------
+// Transport
+
+//One line from stdin, without the line break. False at the end of the input
+function ReadMessage(out Line: string): Boolean;
+var Chunk: array[0..4095] of Char;
+  n, p: integer;
+begin
+  Line:='';
+  repeat
+    p:=Pos(#10, InBuf);
+    if(p>0)then
+    begin
+      Line:=Copy(InBuf, 1, p-1);
+      Delete(InBuf, 1, p);
+      if(Line<>'')and(Line[Length(Line)]=#13)then
+        SetLength(Line, Length(Line)-1);
+      Result:=True;
+      Exit;
+    end;
+
+    n:=StdIn.Read(Chunk, SizeOf(Chunk));
+    if(n>0)then
+      InBuf:=InBuf+Copy(Chunk, 1, n);
+  until(n<=0);
+
+  //The last line may come without a line break
+  Line:=InBuf;
+  InBuf:='';
+  Result:=(Line<>'');
+end;
+
+//Takes the ownership of Msg
+procedure SendMessage(Msg: TJSONObject);
+var s: string;
+begin
+  try
+    s:=Msg.AsJSON+#10;
+  finally
+    Msg.Free;
+  end;
+  StdOut.WriteBuffer(s[1], Length(s));
+end;
+
+//The id of a request as it has to go back (number or string)
+function CloneID(ID: TJSONData): TJSONData;
+begin
+  if(ID=nil)then
+    Result:=TJSONNull.Create
+  else
+    Result:=ID.Clone;
+end;
+
+procedure SendResult(ID: TJSONData; AResult: TJSONData);
+begin
+  SendMessage(TJSONObject.Create(['jsonrpc', '2.0', 'id', CloneID(ID), 'result', AResult]));
+end;
+
+procedure SendError(ID: TJSONData; Code: integer; const Msg: string);
+begin
+  SendMessage(TJSONObject.Create(['jsonrpc', '2.0', 'id', CloneID(ID),
+    'error', TJSONObject.Create(['code', Code, 'message', Msg])]));
+end;
+
+// ---------------------------------------------------------------------------
+// Helpers
+
+//Text of the model for JSON. The model files of DBDesigner 4 are Latin-1,
+//text that is no valid UTF-8 is taken as such
+function U(const s: string): string;
+begin
+  if(FindInvalidUTF8Codepoint(PChar(s), Length(s))>=0)then
+    Result:=CP1252ToUTF8(s)
+  else
+    Result:=s;
+end;
+
+function ArgStr(Args: TJSONObject; const Name: string; const Default: string = ''): string;
+begin
+  if(Args<>nil)and(Args.IndexOfName(Name)>=0)and(Args.Types[Name]=jtString)then
+    Result:=Args.Strings[Name]
+  else
+    Result:=Default;
+end;
+
+function ArgBool(Args: TJSONObject; const Name: string; Default: Boolean): Boolean;
+begin
+  if(Args<>nil)and(Args.IndexOfName(Name)>=0)and(Args.Types[Name]=jtBoolean)then
+    Result:=Args.Booleans[Name]
+  else
+    Result:=Default;
+end;
+
+function ArgInt(Args: TJSONObject; const Name: string; Default: integer): integer;
+begin
+  if(Args<>nil)and(Args.IndexOfName(Name)>=0)and(Args.Types[Name]=jtNumber)then
+    Result:=Args.Integers[Name]
+  else
+    Result:=Default;
+end;
+
+//The position of a name in a list of names, -1 if it is not there
+function IndexInList(const Names: array of string; const Name: string): integer;
+var i: integer;
+begin
+  Result:=-1;
+  for i:=Low(Names) to High(Names) do
+    if(CompareText(Names[i], Name)=0)then
+      Result:=i;
+end;
+
+procedure NeedModel;
+begin
+  if(Model=nil)then
+    raise EToolError.Create('No model is open. Call open_model first.');
+end;
+
+function NeedTable(const TableName: string): TEERTable;
+begin
+  NeedModel;
+  if(TableName='')then
+    raise EToolError.Create('The argument "table" is missing.');
+  Result:=Model.GetEERObjectByName(EERTable, TableName);
+  if(Result=nil)then
+    raise EToolError.CreateFmt('There is no table "%s" in the model. '+
+      'list_tables shows the tables.', [TableName]);
+end;
+
+//The tables or relations of the model, sorted by name. The caller frees it
+function GetObjects(ObjType: TEERObject): TList;
+begin
+  Result:=TList.Create;
+  Model.GetEERObjectList([ObjType], Result);
+  Model.SortEERObjectListByObjName(Result);
+end;
+
+function NameInList(const Names: array of string; Index: integer): string;
+begin
+  if(Index>=Low(Names))and(Index<=High(Names))then
+    Result:=Names[Index]
+  else
+    Result:=IntToStr(Index);
+end;
+
+function PrimaryKeyColumns(Table: TEERTable): TJSONArray;
+var i: integer;
+begin
+  Result:=TJSONArray.Create;
+  for i:=0 to Table.Columns.Count-1 do
+    if(TEERColumn(Table.Columns[i]).PrimaryKey)then
+      Result.Add(U(TEERColumn(Table.Columns[i]).ColName));
+end;
+
+function ColumnToJSON(Column: TEERColumn): TJSONObject;
+var Datatype: TEERDatatype;
+  Options: TJSONArray;
+  i: integer;
+begin
+  Datatype:=Model.GetDataType(Column.idDatatype);
+
+  Result:=TJSONObject.Create;
+  Result.Add('name', U(Column.ColName));
+  if(Datatype<>nil)then
+    Result.Add('datatype', U(Datatype.TypeName+Column.DatatypeParams))
+  else
+    Result.Add('datatype', U(Column.DatatypeParams));
+  Result.Add('primary_key', Column.PrimaryKey);
+  Result.Add('not_null', Column.NotNull);
+  Result.Add('auto_increment', Column.AutoInc);
+  Result.Add('foreign_key', Column.IsForeignKey);
+
+  if(Datatype<>nil)then
+  begin
+    Options:=TJSONArray.Create;
+    for i:=0 to Datatype.OptionCount-1 do
+      if(Column.OptionSelected[i])then
+        Options.Add(U(Datatype.Options[i]));
+    if(Options.Count>0)then
+      Result.Add('options', Options)
+    else
+      Options.Free;
+  end;
+
+  if(Column.DefaultValue<>'')then
+    Result.Add('default', U(Column.DefaultValue));
+  if(Column.Comments<>'')then
+    Result.Add('comments', U(Column.Comments));
+end;
+
+function IndexToJSON(Table: TEERTable; Index: TEERIndex): TJSONObject;
+var Cols: TJSONArray;
+  Column: TEERColumn;
+  i: integer;
+begin
+  Cols:=TJSONArray.Create;
+  for i:=0 to Index.Columns.Count-1 do
+  begin
+    Column:=Table.GetColumnByID(StrToIntDef(Index.Columns[i], -1));
+    if(Column<>nil)then
+      Cols.Add(U(Column.ColName));
+  end;
+
+  Result:=TJSONObject.Create(['name', U(Index.IndexName),
+    'kind', NameInList(IndexKindNames, Index.IndexKind),
+    'columns', Cols]);
+end;
+
+function RelationToJSON(Rel: TEERRel): TJSONObject;
+var Cols: TJSONArray;
+  i: integer;
+begin
+  //FKFields: column of the parent table = column of the child table
+  Cols:=TJSONArray.Create;
+  for i:=0 to Rel.FKFields.Count-1 do
+    Cols.Add(TJSONObject.Create(['parent', U(Rel.FKFields.Names[i]),
+      'child', U(Rel.FKFields.ValueFromIndex[i])]));
+
+  Result:=TJSONObject.Create;
+  Result.Add('name', U(Rel.ObjName));
+  Result.Add('kind', NameInList(RelKindNames, Rel.RelKind));
+  if(Rel.SrcTbl<>nil)then
+    Result.Add('parent_table', U(Rel.SrcTbl.ObjName));
+  if(Rel.DestTbl<>nil)then
+    Result.Add('child_table', U(Rel.DestTbl.ObjName));
+  Result.Add('columns', Cols);
+  Result.Add('optional_parent', Rel.OptionalStart);
+  Result.Add('optional_child', Rel.OptionalEnd);
+
+  //Without the reference definition the SQL code has no foreign key
+  Result.Add('foreign_key_constraint', Rel.CreateRefDef);
+  if(Rel.CreateRefDef)then
+  begin
+    Result.Add('on_delete', NameInList(RefActionNames,
+      StrToIntDef(Rel.RefDef.Values['OnDelete'], 3)));
+    Result.Add('on_update', NameInList(RefActionNames,
+      StrToIntDef(Rel.RefDef.Values['OnUpdate'], 3)));
+  end;
+  if(Rel.Comments<>'')then
+    Result.Add('comments', U(Rel.Comments));
+end;
+
+// ---------------------------------------------------------------------------
+// Tools
+
+//A model file has the DBMODEL element at its start
+function IsModelFile(const FileName: string): Boolean;
+var Stream: TFileStream;
+  Head: string;
+begin
+  Stream:=TFileStream.Create(FileName, fmOpenRead or fmShareDenyNone);
+  try
+    SetLength(Head, 1024);
+    SetLength(Head, Stream.Read(Head[1], Length(Head)));
+  finally
+    Stream.Free;
+  end;
+  Result:=(Pos('<DBMODEL', Head)>0);
+end;
+
+function ToolOpenModel(Args: TJSONObject): TJSONData;
+var FileName: string;
+  NewModel: TEERModel;
+begin
+  FileName:=ArgStr(Args, 'path');
+  if(FileName='')then
+    raise EToolError.Create('The argument "path" is missing.');
+  FileName:=ExpandFileName(FileName);
+  if(Not(FileExists(FileName)))then
+    raise EToolError.CreateFmt('The file "%s" does not exist.', [FileName]);
+  //The loader takes any other file as an empty model
+  if(Not(IsModelFile(FileName)))then
+    raise EToolError.CreateFmt('The file "%s" is not a DBDesigner model '+
+      '(no DBMODEL element).', [FileName]);
+
+  NewModel:=TEERModel.Create(ParentForm);
+  try
+    NewModel.Visible:=False;
+    //Read the settings, do not append to a model
+    NewModel.LoadFromFile(FileName, True, False, False, False);
+
+    //The loader reports its errors in message boxes
+    if(DialogMessages.Count>0)then
+      raise EToolError.CreateFmt('The file "%s" could not be loaded.', [FileName]);
+  except
+    NewModel.Free;
+    raise;
+  end;
+
+  FreeAndNil(Model);
+  Model:=NewModel;
+  ModelFile:=FileName;
+
+  Result:=TJSONObject.Create([
+    'file', U(FileName),
+    'model_name', U(Model.GetModelName),
+    'database_type', U(Model.DatabaseType),
+    'tables', Model.GetEERObjectCount([EERTable]),
+    'relations', Model.GetEERObjectCount([EERRelation]),
+    'regions', Model.GetEERObjectCount([EERRegion]),
+    'notes', Model.GetEERObjectCount([EERNote]),
+    'comments', U(Model.ModelComments)]);
+end;
+
+function ToolNewModel(Args: TJSONObject): TJSONData;
+var NewModel: TEERModel;
+begin
+  NewModel:=TEERModel.Create(ParentForm);
+  NewModel.Visible:=False;
+  if(ArgStr(Args, 'name')<>'')then
+    NewModel.SetModelName(ArgStr(Args, 'name'));
+
+  FreeAndNil(Model);
+  Model:=NewModel;
+  ModelFile:='';
+
+  Result:=TJSONObject.Create(['model_name', U(Model.GetModelName),
+    'database_type', U(Model.DatabaseType), 'tables', 0]);
+end;
+
+function ToolListTables(Args: TJSONObject): TJSONData;
+var Tables: TList;
+  Table: TEERTable;
+  Item: TJSONObject;
+  i: integer;
+begin
+  NeedModel;
+
+  Result:=TJSONArray.Create;
+  Tables:=GetObjects(EERTable);
+  try
+    for i:=0 to Tables.Count-1 do
+    begin
+      Table:=Tables[i];
+      Item:=TJSONObject.Create(['name', U(Table.ObjName),
+        'columns', Table.Columns.Count,
+        'primary_key', PrimaryKeyColumns(Table)]);
+      if(Table.IsLinkedObject)then
+        Item.Add('linked', True);
+      if(Table.Comments<>'')then
+        Item.Add('comments', U(Table.Comments));
+      TJSONArray(Result).Add(Item);
+    end;
+  finally
+    Tables.Free;
+  end;
+end;
+
+function TableToJSON(Table: TEERTable): TJSONObject;
+var Columns, Indices, Parents, Children: TJSONArray;
+  i: integer;
+begin
+  Columns:=TJSONArray.Create;
+  for i:=0 to Table.Columns.Count-1 do
+    Columns.Add(ColumnToJSON(TEERColumn(Table.Columns[i])));
+
+  Indices:=TJSONArray.Create;
+  for i:=0 to Table.Indices.Count-1 do
+    Indices.Add(IndexToJSON(Table, TEERIndex(Table.Indices[i])));
+
+  //RelEnd: the relations this table is the child of
+  Parents:=TJSONArray.Create;
+  for i:=0 to Table.RelEnd.Count-1 do
+    Parents.Add(RelationToJSON(TEERRel(Table.RelEnd[i])));
+  Children:=TJSONArray.Create;
+  for i:=0 to Table.RelStart.Count-1 do
+    Children.Add(RelationToJSON(TEERRel(Table.RelStart[i])));
+
+  Result:=TJSONObject.Create;
+  Result.Add('name', U(Table.ObjName));
+  if(Table.GetTablePrefix<>'')then
+    Result.Add('sql_name', U(Table.GetSQLTableName));
+  if(Table.Comments<>'')then
+    Result.Add('comments', U(Table.Comments));
+  if(Table.IsLinkedObject)then
+    Result.Add('linked', True);
+  Result.Add('columns', Columns);
+  Result.Add('indices', Indices);
+  Result.Add('relations_to_parents', Parents);
+  Result.Add('relations_to_children', Children);
+end;
+
+function ToolDescribeTable(Args: TJSONObject): TJSONData;
+begin
+  Result:=TableToJSON(NeedTable(ArgStr(Args, 'table')));
+end;
+
+function ToolListRelations(Args: TJSONObject): TJSONData;
+var Rels: TList;
+  Rel: TEERRel;
+  Table: TEERTable;
+  i: integer;
+begin
+  NeedModel;
+  Table:=nil;
+  if(ArgStr(Args, 'table')<>'')then
+    Table:=NeedTable(ArgStr(Args, 'table'));
+
+  Result:=TJSONArray.Create;
+  Rels:=GetObjects(EERRelation);
+  try
+    for i:=0 to Rels.Count-1 do
+    begin
+      Rel:=Rels[i];
+      if(Table=nil)or(Rel.SrcTbl=Table)or(Rel.DestTbl=Table)then
+        TJSONArray(Result).Add(RelationToJSON(Rel));
+    end;
+  finally
+    Rels.Free;
+  end;
+end;
+
+//The SQL script as the SQL export dialog writes it (EERSQLScript), with the
+//settings the dialog has for the target database
+function ToolExportSQL(Args: TJSONObject): TJSONData;
+var Target, s, Script: string;
+  Tables: TList;
+  Options: TSQLScriptOptions;
+  i: integer;
+begin
+  NeedModel;
+
+  i:=IndexInList(TargetDatabases, ArgStr(Args, 'database'));
+  if(i<0)then
+    raise EToolError.Create('The argument "database" has to be one of: '+
+      'FireBird, My SQL, Oracle, PostgreSQL, SQL Server, SQLite.');
+  Target:=TargetDatabases[i];
+
+  Script:=LowerCase(ArgStr(Args, 'script', 'create'));
+  if(Script<>'create')and(Script<>'drop')then
+    raise EToolError.Create('The argument "script" has to be create or drop.');
+
+  InitSQLScriptOptions(Options, Target);
+  if(Script='drop')then
+    Options.ScriptMode:=ssmDrop;
+  Options.DefineFK:=ArgBool(Args, 'foreign_keys', True);
+  Options.OutputComments:=ArgBool(Args, 'comments', False);
+  Options.DropTables:=ArgBool(Args, 'drop_tables', False);
+  Options.StdInserts:=ArgBool(Args, 'standard_inserts', False);
+  Options.AutoIncrement:=ArgBool(Args, 'auto_increment_triggers', False);
+  Options.AutoIncrementSeqName:=ArgStr(Args, 'sequence_name', Options.AutoIncrementSeqName);
+  Options.LastChange:=ArgBool(Args, 'last_change_triggers', False);
+  Options.LastDelete:=ArgBool(Args, 'last_delete_triggers', False);
+
+  //The dialog offers these only where the generator has them
+  if(Options.AutoIncrement)and(Target<>'Oracle')and(Target<>'FireBird')then
+    raise EToolError.Create('"auto_increment_triggers" is for Oracle and FireBird only.');
+  if(Options.LastChange or Options.LastDelete)and
+    (Target<>'Oracle')and(Target<>'FireBird')and(Target<>'SQL Server')then
+    raise EToolError.Create('"last_change_triggers" and "last_delete_triggers" '+
+      'are for Oracle, FireBird and SQL Server only.');
+
+  Tables:=TList.Create;
+  try
+    if(ArgStr(Args, 'table')<>'')then
+    begin
+      Tables.Add(NeedTable(ArgStr(Args, 'table')));
+      //The order by foreign keys takes a list in which every table refers
+      //to a table outside of it for circular relations
+      Options.SortByForeignKeys:=False;
+    end
+    else
+      Model.GetEERObjectList([EERTable], Tables);
+
+    s:=BuildSQLScript(Model, Tables, Options);
+    if(Tables.Count=0)then
+      raise EToolError.Create('There is no table to write: the model is empty, '+
+        'or the table is linked from another model.');
+  finally
+    Tables.Free;
+  end;
+
+  Result:=TJSONString.Create(U(TrimRight(StringReplace(s, #13#10, #10, [rfReplaceAll]))));
+end;
+
+// ---------------------------------------------------------------------------
+// Tools that change the model
+
+function HasPrimaryKey(Table: TEERTable): Boolean;
+var i: integer;
+begin
+  Result:=False;
+  for i:=0 to Table.Columns.Count-1 do
+    if(TEERColumn(Table.Columns[i]).PrimaryKey)then
+      Result:=True;
+end;
+
+//The column of that name, upper and lower case make no difference in SQL
+function FindColumn(Table: TEERTable; const ColName: string): TEERColumn;
+var i: integer;
+begin
+  Result:=nil;
+  for i:=0 to Table.Columns.Count-1 do
+    if(CompareText(TEERColumn(Table.Columns[i]).ColName, ColName)=0)then
+      Result:=TEERColumn(Table.Columns[i]);
+end;
+
+procedure NeedChangeable(Table: TEERTable);
+begin
+  if(Table.IsLinkedObject)then
+    raise EToolError.CreateFmt('The table "%s" is linked from another model '+
+      'and cannot be changed here.', [Table.ObjName]);
+end;
+
+//"VARCHAR(45)", "DECIMAL(10,2)", "INTEGER UNSIGNED": the datatype of the
+//model, its parameters as the model stores them and the options. An option
+//is selected only if it is named
+procedure ParseDatatype(const Text: string; out Datatype: TEERDatatype;
+  out Params: string; Options: TStrings);
+var TypeName, Rest, Names: string;
+  p, q, i: integer;
+begin
+  Params:='';
+  Options.Clear;
+  Rest:='';
+  TypeName:=Trim(Text);
+
+  p:=Pos('(', TypeName);
+  if(p>0)then
+  begin
+    q:=RPos(')', TypeName);
+    if(q<p)then
+      raise EToolError.CreateFmt('The datatype "%s" has no closing bracket.', [Text]);
+    Params:=StringReplace(Copy(TypeName, p, q-p+1), ' ', '', [rfReplaceAll]);
+    Rest:=Trim(Copy(TypeName, q+1, Length(TypeName)));
+    TypeName:=Trim(Copy(TypeName, 1, p-1));
+  end;
+
+  //"DOUBLE PRECISION" is a name, "INTEGER UNSIGNED" a name and an option
+  Datatype:=Model.GetDataTypeByName(TypeName);
+  while(Datatype=nil)and(Pos(' ', TypeName)>0)do
+  begin
+    q:=RPos(' ', TypeName);
+    Rest:=Trim(Copy(TypeName, q+1, Length(TypeName))+' '+Rest);
+    TypeName:=Trim(Copy(TypeName, 1, q-1));
+    Datatype:=Model.GetDataTypeByName(TypeName);
+  end;
+
+  if(Datatype=nil)then
+  begin
+    Names:='';
+    for i:=0 to Model.Datatypes.Count-1 do
+      Names:=Names+IfThen(i>0, ', ')+TEERDatatype(Model.Datatypes[i]).TypeName;
+    raise EToolError.CreateFmt('The model has no datatype "%s". Its datatypes: %s',
+      [Text, Names]);
+  end;
+  if(Params='')and(Datatype.ParamRequired)then
+    raise EToolError.CreateFmt('The datatype %s needs its parameters, e.g. %s(%s).',
+      [Datatype.TypeName, Datatype.TypeName, IfThen(Datatype.ParamCount>1, '10,2', '45')]);
+
+  Options.Delimiter:=' ';
+  Options.StrictDelimiter:=True;
+  Options.DelimitedText:=Rest;
+  for i:=Options.Count-1 downto 0 do
+    if(Options[i]='')then
+      Options.Delete(i);
+  for i:=0 to Options.Count-1 do
+  begin
+    p:=-1;
+    for q:=0 to Datatype.OptionCount-1 do
+      if(CompareText(Datatype.Options[q], Options[i])=0)then
+        p:=q;
+    if(p<0)then
+      raise EToolError.CreateFmt('The datatype %s has no option "%s".',
+        [Datatype.TypeName, Options[i]]);
+  end;
+end;
+
+//A new column at the end of the table, from the arguments name, datatype,
+//primary_key, not_null, auto_increment, default and comments
+procedure AddColumn(Table: TEERTable; Args: TJSONObject);
+var ColName: string;
+  Datatype: TEERDatatype;
+  Params: string;
+  Options: TStringList;
+  Column: TEERColumn;
+  i: integer;
+begin
+  ColName:=Trim(ArgStr(Args, 'name'));
+  if(ColName='')then
+    raise EToolError.Create('A column needs a "name".');
+  if(FindColumn(Table, ColName)<>nil)then
+    raise EToolError.CreateFmt('The table "%s" has a column "%s" already.',
+      [Table.ObjName, FindColumn(Table, ColName).ColName]);
+  if(ArgStr(Args, 'datatype')='')then
+    raise EToolError.CreateFmt('The column "%s" needs a "datatype".', [ColName]);
+
+  Options:=TStringList.Create;
+  try
+    Options.CaseSensitive:=False;
+    ParseDatatype(ArgStr(Args, 'datatype'), Datatype, Params, Options);
+
+    Column:=TEERColumn.Create(Table);
+    Column.ColName:=ColName;
+    Column.PrevColName:='';
+    Column.Obj_id:=DMMain.GetNextGlobalID;
+    Column.Pos:=Table.Columns.Count;
+    Column.idDatatype:=Datatype.id;
+    Column.DatatypeParams:=Params;
+    Column.Width:=-1;
+    Column.Prec:=-1;
+    Column.PrimaryKey:=ArgBool(Args, 'primary_key', False);
+    Column.NotNull:=ArgBool(Args, 'not_null', False)or(Column.PrimaryKey);
+    Column.AutoInc:=ArgBool(Args, 'auto_increment', False);
+    Column.IsForeignKey:=False;
+    for i:=0 to Datatype.OptionCount-1 do
+      Column.OptionSelected[i]:=(Options.IndexOf(Datatype.Options[i])>=0);
+    Column.DefaultValue:=ArgStr(Args, 'default');
+    Column.Comments:=ArgStr(Args, 'comments');
+    Table.Columns.Add(Column);
+  finally
+    Options.Free;
+  end;
+end;
+
+function ToolAddTable(Args: TJSONObject): TJSONData;
+var TableName: string;
+  Table: TEERTable;
+  Columns: TJSONArray;
+  i: integer;
+begin
+  NeedModel;
+  TableName:=Trim(ArgStr(Args, 'name'));
+  if(TableName='')then
+    raise EToolError.Create('The argument "name" is missing.');
+  if(Model.GetEERObjectByName(EERTable, TableName)<>nil)then
+    raise EToolError.CreateFmt('The model has a table "%s" already.', [TableName]);
+
+  Columns:=nil;
+  if(Args.IndexOfName('columns')>=0)and(Args.Types['columns']=jtArray)then
+    Columns:=Args.Arrays['columns'];
+
+  Table:=Model.NewTable(ArgInt(Args, 'x', 40), ArgInt(Args, 'y', 40), False);
+  try
+    Table.ObjName:=TableName;
+    Table.Comments:=ArgStr(Args, 'comments');
+
+    if(Columns<>nil)then
+      for i:=0 to Columns.Count-1 do
+      begin
+        if(Columns.Types[i]<>jtObject)then
+          raise EToolError.Create('Every entry of "columns" has to be an object.');
+        AddColumn(Table, Columns.Objects[i]);
+      end;
+
+    Table.CheckPrimaryIndex;
+    //The size of the table is known now
+    Table.RefreshObj;
+
+    //Without a position: the nearest place where no other object is
+    if(Args.IndexOfName('x')<0)or(Args.IndexOfName('y')<0)then
+      with Model.GetFreeObjPos(Table.Obj_X, Table.Obj_Y, Table.Obj_W, Table.Obj_H, Table) do
+      begin
+        Table.Obj_X:=X;
+        Table.Obj_Y:=Y;
+      end;
+    Table.RefreshObj;
+  except
+    Table.Free;
+    raise;
+  end;
+
+  Model.ModelHasChanged;
+  Result:=TableToJSON(Table);
+end;
+
+function ToolAddColumn(Args: TJSONObject): TJSONData;
+var Table: TEERTable;
+begin
+  Table:=NeedTable(ArgStr(Args, 'table'));
+  NeedChangeable(Table);
+
+  AddColumn(Table, Args);
+
+  Table.CheckPrimaryIndex;
+  Table.RefreshObj;
+  //A new primary key column goes to the tables that refer to this one
+  Model.CheckAllRelations;
+
+  Model.ModelHasChanged;
+  Result:=TableToJSON(Table);
+end;
+
+procedure SetRefDef(Rel: TEERRel; Args: TJSONObject; OnDelete, OnUpdate: integer);
+begin
+  Rel.CreateRefDef:=ArgBool(Args, 'foreign_key_constraint', True);
+  Rel.RefDef.Values['OnDelete']:=IntToStr(OnDelete);
+  Rel.RefDef.Values['OnUpdate']:=IntToStr(OnUpdate);
+end;
+
+//The names of the foreign key columns of a new relation (primary key column
+//of the parent = column of the child), found before the relation is made.
+//The model takes the name of the primary key column (with the prefix and
+//postfix of its settings) and uses a column of that name if the child has
+//one: with a primary key "id" in both tables the primary key of the child
+//would become the foreign key. Such a name gets the name of the parent
+//table in front, and so do all names with WithTableName. ChildColumn names
+//the column for a parent with one primary key column, also one the child
+//has already
+procedure ForeignKeyNames(Parent, Child: TEERTable; const ChildColumn: string;
+  WithTableName: Boolean; Names: TStrings);
+var i, PKCount: integer;
+  PKName, FKName: string;
+begin
+  PKCount:=0;
+  for i:=0 to Parent.Columns.Count-1 do
+    if(TEERColumn(Parent.Columns[i]).PrimaryKey)then
+      inc(PKCount);
+  if(ChildColumn<>'')and(PKCount<>1)then
+    raise EToolError.CreateFmt('"child_column" names one column, but the '+
+      'primary key of "%s" has %d.', [Parent.ObjName, PKCount]);
+
+  Names.Clear;
+  for i:=0 to Parent.Columns.Count-1 do
+    if(TEERColumn(Parent.Columns[i]).PrimaryKey)then
+    begin
+      PKName:=TEERColumn(Parent.Columns[i]).ColName;
+      if(ChildColumn<>'')then
+        FKName:=ChildColumn
+      else
+      begin
+        FKName:=Model.FKPrefix+PKName+Model.FKPostfix;
+        if(WithTableName)or(FindColumn(Child, FKName)<>nil)then
+          FKName:=Parent.ObjName+'_'+PKName;
+        if(FindColumn(Child, FKName)<>nil)then
+          raise EToolError.CreateFmt('The table "%s" has a column "%s" already. '+
+            'Name the foreign key column with "child_column".',
+            [Child.ObjName, FKName]);
+      end;
+      Names.Add(PKName+'='+FKName);
+    end;
+end;
+
+procedure SetForeignKeyNames(Rel: TEERRel; Names: TStrings);
+var i: integer;
+begin
+  for i:=0 to Names.Count-1 do
+    Rel.FKFields.Values[Names.Names[i]]:=Names.ValueFromIndex[i];
+end;
+
+//Two tables with a primary key column of the same name
+function SharePrimaryKeyName(A, B: TEERTable): Boolean;
+var i: integer;
+  Column: TEERColumn;
+begin
+  Result:=False;
+  for i:=0 to A.Columns.Count-1 do
+    if(TEERColumn(A.Columns[i]).PrimaryKey)then
+    begin
+      Column:=FindColumn(B, TEERColumn(A.Columns[i]).ColName);
+      if(Column<>nil)and(Column.PrimaryKey)then
+        Result:=True;
+    end;
+end;
+
+function ToolAddRelation(Args: TJSONObject): TJSONData;
+var Parent, Child, JoinTable: TEERTable;
+  Rel: TEERRel;
+  Kind, OnDelete, OnUpdate: integer;
+  JoinName: string;
+  WithTableName: Boolean;
+  Names: TStringList;
+begin
+  Parent:=NeedTable(ArgStr(Args, 'parent_table'));
+  Child:=NeedTable(ArgStr(Args, 'child_table'));
+
+  Kind:=IndexInList(RelKindNames, ArgStr(Args, 'kind', RelKindNames[rk_1nNonId]));
+  if(Kind<0)or(Kind=rk_11Sub)then
+    raise EToolError.Create('The argument "kind" has to be one of: 1:n, '+
+      '1:n non-identifying, 1:1, 1:1 non-identifying, n:m.');
+  OnDelete:=IndexInList(RefActionNames, ArgStr(Args, 'on_delete', 'NO ACTION'));
+  OnUpdate:=IndexInList(RefActionNames, ArgStr(Args, 'on_update', 'NO ACTION'));
+  if(OnDelete<0)or(OnUpdate<0)then
+    raise EToolError.Create('"on_delete" and "on_update" have to be one of: '+
+      'RESTRICT, CASCADE, SET NULL, NO ACTION, SET DEFAULT.');
+
+  //The foreign key columns are the primary key columns of the parent
+  if(Not(HasPrimaryKey(Parent)))then
+    raise EToolError.CreateFmt('The table "%s" has no primary key, so nothing '+
+      'can refer to it.', [Parent.ObjName]);
+
+  if(Kind=rk_nm)then
+  begin
+    if(Not(HasPrimaryKey(Child)))then
+      raise EToolError.CreateFmt('The table "%s" has no primary key, so nothing '+
+        'can refer to it.', [Child.ObjName]);
+    if(Parent=Child)then
+      raise EToolError.Create('An n:m relation needs two different tables.');
+    JoinName:=Parent.ObjName+'_has_'+Child.ObjName;
+    if(Model.GetEERObjectByName(EERTable, JoinName)<>nil)then
+      raise EToolError.CreateFmt('The model has a table "%s" already.', [JoinName]);
+
+    //The table between the two, as the n:m tool of the program makes it
+    JoinTable:=Model.NewTable(
+      (Parent.Obj_X+Parent.Obj_W div 2+Child.Obj_X+Child.Obj_W div 2) div 2,
+      (Parent.Obj_Y+Parent.Obj_H div 2+Child.Obj_Y+Child.Obj_H div 2) div 2, False);
+    JoinTable.ObjName:=JoinName;
+    JoinTable.SetnmTableStatus(True);
+
+    WithTableName:=SharePrimaryKeyName(Parent, Child);
+    Names:=TStringList.Create;
+    try
+      ForeignKeyNames(Parent, JoinTable, '', WithTableName, Names);
+      Rel:=Model.NewRelation(rk_1n, Parent, JoinTable, False);
+      SetRefDef(Rel, Args, OnDelete, OnUpdate);
+      SetForeignKeyNames(Rel, Names);
+
+      ForeignKeyNames(Child, JoinTable, '', WithTableName, Names);
+      Rel:=Model.NewRelation(rk_1n, Child, JoinTable, False);
+      SetRefDef(Rel, Args, OnDelete, OnUpdate);
+      SetForeignKeyNames(Rel, Names);
+    finally
+      Names.Free;
+    end;
+    Model.CheckAllRelations;
+
+    JoinTable.RefreshObj;
+    with Model.GetFreeObjPos(JoinTable.Obj_X, JoinTable.Obj_Y,
+      JoinTable.Obj_W, JoinTable.Obj_H, JoinTable) do
+    begin
+      JoinTable.Obj_X:=X;
+      JoinTable.Obj_Y:=Y;
+    end;
+    JoinTable.RefreshObj;
+
+    Model.ModelHasChanged;
+    Result:=TJSONObject.Create(['join_table', TableToJSON(JoinTable)]);
+    Exit;
+  end;
+
+  if(Parent=Child)and((Kind=rk_1n)or(Kind=rk_11))then
+    raise EToolError.Create('A table cannot refer to itself with an identifying '+
+      'relation. Use a non-identifying kind.');
+  NeedChangeable(Child);
+
+  Names:=TStringList.Create;
+  try
+    ForeignKeyNames(Parent, Child, Trim(ArgStr(Args, 'child_column')), False, Names);
+    Rel:=Model.NewRelation(Kind, Parent, Child, False);
+    SetForeignKeyNames(Rel, Names);
+  finally
+    Names.Free;
+  end;
+  if(Trim(ArgStr(Args, 'name'))<>'')then
+    Rel.ObjName:=Trim(ArgStr(Args, 'name'));
+  SetRefDef(Rel, Args, OnDelete, OnUpdate);
+  Rel.Comments:=ArgStr(Args, 'comments');
+
+  //Makes the foreign key columns in the child table
+  Model.CheckAllRelations;
+
+  Model.ModelHasChanged;
+  Result:=TJSONObject.Create(['relation', RelationToJSON(Rel),
+    'child_table', TableToJSON(Child)]);
+end;
+
+function ToolSaveModel(Args: TJSONObject): TJSONData;
+var FileName, Backup: string;
+begin
+  NeedModel;
+  FileName:=ArgStr(Args, 'path');
+  if(FileName='')then
+    FileName:=ModelFile
+  else
+    FileName:=ExpandFileName(FileName);
+  if(FileName='')then
+    raise EToolError.Create('The model has no file yet. Give a "path".');
+
+  //Another file than the one of the model is not written over by accident
+  if(FileExists(FileName))and(Not(SameFileName(FileName, ModelFile)))and
+    (Not(ArgBool(Args, 'overwrite', False)))then
+    raise EToolError.CreateFmt('The file "%s" exists. Set "overwrite" to '+
+      'true to replace it.', [FileName]);
+
+  //The file as it was stays next to the new one
+  Backup:='';
+  if(FileExists(FileName))then
+  begin
+    Backup:=FileName+'.bak';
+    if(Not(CopyFile(FileName, Backup)))then
+      raise EToolError.CreateFmt('The backup "%s" could not be written, '+
+        'the model is not saved.', [Backup]);
+  end;
+
+  Model.SaveToFile(FileName);
+  Model.IsChanged:=False;
+  ModelFile:=FileName;
+
+  Result:=TJSONObject.Create(['file', U(FileName),
+    'tables', Model.GetEERObjectCount([EERTable]),
+    'relations', Model.GetEERObjectCount([EERRelation])]);
+  if(Backup<>'')then
+    TJSONObject(Result).Add('backup', U(Backup));
+end;
+
+// ---------------------------------------------------------------------------
+// Database tools (Firebird)
+
+procedure NeedConnection;
+begin
+  if(DBConn=nil)or(DMDB.CurrentDBConn=nil)then
+    raise EToolError.Create('No database is connected. Call connect_database first.');
+end;
+
+procedure CloseConnection;
+begin
+  if(DMDB.CurrentDBConn<>nil)then
+    DMDB.DisconnectFromDB;
+  FreeAndNil(DBConn);
+end;
+
+//All values of the first column
+procedure QueryValues(const Stmt: string; Values: TStrings);
+var Q: SQLDB.TSQLQuery;
+begin
+  Values.Clear;
+  Q:=SQLDB.TSQLQuery.Create(nil);
+  try
+    Q.DataBase:=DMDB.SQLConn;
+    Q.Transaction:=SQLDB.TSQLTransaction(DMDB.SQLConn.Transaction);
+    Q.ParamCheck:=False;
+    Q.SQL.Text:=Stmt;
+    Q.Open;
+    while(Not(Q.EOF))do
+    begin
+      Values.Add(Trim(Q.Fields[0].AsString));
+      Q.Next;
+    end;
+    Q.Close;
+  finally
+    Q.Free;
+  end;
+  SQLDB.TSQLTransaction(DMDB.SQLConn.Transaction).CommitRetaining;
+end;
+
+function IsFirebird(Conn: TDBConn): Boolean;
+begin
+  Result:=(CompareText(Conn.DriverName, 'Firebird')=0);
+end;
+
+//A connection without its password
+function ConnectionToJSON(Conn: TDBConn): TJSONObject;
+begin
+  Result:=TJSONObject.Create;
+  Result.Add('name', U(Conn.Name));
+  Result.Add('driver', U(Conn.DriverName));
+  if(Conn.Description<>'')then
+    Result.Add('description', U(Conn.Description));
+  if(Conn.Params.Values['HostName']<>'')then
+    Result.Add('host', U(Conn.Params.Values['HostName']))
+  else if(IsFirebird(Conn))then
+    Result.Add('host', '(embedded)');
+  Result.Add('database', U(Conn.Params.Values['Database']));
+  if(Conn.Params.Values['User_Name']<>'')then
+    Result.Add('user', U(Conn.Params.Values['User_Name']));
+end;
+
+function ToolListConnections(Args: TJSONObject): TJSONData;
+var i: integer;
+  Conn: TDBConn;
+  Item: TJSONObject;
+begin
+  Result:=TJSONArray.Create;
+  for i:=0 to DMDB.DBConnections.Count-1 do
+  begin
+    Conn:=TDBConn(DMDB.DBConnections[i]);
+    Item:=ConnectionToJSON(Conn);
+    Item.Add('password_stored', Conn.Params.Values['Password']<>'');
+    //The database tools are for Firebird
+    Item.Add('usable', IsFirebird(Conn));
+    TJSONArray(Result).Add(Item);
+  end;
+end;
+
+function ToolConnectDatabase(Args: TJSONObject): TJSONData;
+var NewConn, Stored: TDBConn;
+  Values: TStringList;
+  Names: string;
+  i: integer;
+begin
+  if(ArgStr(Args, 'connection')<>'')then
+  begin
+    Stored:=nil;
+    Names:='';
+    for i:=0 to DMDB.DBConnections.Count-1 do
+    begin
+      Names:=Names+IfThen(i>0, ', ')+TDBConn(DMDB.DBConnections[i]).Name;
+      if(CompareText(TDBConn(DMDB.DBConnections[i]).Name, ArgStr(Args, 'connection'))=0)then
+        Stored:=TDBConn(DMDB.DBConnections[i]);
+    end;
+    if(Stored=nil)then
+      raise EToolError.CreateFmt('There is no stored connection "%s". The stored '+
+        'connections: %s', [ArgStr(Args, 'connection'), IfThen(Names='', '(none)', Names)]);
+
+    //A copy: the list of the program is not changed
+    NewConn:=TDBConn.Create;
+    NewConn.Assign(Stored);
+  end
+  else
+  begin
+    if(ArgStr(Args, 'database')='')then
+      raise EToolError.Create('Give "connection" (a stored connection, see '+
+        'list_connections) or "database" (file or alias of a Firebird database).');
+
+    //The defaults of the program for a Firebird connection
+    NewConn:=DMDB.GetNewDBConn('MCP', False, 'Firebird');
+    NewConn.DriverName:='Firebird';
+    NewConn.Params.Values['Database']:=ArgStr(Args, 'database');
+    //No host name: the embedded engine
+    NewConn.Params.Values['HostName']:=ArgStr(Args, 'host');
+    if(ArgStr(Args, 'host')='')then
+      NewConn.Params.Values['Port']:=''
+    else if(Args.IndexOfName('port')>=0)then
+      NewConn.Params.Values['Port']:=IntToStr(ArgInt(Args, 'port', 3050));
+    if(NewConn.Params.Values['User_Name']='')or(ArgStr(Args, 'user')<>'')then
+      NewConn.Params.Values['User_Name']:=ArgStr(Args, 'user', 'SYSDBA');
+  end;
+
+  try
+    if(Not(IsFirebird(NewConn)))then
+      raise EToolError.CreateFmt('The connection "%s" is a %s connection. The '+
+        'database tools work with Firebird only.', [NewConn.Name, NewConn.DriverName]);
+
+    if(ArgStr(Args, 'password')<>'')then
+      NewConn.Params.Values['Password']:=ArgStr(Args, 'password');
+    if(ArgStr(Args, 'client_library')<>'')then
+      NewConn.VendorLib:=ArgStr(Args, 'client_library');
+
+    //The embedded engine creates a database file that is not there
+    if(NewConn.Params.Values['HostName']='')and
+      (Not(FileExists(NewConn.Params.Values['Database'])))and
+      (Not(ArgBool(Args, 'create', False)))then
+      raise EToolError.CreateFmt('The database file "%s" does not exist. Set '+
+        '"create" to true to create it.', [NewConn.Params.Values['Database']]);
+
+    CloseConnection;
+    DMDB.ConnectToDB(NewConn);
+    if(DMDB.CurrentDBConn=nil)then
+      raise EToolError.Create('The connection could not be opened.');
+  except
+    NewConn.Free;
+    raise;
+  end;
+  DBConn:=NewConn;
+
+  Result:=ConnectionToJSON(DBConn);
+  Values:=TStringList.Create;
+  try
+    QueryValues('SELECT RDB$GET_CONTEXT(''SYSTEM'', ''ENGINE_VERSION'') FROM RDB$DATABASE', Values);
+    if(Values.Count>0)then
+      TJSONObject(Result).Add('firebird_version', Values[0]);
+    FirebirdGetTables(Values);
+    TJSONObject(Result).Add('tables', Values.Count);
+  finally
+    Values.Free;
+  end;
+end;
+
+function ToolDisconnectDatabase(Args: TJSONObject): TJSONData;
+begin
+  NeedConnection;
+  CloseConnection;
+  Result:=TJSONString.Create('Disconnected.');
+end;
+
+function ToolListDatabaseTables(Args: TJSONObject): TJSONData;
+var DbTables: TStringList;
+  Item: TJSONObject;
+  i: integer;
+begin
+  NeedConnection;
+
+  Result:=TJSONArray.Create;
+  DbTables:=TStringList.Create;
+  try
+    FirebirdGetTables(DbTables);
+    for i:=0 to DbTables.Count-1 do
+    begin
+      Item:=TJSONObject.Create(['name', U(DbTables[i])]);
+      if(Model<>nil)then
+        Item.Add('in_model', Model.GetEERObjectByName(EERTable, DbTables[i])<>nil);
+      TJSONArray(Result).Add(Item);
+    end;
+  finally
+    DbTables.Free;
+  end;
+end;
+
+function ToolReverseEngineer(Args: TJSONObject): TJSONData;
+var DbTables, Selected: TStringList;
+  Wanted: TJSONArray;
+  Added, Skipped: TJSONArray;
+  Guess: string;
+  i, j: integer;
+begin
+  NeedModel;
+  NeedConnection;
+
+  Guess:=LowerCase(ArgStr(Args, 'relation_guess', 'by_name'));
+  if(Guess<>'by_name')and(Guess<>'by_primary_key')then
+    raise EToolError.Create('"relation_guess" has to be by_name or by_primary_key.');
+
+  DbTables:=TStringList.Create;
+  Selected:=TStringList.Create;
+  try
+    FirebirdGetTables(DbTables);
+
+    Wanted:=nil;
+    if(Args<>nil)and(Args.IndexOfName('tables')>=0)and(Args.Types['tables']=jtArray)then
+      Wanted:=Args.Arrays['tables'];
+    if(Wanted=nil)or(Wanted.Count=0)then
+      Selected.Assign(DbTables)
+    else
+      for i:=0 to Wanted.Count-1 do
+      begin
+        j:=-1;
+        if(Wanted.Types[i]=jtString)then
+          j:=DbTables.IndexOf(Wanted.Strings[i]);
+        if(j<0)then
+          raise EToolError.CreateFmt('The database has no table "%s". '+
+            'list_database_tables shows its tables.', [Wanted.Items[i].AsString]);
+        Selected.Add(DbTables[j]);
+      end;
+
+    //A table that is in the model already is left as it is
+    Added:=TJSONArray.Create;
+    Skipped:=TJSONArray.Create;
+    for i:=0 to Selected.Count-1 do
+      if(Model.GetEERObjectByName(EERTable, Selected[i])<>nil)then
+        Skipped.Add(U(Selected[i]))
+      else
+        Added.Add(U(Selected[i]));
+    Result:=TJSONObject.Create(['added_tables', Added,
+      'skipped_tables_already_in_model', Skipped]);
+
+    if(Added.Count>0)then
+    begin
+      //5 tables in a row; the foreign keys of the database become relations,
+      //further ones are guessed
+      FirebirdReverseEngineer(Model, Selected, 5,
+        ArgBool(Args, 'relations', True), Guess='by_primary_key',
+        nil, nil, False, 0);
+      Model.ModelHasChanged;
+    end;
+    TJSONObject(Result).Add('tables_in_model', Model.GetEERObjectCount([EERTable]));
+    TJSONObject(Result).Add('relations_in_model', Model.GetEERObjectCount([EERRelation]));
+  finally
+    DbTables.Free;
+    Selected.Free;
+  end;
+end;
+
+//Without "apply" only what the synchronisation would do with the tables.
+//The changes inside a table (columns, indices, keys) are found by the
+//synchronisation itself, they are in its log
+function ToolSyncDatabase(Args: TJSONObject): TJSONData;
+var DbTables, Log: TStringList;
+  ModelTables: TList;
+  Create, Compare, Keep: TJSONArray;
+  Table: TEERTable;
+  i: integer;
+begin
+  NeedModel;
+  NeedConnection;
+
+  DbTables:=TStringList.Create;
+  Log:=TStringList.Create;
+  ModelTables:=TList.Create;
+  try
+    DbTables.CaseSensitive:=False;
+    FirebirdGetTables(DbTables);
+
+    Model.GetEERObjectList([EERTable], ModelTables);
+    Model.SortEERObjectListByObjName(ModelTables);
+    Create:=TJSONArray.Create;
+    Compare:=TJSONArray.Create;
+    Keep:=TJSONArray.Create;
+    Result:=TJSONObject.Create([
+      'database', ConnectionToJSON(DBConn),
+      'tables_to_create', Create,
+      'tables_to_compare_and_alter', Compare,
+      'tables_only_in_database_kept', Keep]);
+
+    for i:=0 to ModelTables.Count-1 do
+    begin
+      Table:=ModelTables[i];
+      if(Table.IsLinkedObject)and(Not(Model.CreateSQLforLinkedObjects))then
+        continue;
+      if(DbTables.IndexOf(Table.ObjName)>=0)then
+        Compare.Add(U(Table.ObjName))
+      //A renamed table is renamed in the database
+      else if(Table.PrevTableName<>'')and(DbTables.IndexOf(Table.PrevTableName)>=0)then
+        Compare.Add(U(Table.PrevTableName+' -> '+Table.ObjName))
+      else
+        Create.Add(U(Table.ObjName));
+    end;
+    for i:=0 to DbTables.Count-1 do
+      if(Model.GetEERObjectByName(EERTable, DbTables[i])=nil)then
+        Keep.Add(U(DbTables[i]));
+
+    if(Not(ArgBool(Args, 'apply', False)))then
+    begin
+      TJSONObject(Result).Add('applied', False);
+      TJSONObject(Result).Add('note', 'Nothing was changed. In the tables to '+
+        'compare, columns, indices and keys are changed to match the model; '+
+        'a column that is not in the model is dropped with its data. Call '+
+        'again with "apply": true to do it.');
+      Exit;
+    end;
+
+    try
+      //Tables that are not in the model are kept, no standard inserts
+      DMDBEER.EERMySQLSyncDB(Model, DBConn, Log, True,
+        ArgBool(Args, 'standard_inserts', False), False);
+    except
+      on E: Exception do
+      begin
+        Result.Free;
+        raise EToolError.Create(E.ClassName+': '+E.Message+#10#10'Log:'#10+Trim(Log.Text));
+      end;
+    end;
+    TJSONObject(Result).Add('applied', True);
+    TJSONObject(Result).Add('errors', Pos('ERROR', Log.Text)>0);
+    TJSONObject(Result).Add('log', U(Trim(StringReplace(Log.Text, #13#10, #10, [rfReplaceAll]))));
+  finally
+    DbTables.Free;
+    Log.Free;
+    ModelTables.Free;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// Protocol
+
+//The hints tell a client which tools only read, which may destroy
+//something (a file, data in a database) and which reach a database
+function Tool(const Name, Description, InputSchema: string): TJSONObject;
+const
+  ReadOnlyTools: array[0..6] of string = ('open_model', 'list_tables',
+    'describe_table', 'list_relations', 'export_sql', 'list_connections',
+    'list_database_tables');
+  DestructiveTools: array[0..1] of string = ('save_model', 'sync_database');
+  DatabaseTools: array[0..4] of string = ('connect_database',
+    'disconnect_database', 'list_database_tables', 'reverse_engineer',
+    'sync_database');
+begin
+  Result:=TJSONObject.Create(['name', Name, 'description', Description,
+    'inputSchema', GetJSON(InputSchema),
+    'annotations', TJSONObject.Create([
+      'readOnlyHint', IndexInList(ReadOnlyTools, Name)>=0,
+      'destructiveHint', IndexInList(DestructiveTools, Name)>=0,
+      'openWorldHint', IndexInList(DatabaseTools, Name)>=0])]);
+end;
+
+function ToolList: TJSONObject;
+begin
+  Result:=TJSONObject.Create(['tools', TJSONArray.Create([
+    Tool('open_model',
+      'Open a DBDesigner model file (.xml). The model stays open for the '+
+      'other tools until another one is opened. Returns the name of the '+
+      'model and the number of its objects.',
+      '{"type":"object","properties":{"path":{"type":"string",'+
+      '"description":"Path of the model file"}},"required":["path"]}'),
+    Tool('list_tables',
+      'List the tables of the open model with the number of columns, the '+
+      'primary key columns and the comments.',
+      '{"type":"object","properties":{}}'),
+    Tool('describe_table',
+      'The columns (datatype, primary key, not null, auto increment, '+
+      'default, comments), the indices and the relations of one table of '+
+      'the open model.',
+      '{"type":"object","properties":{"table":{"type":"string",'+
+      '"description":"Name of the table"}},"required":["table"]}'),
+    Tool('list_relations',
+      'List the relations (foreign keys) of the open model: parent and '+
+      'child table, the column pairs, the kind and the referential actions. '+
+      'With "table" only the relations of that table.',
+      '{"type":"object","properties":{"table":{"type":"string",'+
+      '"description":"Only the relations of this table"}}}'),
+    Tool('export_sql',
+      'The SQL script of the open model for a target database, as the SQL'+
+      ' export of DBDesigner writes it: all tables in the order of their '+
+      'foreign keys, or one table. Script create (default) or drop.',
+      '{"type":"object","properties":{"database":{"type":"string","enum":'+
+      '["FireBird","My SQL","Oracle","PostgreSQL","SQL Server","SQLite"],'+
+      '"description":"Target database"},"table":{"type":"string","descrip'+
+      'tion":"Only this table"},"script":{"type":"string","enum":["create'+
+      '","drop"],"description":"Default: create"},"foreign_keys":{"type":'+
+      '"boolean","description":"Write the foreign key constraints (defaul'+
+      't true)"},"comments":{"type":"boolean","description":"Write the co'+
+      'mments of tables and columns (default false)"},"drop_tables":{"typ'+
+      'e":"boolean","description":"DROP TABLE statements in front of the '+
+      'creates (default false)"},"standard_inserts":{"type":"boolean","de'+
+      'scription":"Write the standard inserts stored in the model (defaul'+
+      't false)"},"auto_increment_triggers":{"type":"boolean","descriptio'+
+      'n":"Oracle and FireBird: auto increment by a sequence or generator'+
+      ' and triggers (default false; FireBird then uses identity columns)'+
+      '"},"sequence_name":{"type":"string","description":"Name of that se'+
+      'quence or generator (default GlobalSequence)"},"last_change_trigge'+
+      'rs":{"type":"boolean","description":"Oracle, FireBird, SQL Server:'+
+      ' columns and triggers that store the last change of a row (default'+
+      ' false)"},"last_delete_triggers":{"type":"boolean","description":"'+
+      'Oracle, FireBird, SQL Server: a table and triggers that store the '+
+      'last delete per table (default false)"}},"required":["database"]}'),
+    Tool('new_model',
+      'Start a new, empty model in place of the open one. It has no file '+
+      'until save_model gets a path.',
+      '{"type":"object","properties":{"name":{"type":"string","descriptio'+
+      'n":"Name of the model"}}}'),
+    Tool('add_table',
+      'Add a table to the open model, with its columns. Without x and y i'+
+      't is placed where no other object is. The change is in memory unti'+
+      'l save_model. Returns the table.',
+      '{"type":"object","properties":{"name":{"type":"string","descriptio'+
+      'n":"Name of the table"},"comments":{"type":"string"},"columns":{"t'+
+      'ype":"array","items":{"type":"object","properties":{"name":{"type"'+
+      ':"string"},"datatype":{"type":"string","description":"Datatype of '+
+      'the model with its parameters and options, e.g. INTEGER, VARCHAR(4'+
+      '5), DECIMAL(10,2), INTEGER UNSIGNED"},"primary_key":{"type":"boole'+
+      'an"},"not_null":{"type":"boolean"},"auto_increment":{"type":"boole'+
+      'an"},"default":{"type":"string","description":"Default value"},"co'+
+      'mments":{"type":"string"}},"required":["name","datatype"]}},"x":{"'+
+      'type":"integer","description":"Position in the diagram"},"y":{"typ'+
+      'e":"integer"}},"required":["name"]}'),
+    Tool('add_column',
+      'Add a column at the end of a table of the open model. A new primar'+
+      'y key column is added to the tables that refer to this one as well'+
+      '. Do not add foreign key columns: add_relation makes them. Returns'+
+      ' the table.',
+      '{"type":"object","properties":{"table":{"type":"string","descripti'+
+      'on":"Name of the table"},"name":{"type":"string"},"datatype":{"typ'+
+      'e":"string","description":"Datatype of the model with its paramete'+
+      'rs and options, e.g. INTEGER, VARCHAR(45), DECIMAL(10,2), INTEGER '+
+      'UNSIGNED"},"primary_key":{"type":"boolean"},"not_null":{"type":"bo'+
+      'olean"},"auto_increment":{"type":"boolean"},"default":{"type":"str'+
+      'ing","description":"Default value"},"comments":{"type":"string"}},'+
+      '"required":["table","name","datatype"]}'),
+    Tool('add_relation',
+      'Add a relation from a parent table to a child table. The foreign k'+
+      'ey columns are made in the child table from the primary key of the'+
+      ' parent (identifying kinds make them part of the primary key of th'+
+      'e child). They get the names of the primary key columns, with the '+
+      'name of the parent table in front (kunde_id) if the child has such'+
+      ' a column already; child_column sets the name or names an existing'+
+      ' column of the child to use. Kind n:m makes a table <parent>_has_<'+
+      'child> between the two. Returns the relation and the child table.',
+      '{"type":"object","properties":{"parent_table":{"type":"string","de'+
+      'scription":"The referenced table"},"child_table":{"type":"string",'+
+      '"description":"The table that gets the foreign key"},"kind":{"type'+
+      '":"string","enum":["1:n","1:n non-identifying","1:1","1:1 non-iden'+
+      'tifying","n:m"],"description":"Default: 1:n non-identifying"},"nam'+
+      'e":{"type":"string","description":"Name of the relation"},"child_c'+
+      'olumn":{"type":"string","description":"Name of the foreign key col'+
+      'umn, for a parent with one primary key column"},"foreign_key_const'+
+      'raint":{"type":"boolean","description":"Write a FOREIGN KEY constr'+
+      'aint in the SQL code (default true)"},"on_delete":{"type":"string"'+
+      ',"enum":["RESTRICT","CASCADE","SET NULL","NO ACTION","SET DEFAULT"'+
+      ']},"on_update":{"type":"string","enum":["RESTRICT","CASCADE","SET '+
+      'NULL","NO ACTION","SET DEFAULT"]},"comments":{"type":"string"}},"r'+
+      'equired":["parent_table","child_table"]}'),
+    Tool('save_model',
+      'Write the open model to its file, or to path. The file as it was i'+
+      's kept as <file>.bak. A file other than the one of the model is re'+
+      'placed only with overwrite.',
+      '{"type":"object","properties":{"path":{"type":"string","descriptio'+
+      'n":"Another file than the one the model was opened from"},"overwri'+
+      'te":{"type":"boolean","description":"Replace an existing other fil'+
+      'e"}}}'),
+    Tool('list_connections',
+      'The database connections stored in DBDesigner Fork (name, driver, '+
+      'host, database, user, whether the password is stored). No password'+
+      's are returned.',
+      '{"type":"object","properties":{}}'),
+    Tool('connect_database',
+      'Connect to a Firebird database: a stored connection by its name (p'+
+      'referred, its stored password is used), or database with host, por'+
+      't and user. Without host the embedded engine opens the database fi'+
+      'le. One connection is open at a time.',
+      '{"type":"object","properties":{"connection":{"type":"string","desc'+
+      'ription":"Name of a stored connection, see list_connections"},"dat'+
+      'abase":{"type":"string","description":"Database file or alias, whe'+
+      'n no stored connection is used"},"host":{"type":"string","descript'+
+      'ion":"Server; leave it out for the embedded engine"},"port":{"type'+
+      '":"integer","description":"Default 3050"},"user":{"type":"string",'+
+      '"description":"Default SYSDBA"},"password":{"type":"string","descr'+
+      'iption":"Only if it is not stored with the connection"},"client_li'+
+      'brary":{"type":"string","description":"Path of fbclient.dll, if it'+
+      ' is not found next to the program or in an installed Firebird"},"c'+
+      'reate":{"type":"boolean","description":"Embedded engine: create th'+
+      'e database file if it does not exist (default false)"}}}'),
+    Tool('disconnect_database',
+      'Close the database connection.',
+      '{"type":"object","properties":{}}'),
+    Tool('list_database_tables',
+      'The tables of the connected database, and whether the open model h'+
+      'as a table of that name.',
+      '{"type":"object","properties":{}}'),
+    Tool('reverse_engineer',
+      'Read tables of the connected Firebird database into the open model'+
+      ': columns, primary keys, indices, comments, and the foreign keys a'+
+      's relations. Tables that are in the model already are left as they'+
+      ' are. The database is only read; the change of the model is in mem'+
+      'ory until save_model.',
+      '{"type":"object","properties":{"tables":{"type":"array","items":{"'+
+      'type":"string"},"description":"Only these tables; default: all tab'+
+      'les of the database"},"relations":{"type":"boolean","description":'+
+      '"Make relations (default true)"},"relation_guess":{"type":"string"'+
+      ',"enum":["by_name","by_primary_key"],"description":"Relations beyo'+
+      'nd the foreign keys of the database: by_name (default) for a colum'+
+      'n id<table>, by_primary_key for tables that contain the primary ke'+
+      'y columns of another table (many wrong relations when every table '+
+      'has a primary key column of the same name)"}}}'),
+    Tool('sync_database',
+      'Change the connected Firebird database to match the open model: mi'+
+      'ssing tables are created, existing ones altered (columns, indices,'+
+      ' primary and foreign keys; a column that is not in the model is dr'+
+      'opped with its data). Tables that are only in the database are kep'+
+      't. Without apply nothing is changed and the tables that would be c'+
+      'reated or compared are returned; call it that way first and show t'+
+      'he result to the user. With apply true the changes are made and ca'+
+      'nnot be undone.',
+      '{"type":"object","properties":{"apply":{"type":"boolean","descript'+
+      'ion":"Make the changes (default false: only report)"},"standard_in'+
+      'serts":{"type":"boolean","description":"Run the standard inserts o'+
+      'f the model for newly created tables (default false)"}}}')
+    ])]);
+end;
+
+//A tool result: the data as JSON text, or the error text
+function ToolResult(const Text: string; IsError: Boolean): TJSONObject;
+begin
+  Result:=TJSONObject.Create(['content', TJSONArray.Create([
+    TJSONObject.Create(['type', 'text', 'text', Text])]),
+    'isError', IsError]);
+end;
+
+function CallTool(Params: TJSONObject): TJSONObject;
+var Name, Text: string;
+  Args: TJSONObject;
+  Data: TJSONData;
+begin
+  if(Params=nil)then
+    raise ERpcError.Create(-32602, 'Missing params');
+  Name:=ArgStr(Params, 'name');
+  Args:=nil;
+  if(Params.IndexOfName('arguments')>=0)and(Params.Types['arguments']=jtObject)then
+    Args:=Params.Objects['arguments'];
+
+  DialogMessages.Clear;
+  try
+    if(Name='open_model')then
+      Data:=ToolOpenModel(Args)
+    else if(Name='list_tables')then
+      Data:=ToolListTables(Args)
+    else if(Name='describe_table')then
+      Data:=ToolDescribeTable(Args)
+    else if(Name='list_relations')then
+      Data:=ToolListRelations(Args)
+    else if(Name='export_sql')then
+      Data:=ToolExportSQL(Args)
+    else if(Name='new_model')then
+      Data:=ToolNewModel(Args)
+    else if(Name='add_table')then
+      Data:=ToolAddTable(Args)
+    else if(Name='add_column')then
+      Data:=ToolAddColumn(Args)
+    else if(Name='add_relation')then
+      Data:=ToolAddRelation(Args)
+    else if(Name='save_model')then
+      Data:=ToolSaveModel(Args)
+    else if(Name='list_connections')then
+      Data:=ToolListConnections(Args)
+    else if(Name='connect_database')then
+      Data:=ToolConnectDatabase(Args)
+    else if(Name='disconnect_database')then
+      Data:=ToolDisconnectDatabase(Args)
+    else if(Name='list_database_tables')then
+      Data:=ToolListDatabaseTables(Args)
+    else if(Name='reverse_engineer')then
+      Data:=ToolReverseEngineer(Args)
+    else if(Name='sync_database')then
+      Data:=ToolSyncDatabase(Args)
+    else
+      raise ERpcError.Create(-32602, 'Unknown tool: '+Name);
+
+    try
+      if(Data.JSONType=jtString)then
+        Text:=Data.AsString
+      else
+        Text:=Data.FormatJSON;
+    finally
+      Data.Free;
+    end;
+    //What the application code wanted to tell in a message box
+    if(DialogMessages.Count>0)then
+      Text:=Text+#10#10'Messages:'#10+U(Trim(DialogMessages.Text));
+    Result:=ToolResult(Text, False);
+  except
+    on E: ERpcError do
+      raise;
+    on E: Exception do
+    begin
+      Text:=E.Message;
+      if(Not(E is EToolError))then
+        Text:=E.ClassName+': '+Text;
+      if(DialogMessages.Count>0)then
+        Text:=Text+#10+Trim(DialogMessages.Text);
+      Result:=ToolResult(U(Text), True);
+    end;
+  end;
+
+  //The application code posts events to the main form: drop them
+  Application.ProcessMessages;
+end;
+
+function Initialize(Params: TJSONObject): TJSONObject;
+var Version: string;
+  i: integer;
+begin
+  Version:=ProtocolVersions[0];
+  for i:=Low(ProtocolVersions) to High(ProtocolVersions) do
+    if(ProtocolVersions[i]=ArgStr(Params, 'protocolVersion'))then
+      Version:=ProtocolVersions[i];
+
+  Result:=TJSONObject.Create([
+    'protocolVersion', Version,
+    'capabilities', TJSONObject.Create(['tools', TJSONObject.Create]),
+    'serverInfo', TJSONObject.Create(['name', ServerName, 'version', ServerVersion]),
+    'instructions', 'Reads and changes DBDesigner Fork database models. Open '+
+      'a model file with open_model (or start one with new_model) first, the '+
+      'other tools work on the open model. Changes are in memory until '+
+      'save_model. The database tools (Firebird) need connect_database; '+
+      'sync_database changes the database, call it without apply first.']);
+end;
+
+procedure HandleMessage(const Line: string);
+var Msg: TJSONData;
+  Req, Params: TJSONObject;
+  ID: TJSONData;
+  Method: string;
+begin
+  Msg:=nil;
+  try
+    try
+      Msg:=GetJSON(Line);
+    except
+      on E: Exception do
+      begin
+        SendError(nil, -32700, 'Parse error: '+E.Message);
+        Exit;
+      end;
+    end;
+    if(Msg=nil)or(Msg.JSONType<>jtObject)then
+    begin
+      SendError(nil, -32600, 'Invalid request');
+      Exit;
+    end;
+
+    Req:=TJSONObject(Msg);
+    ID:=Req.Find('id');
+    Method:=ArgStr(Req, 'method');
+    Params:=nil;
+    if(Req.IndexOfName('params')>=0)and(Req.Types['params']=jtObject)then
+      Params:=Req.Objects['params'];
+
+    //Answers of the client and notifications get no answer
+    if(Method='')or(ID=nil)then
+      Exit;
+
+    try
+      if(Method='initialize')then
+        SendResult(ID, Initialize(Params))
+      else if(Method='ping')then
+        SendResult(ID, TJSONObject.Create)
+      else if(Method='tools/list')then
+        SendResult(ID, ToolList)
+      else if(Method='tools/call')then
+        SendResult(ID, CallTool(Params))
+      else
+        SendError(ID, -32601, 'Method not found: '+Method);
+    except
+      on E: ERpcError do
+        SendError(ID, E.Code, E.Message);
+      on E: Exception do
+        SendError(ID, -32603, E.ClassName+': '+E.Message);
+    end;
+  finally
+    Msg.Free;
+  end;
+end;
+
+var Line: string;
+begin
+  //stdout carries the protocol: the WriteLn output of the application code
+  //must not get there
+  AssignFile(Output, {$IFDEF MSWINDOWS}'NUL'{$ELSE}'/dev/null'{$ENDIF});
+  Rewrite(Output);
+
+  StdIn:=TIOStream.Create(iosInput);
+  StdOut:=TIOStream.Create(iosOutput);
+  DialogMessages:=TStringList.Create;
+
+  //The settings of the program (and its list of connections) are read but
+  //never written from here
+  SettingsReadOnly:=True;
+
+  Application.Initialize;
+  InterfaceBase.PromptDialogFunction:=@McpPromptDialog;
+  Forms.MessageBoxFunction:=@McpMessageBox;
+
+  //The main form is never shown. The application code posts events to it
+  //and the model needs a parent
+  Application.CreateForm(TForm, ParentForm);
+  DMMain:=TDMMain.Create(ParentForm);
+  DMDB:=TDMDB.Create(ParentForm);
+  DMEER:=TDMEER.Create(ParentForm);
+
+  while(ReadMessage(Line))do
+    if(Trim(Line)<>'')then
+      HandleMessage(Line);
+end.

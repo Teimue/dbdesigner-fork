@@ -32,6 +32,7 @@ bin/DBDplugin_Demo
 bin/DBDplugin_HTMLReport
 bin/DBDplugin_DataImporter
 bin/DBDplugin_SimpleWebFront
+bin/DBDesignerMCP
 
 # Database files (SQLite test databases)
 *.sqlite

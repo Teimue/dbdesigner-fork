@@ -28,6 +28,8 @@ unit EERExportSQLScript;
 //   Contains the SQL Script Export form class
 //
 // Changes:
+//   The script itself is built in EERSQLScript.pas from the options of the
+//     form, so it can be built without the form as well.
 //   Version Fork 1.0, 18.09.2006, JP
 //     added export SQL options for Oracle, SQL Server and FireBird.
 //   Version 1.1, 08.04.2003, Mike
@@ -116,11 +118,6 @@ type
     procedure CBAutoIncrementClick(Sender: TObject);
     procedure CBLastDeleteClick(Sender: TObject);
   private
-    { Private declarations }
-    function GetSqlGeneratorOrSequence(DataBaseType:string):string;
-
-    function GetDtExclusionSqlTableDef(DbType, TbName, ColName: string): string;
-  private
     //space between the Settings group and the group below it
     SettingsGap: integer;
     LayoutReady: Boolean;
@@ -136,7 +133,7 @@ var
 
 implementation
 
-uses MainDM, EERDM, GUIDM, StrUtils;
+uses MainDM, EERDM, GUIDM, StrUtils, EERSQLScript;
 
 {$R *.lfm}
 
@@ -223,23 +220,10 @@ end;
 
 function TEERExportSQLScriptFrom.GetSQLScript: string;
 var
-  s: string;
   i: integer;
   Tables: TList;
-  theEERTbl: TEERTable;
-  TargetDatabase: string;
-  DropIfExists: boolean;
+  Options: TSQLScriptOptions;
 begin
-  TargetDatabase := CBTargetDataBase.Items[CBTargetDataBase.ItemIndex];
-
-  if TargetDatabase = 'My SQL' then
-  begin
-    DropIfExists := true;
-  end else
-  begin
-    DropIfExists := false;
-  end;
-
   Tables:=TList.Create;
   try
     GetSQLScript:='';
@@ -263,110 +247,37 @@ begin
           TEERRegion(theRegions[i-1]).GetEERObjsInRegion([EERTable], Tables, ExportSelTablesCBox.Checked);
     end;
 
-    if tables.count=0 then
-    begin
-      exit;
-    end;
+    //The options as they are set in the form
+    Options.ScriptMode:=ScriptMode;
+    Options.TargetDatabase:=CBTargetDataBase.Items[CBTargetDataBase.ItemIndex];
+    Options.SortByForeignKeys:=PhysicalCBox.Checked;
+    Options.DropTables:=DropTablesCBox.Checked;
+    Options.DefinePK:=PKCBox.Checked;
+    Options.CreateIndices:=IndicesCBox.Checked;
+    Options.DefineFK:=FKCBox.Checked;
+    Options.TblOptions:=TblOptionsCBox.Checked;
+    Options.StdInserts:=StdInsertsCBox.Checked;
+    Options.OutputComments:=CommentsCBox.Checked;
+    Options.HideNullField:=NullCBox.Checked;
+    Options.PortableIndices:=PortableIndicesCBox.Checked;
+    Options.HideOnDeleteUpdateNoAction:=HideOnDeleteUpdateNoActionCBox.Checked;
+    Options.GOStatement:=GOCB.Checked;
+    Options.CommitStatement:=CommitCB.Checked;
+    Options.FKIndex:=IndiceFK.Checked;
+    Options.DefaultBeforeNotNull:=CBDefaultBeforeNotNull.Checked;
+    Options.AutoIncrement:=CBAutoIncrement.Checked;
+    Options.AutoIncrementSeqName:=EdAutoIncrementSeqName.Text;
+    Options.AutoIncrementPrefix:=EdAutoIncrementPrefix.Text;
+    Options.LastChange:=CBLastChange.Checked;
+    Options.LastChangeDateColName:=EdLastChangeDateColName.Text;
+    Options.LastChangeUserColName:=EdLastChangeUserColName.Text;
+    Options.LastChangeTriggerPrefix:=EdLastChangeTriggerPrefix.Text;
+    Options.LastDelete:=CBLastDelete.Checked;
+    Options.LastDeleteTbName:=EdLastDeleteTbName.Text;
+    Options.LastDeleteColName:=EdLastDeleteColName.Text;
+    Options.LastDeleteTriggerPrefix:=EdLastDeleteTriggerPrefix.Text;
 
-    //Remove Linked Tables if CreateSQLforLinkedObjects is deactivated
-    if(Not(EERModel.CreateSQLforLinkedObjects))then
-    begin
-      i:=0;
-      while(i<Tables.Count)do
-        if(TEERTable(Tables[i]).IsLinkedObject)then
-          Tables.Delete(i)
-        else
-          inc(i);
-    end;
-
-    //Sort tables alphabetically
-    EERModel.SortEERObjectListByObjName(Tables);
-
-    //Sort in FK order
-    if(PhysicalCBox.Checked)then
-      EERModel.SortEERTableListByForeignKeyReferences(Tables);
-
-    //When dropping the tables, reverse tablelist order
-    if(ScriptMode=1)then
-      DMMain.ReverseList(Tables);
-
-    //do for all tables
-    s:='';
-
-    if CBAutoIncrement.Checked then
-    begin
-      s :=
-        s +
-        GetSqlGeneratorOrSequence(TargetDatabase)+
-        #13#10#13#10;
-    end;
-
-    //do for all tables
-    if DropTablesCBox.Checked and (ScriptMode=0) then
-    begin
-      for i:=Tables.Count-1 downto 0 do
-      begin
-        theEERTbl:=Tables[i];
-        s:=s+theEERTbl.GetSQLDropCode(DropIfExists, TargetDatabase)+#13#10#13#10
-      end;
-    end;
-
-
-    //Create Last Delete record datetime
-    if CBLastDelete.Checked then
-    begin
-      s := s + GetDtExclusionSqlTableDef(
-                                          TargetDatabase,
-                                          EdLastDeleteTbName.Text,
-                                          EdLastDeleteColName.Text);
-      s := s + sLineBreak;
-    end;
-
-    //do for all tables
-    for i:=0 to Tables.Count-1 do
-    begin
-      theEERTbl:=Tables[i];
-
-      if(ScriptMode=0)then
-        s:=s+theEERTbl.GetSQLCreateCode(PKCBox.Checked,
-          IndicesCBox.Checked, FKCBox.Checked,
-          TblOptionsCBox.Checked, StdInsertsCBox.Checked,
-          CommentsCBox.Checked,
-          NullCBox.Checked,
-          PortableIndicesCBox.Checked,
-          HideOnDeleteUpdateNoActionCBox.Checked,
-          GOCB.Checked,
-          CommitCB.Checked,
-          IndiceFK.Checked,
-          CBDefaultBeforeNotNull.Checked,
-          TargetDatabase,
-          EdAutoIncrementSeqName.Text,
-          EdAutoIncrementPrefix.Text,
-          CBAutoIncrement.Checked,
-          CBLastChange.Checked,
-          EdLastChangeDateColName.Text,
-          EdLastChangeUserColName.Text,
-          EdLastChangeTriggerPrefix.Text,
-          CBLastDelete.Checked,
-          EdLastDeleteTbName.Text,
-          EdLastDeleteColName.Text,
-          EdLastDeleteTriggerPrefix.Text
-          )
-          //SQLite: the table code is tidied, one empty line between tables
-          +IfThen((TargetDatabase = 'SQLite')or(TargetDatabase = 'FireBird'), #13#10, #13#10#13#10)
-      else if(ScriptMode=1)then
-        s:=s+theEERTbl.GetSQLDropCode(DropIfExists, TargetDatabase)+#13#10#13#10
-      else if(ScriptMode=2)then
-        s:=s+'OPTIMIZE TABLE '+theEERTbl.GetSQLTableName+';'+#13#10#13#10
-      else if(ScriptMode=3)then
-        s:=s+'REPAIR TABLE '+theEERTbl.GetSQLTableName+';'+#13#10#13#10;
-
-    end;
-
-    if(DMEER.OutputLinuxStyleLineBreaks)then
-      s:=DMMain.ReplaceString(s, #13#10, #10);
-
-    GetSQLScript:=s;
+    GetSQLScript:=BuildSQLScript(EERModel, Tables, Options);
   finally
     Tables.Free;
   end;
@@ -683,19 +594,6 @@ begin
     LbAutoIncrementSeqName.Caption:=DMMain.GetTranslatedMessage('Sequence name:', 283)+' ';
 end;
 
-function TEERExportSQLScriptFrom.GetSqlGeneratorOrSequence(
-  DataBaseType: string): string;
-begin
-  if DataBaseType = 'FireBird' then
-  begin
-    GetSqlGeneratorOrSequence := 'CREATE GENERATOR '+EdAutoIncrementSeqName.Text+';';
-  end else
-  if (DataBaseType = 'Oracle') or (DataBaseType = 'PostgreSQL') then
-  begin
-    GetSqlGeneratorOrSequence := 'CREATE SEQUENCE '+EdAutoIncrementSeqName.Text+';';
-  end;
-end;
-
 procedure TEERExportSQLScriptFrom.CBLastChangeClick(Sender: TObject);
 begin
   EdLastChangeDateColName.Enabled := CBLastChange.Checked;
@@ -708,26 +606,6 @@ begin
   {enable/disable edits}
   EdAutoIncrementPrefix.Enabled  := CBAutoIncrement.Checked;
   EdAutoIncrementSeqName.Enabled := CBAutoIncrement.Checked;
-end;
-
-function TEERExportSQLScriptFrom.GetDtExclusionSqlTableDef(DbType, TbName,
-  ColName: string): string;
-var
-  Str : TStringList;
-begin
-  //DbType is received just to maintain future compatibility.
-  //This code implements a generic table creation
-
-  Str := TStringList.Create;
-
-  Str.Add('CREATE TABLE ' + TbName + ' (');
-  Str.Add('  ' + ColName + ' VARCHAR(15), ');
-  Str.Add('  TABLE_NAME VARCHAR(64) NOT NULL, ');
-  Str.Add('  PRIMARY KEY (TABLE_NAME)');
-  Str.Add('); ');
-
-  GetDtExclusionSqlTableDef := Str.Text;
-  Str.Free;
 end;
 
 procedure TEERExportSQLScriptFrom.CBLastDeleteClick(Sender: TObject);

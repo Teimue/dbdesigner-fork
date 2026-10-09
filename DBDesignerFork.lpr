@@ -41,6 +41,7 @@ uses
   PaletteNav in 'src/PaletteNav.pas' {PaletteNavForm},
   EditorImage in 'src/EditorImage.pas' {EditorImageForm},
   EERExportSQLScript in 'src/EERExportSQLScript.pas' {EERExportSQLScriptFrom},
+  EERSQLScript in 'src/EERSQLScript.pas',
   DBConnSelect in 'src/DBConnSelect.pas' {DBConnSelectForm},
   PaletteDataTypesReplace in 'src/PaletteDataTypesReplace.pas' {PaletteDataTypesReplaceForm},
   EERReverseEngineering in 'src/EERReverseEngineering.pas' {EERReverseEngineeringForm},
