@@ -618,6 +618,10 @@ begin
             if(PaletteModelFrom.TablesTreeView.Items[i].Level=0)then
               Order.Add(PaletteModelFrom.TablesTreeView.Items[i].Text);
           Order.SaveToFile(OutDir+'ModelPalette.txt');
+          //after the load no two objects share a position
+          if(TMainForm(AMainForm).FActiveEERForm is TEERForm)then
+            Report.Add('ModelPalette'#9+IntToStr(Order.Count)+' tables, objects that share a position: '+
+              IntToStr(TEERForm(TMainForm(AMainForm).FActiveEERForm).EERModel.RepairOrderPositions));
         finally
           Order.Free;
         end;

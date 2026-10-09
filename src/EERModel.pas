@@ -253,6 +253,10 @@ type
     procedure GetEERObjectList(ObjType: TEERObjectSet; ObjectList: TList; OnlySelected: Boolean=False);
     procedure SortEERObjectListByObjName(ObjectList: TList);
     procedure SortEERObjectListByOrderPos(ObjectList: TList);
+    //Give the objects that share a position with another one a position of
+    //their own, the order stays as SortEERObjectListByOrderPos gives it.
+    //Returns the number of objects that got another position
+    function RepairOrderPositions: integer;
 
     //EERObj functions
     function GetEERObjectByID(id: integer): Pointer;
@@ -4570,6 +4574,9 @@ begin
     //in the file must not cover the relations, notes and images
     SendRegionsToBack;
 
+    //every object a position of its own
+    RepairOrderPositions;
+
     //Check PluginData
     for i:=0 to PluginData.Count-1 do
       if(TEERPluginData(PluginData[i]).Obj_id>=maxid)then
@@ -5253,6 +5260,9 @@ begin
     //plugin import, appended model) or listed after the other sections
     //in the file must not cover the relations, notes and images
     SendRegionsToBack;
+
+    //every object a position of its own
+    RepairOrderPositions;
 
     //Check PluginData
     for i:=0 to PluginData.Count-1 do
@@ -7127,6 +7137,39 @@ procedure TEERModel.SortEERObjectListByOrderPos(ObjectList: TList);
 begin
   if(Assigned(ObjectList))then
     ObjectList.Sort(SortEERObjByOrderPosFunc);
+end;
+
+function TEERModel.RepairOrderPositions: integer;
+var ObjList: TList;
+  i, Last: integer;
+begin
+  //Models of older versions have objects with the same position: new
+  //objects were numbered by the count of the objects, which repeats a
+  //number after a delete. The lists then showed them in the order of
+  //their names (see SortEERObjByOrderPosFunc); the numbers are made to
+  //say the same, so that the order holds when an object is moved or
+  //renamed. The model does not count as changed by this
+  Result:=0;
+  ObjList:=TList.Create;
+  try
+    for i:=0 to ComponentCount-1 do
+      if(Components[i] is TEERObj)then
+        ObjList.Add(Components[i]);
+    SortEERObjectListByOrderPos(ObjList);
+
+    Last:=-MaxInt;
+    for i:=0 to ObjList.Count-1 do
+    begin
+      if(TEERObj(ObjList[i]).OrderPos<=Last)then
+      begin
+        TEERObj(ObjList[i]).OrderPos:=Last+1;
+        inc(Result);
+      end;
+      Last:=TEERObj(ObjList[i]).OrderPos;
+    end;
+  finally
+    ObjList.Free;
+  end;
 end;
 
 function TEERModel.GetEERObjectClassName(ObjType: TEERObject): string;
