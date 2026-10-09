@@ -32,6 +32,8 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 LicenseFile={#BinDir}\Copying.txt
+; Windows 10 or 11, 64 bit (as the manifest of the program says)
+MinVersion=10.0
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; for all users by default, the dialog offers an installation for the current user

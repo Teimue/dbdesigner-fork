@@ -284,6 +284,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Build and start**
 
+- System requirement: Windows 10 or 11, 64 bit. The manifest of the program names only this system (and `amd64`), and the setup program refuses to install on an older Windows (`MinVersion=10.0`). The entry in the manifest is a declaration: it does not stop an older Windows from starting the program.
 - The HTML documentation (F1, *Help*) opens with its pages: the frames of its start page pointed to plain Windows file names (`C:\...\header.html`), which a browser of today takes for an unknown protocol and leaves empty. They are `file:///` URLs now; the start pages of earlier calls are removed from the settings directory.
 - Release: version 2.0.2 is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.0.2) (tag `v2.0.2`, setup program 2.0.2.5, revision 2 in `DBDesignerFork.lpi`), built with the same client libraries and Firebird zip kit as 2.0.1. It can be installed over 2.0.0 and 2.0.1. New since 2.0.1: stored passwords of database connections, dialogs that can be resized and no longer lie above other programs, the repaired help, the order of the tables in the model palette, the table editor fix, see the entries of this section.
 - Release: version 2.0.1 is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.0.1) (tag `v2.0.1`, setup program 2.0.1.3), a pre-release like 2.0.0. It can be installed over 2.0.0.
