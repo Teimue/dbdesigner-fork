@@ -4130,10 +4130,10 @@ var Packages, Packaged: string;
 {$ENDIF}
 begin
   {$IFDEF MSWINDOWS}
-  Result:=IncludeTrailingPathDelimiter(GetEnvironmentVariable('APPDATA'))+
+  Result:=IncludeTrailingPathDelimiter(GetEnvironmentVariableUTF8('APPDATA'))+
     'Claude'+PathDelim+'claude_desktop_config.json';
 
-  Packages:=IncludeTrailingPathDelimiter(GetEnvironmentVariable('LOCALAPPDATA'))+
+  Packages:=IncludeTrailingPathDelimiter(GetEnvironmentVariableUTF8('LOCALAPPDATA'))+
     'Packages'+PathDelim;
   if(FindFirst(Packages+'Claude_*', faDirectory, Found)=0)then
   begin
@@ -4149,7 +4149,7 @@ begin
     FindClose(Found);
   end;
   {$ELSE}
-  Result:=IncludeTrailingPathDelimiter(GetEnvironmentVariable('HOME'))+
+  Result:=IncludeTrailingPathDelimiter(GetEnvironmentVariableUTF8('HOME'))+
     '.config'+PathDelim+'Claude'+PathDelim+'claude_desktop_config.json';
   {$ENDIF}
 end;
