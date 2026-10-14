@@ -3544,7 +3544,7 @@ object MainForm: TMainForm
         Caption = '-'
       end
       object VisitHomepageMI: TMenuItem
-        Caption = 'Visit fabFORCE.net'
+        Caption = 'Visit GitHub Project'
         OnClick = VisitHomepageMIClick
       end
       object CheckfornewversionsMI: TMenuItem
