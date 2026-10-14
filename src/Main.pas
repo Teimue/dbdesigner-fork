@@ -3682,7 +3682,7 @@ end;
 
 procedure TMainForm.SubmitabugfeaturerequestMIClick(Sender: TObject);
 begin
-  DMMain.BrowsePage('https://sourceforge.net/projects/dbdesigner-fork/');
+  DMMain.BrowsePage('https://github.com/Teimue/dbdesigner-fork/issues');
 end;
 
 

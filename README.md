@@ -324,6 +324,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Dialogs and palettes**
 
+- Help menu: "Submit a bug / feature request" opens the [issues](https://github.com/Teimue/dbdesigner-fork/issues) of this GitHub project instead of the old SourceForge page.
 - Editors, floating palettes and dialogs no longer lie above other programs. Their forms were fsStayOnTop, which CLX took back while the program was not active; in the LCL it makes a window the topmost one of the desktop. They are owned by the main window (or by the dialog that opens them) now: above it, and in the background with it. Only the start picture and the drop target of the query mode stay topmost while they are shown.
 - Dialogs that can be resized: the controls that follow the right or the bottom edge have their place and size as soon as the dialog is created, not only when it becomes visible. Until then they kept what the scaling had left them with, and the code of the dialog worked with that: the connection editor showed no password and description field and the port left of the host, the relation editor a name field of the wrong width, a label beside instead of above its list and a grid with narrow columns. The page setup dialog shows its preview in the full width for the same reason.
 - Table editor: changing the width of a column of the grid no longer ends in "List index (-1) out of bounds" (the click on the header row started to drag it like a row of the table).
