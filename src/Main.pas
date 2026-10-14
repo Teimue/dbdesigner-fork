@@ -1714,7 +1714,7 @@ end;
 
 procedure TMainForm.VisitHomepageMIClick(Sender: TObject);
 begin
-  DMMain.BrowsePage('http://www.fabforce.net');
+  DMMain.BrowsePage('https://github.com/Teimue/dbdesigner-fork');
 end;
 
 procedure TMainForm.CheckfornewversionsMIClick(Sender: TObject);
