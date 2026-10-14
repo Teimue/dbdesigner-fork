@@ -6,6 +6,13 @@ program TestSQLiteSync;
 // TABLE can do, changes that rebuild the table, a renamed table, and the
 // reverse engineering of the result with a foreign key from a table to
 // itself into a new model, which has to sync without changes again.
+// Then the example database bin/Examples/beispiel_sqlite.sql (needs SQLite
+// 3.37 or newer, else the part is skipped): reverse engineering of generated
+// columns, indices on an expression, descending and partial indices, CHECK
+// constraints, STRICT, WITHOUT ROWID, text defaults and declared type
+// names; the model saved and loaded, its SQL script run in an empty
+// database, and the synchronisation, which rebuilds only the table with a
+// column without type and keeps everything, then has no changes.
 //
 // Needs the application infrastructure (data modules, LCL):
 //   lazbuild tests/TestSQLiteSync.lpi && bin/TestSQLiteSync
@@ -18,18 +25,21 @@ uses
   {$IFDEF UNIX}cthreads,{$ENDIF}
   Interfaces, // LCL
   Classes, SysUtils, Forms, Controls, DB, SQLDB,
-  MainDM, DBDM, EERDM, DBEERDM, EERModel;
+  MainDM, DBDM, EERDM, DBEERDM, EERModel, sqlite3dyn;
 
 var
   ParentForm: TForm;
-  Model, Model2, SyncModel: TEERModel;
+  Model, Model2, Model3, Model4, SyncModel: TEERModel;
   Conn: TDBConn;
   Log, theTables: TStringList;
   DBPath: string;
   Failures: integer = 0;
-  Product, Kunde: TEERTable;
+  Product, Kunde, Artikel, T: TEERTable;
   SelfRel: TEERRel;
   theColumn: TEERColumn;
+  Idx: TEERIndex;
+  Script: TStringList;
+  s: string;
   i, j: integer;
 
 procedure Check(Cond: Boolean; const What: string);
@@ -77,6 +87,90 @@ begin
     if(Model.Components[k] is TEERTable)then
       if(CompareText(TEERTable(Model.Components[k]).ObjName, tblname)=0)then
         Result:=TEERTable(Model.Components[k]);
+end;
+
+//Run a SQL script with sqlite3_exec in a new database file (the script has
+//triggers with ; in their body); '' or the error message
+function RunSQLiteScript(const DBFile, ScriptFile: string): string;
+var db: psqlite3;
+  err: PAnsiChar;
+  Script: TStringList;
+begin
+  Result:='';
+  if(FileExists(DBFile))then
+    DeleteFile(DBFile);
+  Script:=TStringList.Create;
+  try
+    Script.LoadFromFile(ScriptFile);
+    db:=nil;
+    if(sqlite3_open(PAnsiChar(UTF8String(DBFile)), @db)<>SQLITE_OK)then
+    begin
+      Result:='cannot open '+DBFile;
+      Exit;
+    end;
+    try
+      err:=nil;
+      if(sqlite3_exec(db, PAnsiChar(UTF8String(Script.Text)), nil, nil, @err)<>SQLITE_OK)then
+      begin
+        Result:=StrPas(err);
+        sqlite3_free(err);
+      end;
+    finally
+      sqlite3_close(db);
+    end;
+  finally
+    Script.Free;
+  end;
+end;
+
+function FindTable(M: TEERModel; const tblname: string): TEERTable;
+var k: integer;
+begin
+  Result:=nil;
+  for k:=0 to M.ComponentCount-1 do
+    if(M.Components[k] is TEERTable)then
+      if(CompareText(TEERTable(M.Components[k]).ObjName, tblname)=0)then
+        Result:=TEERTable(M.Components[k]);
+end;
+
+function FindIndex(T: TEERTable; const idxname: string): TEERIndex;
+var k: integer;
+begin
+  Result:=nil;
+  for k:=0 to T.Indices.Count-1 do
+    if(CompareText(TEERIndex(T.Indices[k]).IndexName, idxname)=0)then
+      Result:=TEERIndex(T.Indices[k]);
+end;
+
+function Col(T: TEERTable; const colname: string): TEERColumn;
+begin
+  Col:=TEERColumn(T.GetColumnByName(colname));
+end;
+
+//The datatype of a column as the model has it: name and parameters
+function ColType(M: TEERModel; T: TEERTable; const colname: string): string;
+begin
+  ColType:=TEERDatatype(M.GetDataType(Col(T, colname).idDatatype)).TypeName+
+    Col(T, colname).DatatypeParams;
+end;
+
+//All tables of a model saved and loaded: equal as XML (ObjIsEqualTo
+//compares the lists of the relations as objects as well)
+function ModelsEqual(A, B: TEERModel): Boolean;
+var k: integer;
+  T: TEERTable;
+begin
+  Result:=True;
+  for k:=0 to A.ComponentCount-1 do
+    if(A.Components[k] is TEERTable)then
+    begin
+      T:=FindTable(B, TEERTable(A.Components[k]).ObjName);
+      if(T=nil)or(TEERTable(A.Components[k]).GetXML<>T.GetXML)then
+      begin
+        WriteLn('        differs: ', TEERTable(A.Components[k]).ObjName);
+        Result:=False;
+      end;
+    end;
 end;
 
 function LogHas(const s: string): Boolean;
@@ -294,6 +388,135 @@ begin
     Check(SQLVal('SELECT werber_id FROM kunde WHERE id=2')='1', 'rows kept');
 
     DMDB.SQLConn.Close;
+
+    //------------------------------------------------------------
+    //The example database
+    WriteLn;
+    WriteLn('--- 10. example database beispiel_sqlite.sql: reverse engineering');
+    InitializeSQLite;
+    try
+    if(sqlite3_libversion_number()<3037000)then
+      WriteLn('  SKIPPED: SQLite ', sqlite3_libversion_number(),
+        ' is older than 3.37 (STRICT)')
+    else
+    begin
+      DBPath:=GetTempDir+'dbdesigner_beispiel_test.db';
+      s:=RunSQLiteScript(DBPath, 'bin'+PathDelim+'Examples'+PathDelim+'beispiel_sqlite.sql');
+      Check(s='', 'beispiel_sqlite.sql runs '+s);
+
+      Conn.Params.Values['Database']:=DBPath;
+      DMDB.ConnectToDB(Conn);
+
+      Model3:=TEERModel.Create(ParentForm);
+      Model3.Parent:=ParentForm;
+      theTables.CommaText:=SQLVal('SELECT name FROM sqlite_master WHERE type=''table'' '+
+        'AND name NOT LIKE ''sqlite_%'' ORDER BY name');
+      Check(theTables.Count=12, '12 tables listed');
+      //The relations of the foreign keys, no guesses by the primary key
+      DMDBEER.EERSQLiteReverseEngineer(Model3, Conn, theTables, 5, True, False, nil);
+      Check(Model3.GetEERObjectCount([EERRelation])=12, '12 relations');
+
+      Artikel:=FindTable(Model3, 'artikel');
+      Kunde:=FindTable(Model3, 'kunde');
+      Check((Artikel<>nil)and(Kunde<>nil), 'tables artikel and kunde');
+      if(Artikel<>nil)and(Kunde<>nil)then
+      begin
+        Check((Col(Artikel, 'brutto_preis')<>nil)and
+          (Col(Artikel, 'brutto_preis').GeneratedExpr='round(netto_preis * (1 + mwst_satz / 100.0), 2)')and
+          Not(Col(Artikel, 'brutto_preis').GeneratedStored), 'generated column, virtual');
+        Check((Col(Artikel, 'versandklasse')<>nil)and
+          (Pos('CASE WHEN gewicht_kg IS NULL', Col(Artikel, 'versandklasse').GeneratedExpr)=1)and
+          Col(Artikel, 'versandklasse').GeneratedStored, 'generated column, stored');
+        Check(Col(Artikel, 'geaendert_am').DefaultValue=
+          'strftime(''%Y-%m-%d %H:%M:%f'', ''now'')', 'default with a function');
+        Check(FindIndex(Artikel, 'idx_artikel_lower').Expression='lower(bezeichnung)',
+          'index on an expression');
+        Idx:=FindIndex(Artikel, 'idx_artikel_preis');
+        Check((Idx.Columns.Count=2)and(Idx.DescColumns.Count=1)and
+          (Idx.DescColumns[0]=IntToStr(Col(Artikel, 'netto_preis').Obj_id)),
+          'descending column netto_preis, ascending bezeichnung');
+        Check(FindIndex(Artikel, 'idx_artikel_schwer').Condition='gewicht_kg > 30',
+          'partial index');
+        Check((Artikel.CheckConstraints.Count=3)and(Artikel.CheckName(1)='ck_artikel_preis')and
+          (Artikel.CheckExpression(1)='netto_preis >= 0'), 'CHECK constraints of artikel');
+
+        Check(Kunde.TableOptions.Values['SQLiteStrict']='1', 'kunde is STRICT');
+        Check(ColType(Model3, Kunde, 'zusatzdaten')='ANY', 'datatype ANY');
+        Check(Kunde.CheckConstraints.Count=5, 'CHECK constraints of the columns of kunde');
+        Check(FindTable(Model3, 'artikel_schlagwort').TableOptions.Values['SQLiteWithoutRowid']='1',
+          'artikel_schlagwort is WITHOUT ROWID');
+        Check(Col(FindTable(Model3, 'adresse'), 'land').DefaultValue='''DE''',
+          'text default keeps its quotes');
+
+        T:=FindTable(Model3, 'datentypen');
+        Check((ColType(Model3, T, 't_clob')='CLOB')and(ColType(Model3, T, 't_boolean')='BOOLEAN')and
+          (ColType(Model3, T, 't_nchar')='NCHAR(55)')and
+          (ColType(Model3, T, 't_unsigned_bigint')='UNSIGNED BIG INT')and
+          (ColType(Model3, T, 't_varying_char')='VARYING CHARACTER(255)')and
+          (ColType(Model3, T, 't_decimal')='DECIMAL(10,5)'),
+          'declared type names kept');
+      end;
+
+      //------------------------------------------------------------
+      WriteLn;
+      WriteLn('--- 11. the model saved and loaded');
+      Model3.SaveToFile(GetTempDir+'dbdesigner_beispiel_test.xml');
+      Model4:=TEERModel.Create(ParentForm);
+      Model4.Parent:=ParentForm;
+      Model4.LoadFromFile(GetTempDir+'dbdesigner_beispiel_test.xml');
+      Check(ModelsEqual(Model3, Model4), 'all tables equal');
+
+      //------------------------------------------------------------
+      WriteLn;
+      WriteLn('--- 12. the SQL script of the model in an empty database');
+      Script:=TStringList.Create;
+      try
+        for i:=0 to Model3.ComponentCount-1 do
+          if(Model3.Components[i] is TEERTable)then
+            Script.Add(TEERTable(Model3.Components[i]).GetSQLCreateCode(True, True, True,
+              False, False, False, True, True, False, False, False, False, False, 'SQLite'));
+        Script.SaveToFile(GetTempDir+'dbdesigner_beispiel_script.sql');
+      finally
+        Script.Free;
+      end;
+      s:=RunSQLiteScript(GetTempDir+'dbdesigner_beispiel_script.db',
+        GetTempDir+'dbdesigner_beispiel_script.sql');
+      Check(s='', 'the script runs '+s);
+
+      //------------------------------------------------------------
+      SyncModel:=Model3;
+      Sync('13. synchronisation of the reverse engineered model');
+      Check(LogHas('Rebuild table datentypen'), 'datentypen rebuilt (column without type)');
+      Check(Pos('Rebuild', StringReplace(Log.Text, 'Rebuild table datentypen', '', []))=0,
+        'no other table rebuilt');
+      Check(Not(LogHas('Create index')), 'no index created (UNIQUE constraints kept)');
+      Check(SQLVal('SELECT count(*) FROM pragma_index_list(''kunde'')')='2',
+        'kunde has its two UNIQUE constraints only');
+      Check(SQLVal('SELECT count(*) FROM pragma_table_list WHERE name=''kunde'' AND strict=1')='1',
+        'kunde still STRICT');
+      Check(SQLVal('SELECT count(*) FROM pragma_table_xinfo(''artikel'') WHERE hidden IN (2, 3)')='2',
+        'generated columns kept');
+      Check(SQLVal('SELECT CAST(brutto_preis AS TEXT) FROM artikel WHERE artikel_id=4')='296.31',
+        'generated column computes');
+      Check(SQLVal('SELECT count(*) FROM sqlite_master WHERE name IN (''idx_artikel_lower'', '+
+        '''idx_artikel_schwer'', ''idx_artikel_preis'', ''idx_bestellung_offen'')')='4',
+        'indices on an expression, partial and descending indices kept');
+      Check(Pos('WHERE', SQLVal('SELECT sql FROM sqlite_master WHERE name=''idx_artikel_schwer'''))>0,
+        'condition of the partial index kept');
+      Check(Pos('CHECK', SQLVal('SELECT sql FROM sqlite_master WHERE name=''kategorie'''))>0,
+        'CHECK constraints of kategorie kept');
+      Check(SQLVal('SELECT count(*) FROM artikel')+'/'+SQLVal('SELECT count(*) FROM kunde')+'/'+
+        SQLVal('SELECT count(*) FROM datentypen')='4/3/1', 'rows kept');
+      Check(SQLVal('SELECT t_clob FROM datentypen')='Ein langer Text', 'rows of the rebuilt table kept');
+
+      Sync('14. no changes after the synchronisation');
+      CheckNoChanges;
+
+      DMDB.SQLConn.Close;
+    end;
+    finally
+      ReleaseSQLite;
+    end;
   except
     on E: Exception do
     begin

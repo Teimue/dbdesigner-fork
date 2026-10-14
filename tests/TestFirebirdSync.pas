@@ -10,6 +10,13 @@ program TestFirebirdSync;
 // At the end the SQL create script for the FireBird target
 // (identity columns, then generator and triggers) is loaded into a fresh
 // database with isql, if isql lies next to the client library.
+// Then, with isql and the embedded engine, the example database
+// bin/Examples/beispiel_firebird.sql: reverse engineering of computed
+// columns, indices on an expression, descending and partial indices,
+// global temporary tables, text defaults and the types of Firebird
+// (NUMERIC, INT128, DECFLOAT, time zones, BINARY); the model saved and
+// loaded, its SQL script loaded with isql, and a synchronisation without
+// changes.
 //
 // Needs the application infrastructure (data modules, LCL) and the Firebird
 // client library with the embedded engine (the zip kit of Firebird 3 or
@@ -33,12 +40,15 @@ uses
 
 var
   ParentForm: TForm;
-  Model, Model2, Model3, Model4: TEERModel;
+  Model, Model2, Model3, Model4, Model5, Model6: TEERModel;
   Conn: TDBConn;
   Log, theTables: TStringList;
   DBPath, FBClient, FBHost, RowCount, Isql, IsqlOut: string;
   Failures: integer = 0;
-  Product, Cart, Kunde: TEERTable;
+  Product, Cart, Kunde, Artikel, T: TEERTable;
+  Idx: TEERIndex;
+  Script: TStringList;
+  ExampleDB: string;
   SelfRel: TEERRel;
   theList: TList;
   theColumn: TEERColumn;
@@ -117,6 +127,45 @@ begin
     if(aModel.Components[k] is TEERTable)then
       if(CompareText(TEERTable(aModel.Components[k]).ObjName, tblname)=0)then
         Result:=TEERTable(aModel.Components[k]);
+end;
+
+function FindIndex(aTable: TEERTable; const idxname: string): TEERIndex;
+var k: integer;
+begin
+  Result:=nil;
+  for k:=0 to aTable.Indices.Count-1 do
+    if(CompareText(TEERIndex(aTable.Indices[k]).IndexName, idxname)=0)then
+      Result:=TEERIndex(aTable.Indices[k]);
+end;
+
+function Col(aTable: TEERTable; const colname: string): TEERColumn;
+begin
+  Col:=TEERColumn(aTable.GetColumnByName(colname));
+end;
+
+//The datatype of a column as the model has it: name and parameters
+function ColType(aModel: TEERModel; aTable: TEERTable; const colname: string): string;
+begin
+  ColType:=TEERDatatype(aModel.GetDataType(Col(aTable, colname).idDatatype)).TypeName+
+    Col(aTable, colname).DatatypeParams;
+end;
+
+//All tables of a model saved and loaded: equal as XML
+function ModelsEqual(A, B: TEERModel): Boolean;
+var k: integer;
+  aTable: TEERTable;
+begin
+  Result:=True;
+  for k:=0 to A.ComponentCount-1 do
+    if(A.Components[k] is TEERTable)then
+    begin
+      aTable:=GetTable(B, TEERTable(A.Components[k]).ObjName);
+      if(aTable=nil)or(TEERTable(A.Components[k]).GetXML<>aTable.GetXML)then
+      begin
+        WriteLn('        differs: ', TEERTable(A.Components[k]).ObjName);
+        Result:=False;
+      end;
+    end;
 end;
 
 function LogHas(const s: string): Boolean;
@@ -649,6 +698,113 @@ begin
       Check(Pos('STAMP=15', IsqlOut)>0, 'last change trigger writes the time stamp');
       Check(Pos('GENERATED=1', IsqlOut)>0, 'auto increment trigger');
       Check(Pos('EXCLUSION=product/15', IsqlOut)>0, 'last delete trigger');
+    end;
+
+    //------------------------------------------------------------
+    //The example database, made with isql and the embedded engine
+    WriteLn;
+    WriteLn('--- 19. example database beispiel_firebird.sql: reverse engineering');
+    if(Not(FileExists(Isql)))or(FBHost<>'')then
+      WriteLn('  skipped, needs isql and the embedded engine')
+    else
+    begin
+      ExampleDB:=GetTempDir+'dbdesigner_beispiel_test.fdb';
+      if(FileExists(ExampleDB))then
+        DeleteFile(ExampleDB);
+      Script:=TStringList.Create;
+      try
+        Script.LoadFromFile('bin'+PathDelim+'Examples'+PathDelim+'beispiel_firebird.sql');
+        Script.Text:=StringReplace(Script.Text, 'CREATE DATABASE ''beispiel.fdb''',
+          'CREATE DATABASE '''+ExampleDB+'''', []);
+        Script.SaveToFile(ChangeFileExt(ExampleDB, '.sql'));
+      finally
+        Script.Free;
+      end;
+      RunCommand(Isql, ['-q', '-m', '-ch', 'UTF8', '-user', 'SYSDBA', '-i',
+        ChangeFileExt(ExampleDB, '.sql')], IsqlOut);
+      CheckIsql(IsqlOut, 'beispiel_firebird.sql');
+
+      Conn.Params.Values['Database']:=ExampleDB;
+      DMDB.ConnectToDB(Conn);
+
+      Model5:=TEERModel.Create(ParentForm);
+      Model5.Parent:=ParentForm;
+      FirebirdGetTables(theTables);
+      Check(theTables.Count=14, '14 tables listed');
+      //The relations of the foreign keys, no guesses by the primary key
+      FirebirdReverseEngineer(Model5, theTables, 5, True, False, nil, nil, False, 0);
+      Check(Model5.GetEERObjectCount([EERRelation])=12, '12 relations');
+
+      Artikel:=GetTable(Model5, 'ARTIKEL');
+      T:=GetTable(Model5, 'DATENTYPEN');
+      Check((Artikel<>nil)and(T<>nil), 'tables ARTIKEL and DATENTYPEN');
+      if(Artikel<>nil)and(T<>nil)then
+      begin
+        Check((Pos('CAST(NETTO_PREIS', Col(Artikel, 'BRUTTO_PREIS').GeneratedExpr)=1)and
+          Not(Col(Artikel, 'BRUTTO_PREIS').GeneratedStored), 'computed column BRUTTO_PREIS');
+        Check(Pos('CASE WHEN GEWICHT_KG', Col(Artikel, 'VERSANDKLASSE').GeneratedExpr)=1,
+          'computed column VERSANDKLASSE');
+        Check(FindIndex(Artikel, 'IDX_ARTIKEL_UPPER').Expression='UPPER(BEZEICHNUNG)',
+          'index on an expression');
+        Check(FindIndex(Artikel, 'IDX_ARTIKEL_PREIS').AllDescending, 'descending index');
+        Check(FindIndex(Artikel, 'IDX_ARTIKEL_SCHWER').Condition='GEWICHT_KG > 30',
+          'partial index');
+        Check(Artikel.Comments='Artikelstamm des Shops', 'comment of the table');
+        Check((GetTable(Model5, 'TMP_WARENKORB').Temporary)and
+          (GetTable(Model5, 'TMP_WARENKORB').TableOptions.Values['OnCommit']='PRESERVE')and
+          (GetTable(Model5, 'TMP_BERECHNUNG').Temporary)and
+          (GetTable(Model5, 'TMP_BERECHNUNG').TableOptions.Values['OnCommit']='DELETE'),
+          'global temporary tables with their ON COMMIT');
+        Check(Col(GetTable(Model5, 'KUNDE'), 'ZEITZONE').DefaultValue='''Europe/Berlin''',
+          'text default keeps its quotes');
+        Check((ColType(Model5, T, 'T_INT128')='INT128')and
+          (ColType(Model5, T, 'T_NUMERIC')='NUMERIC(18,4)')and
+          (ColType(Model5, T, 'T_DECFLOAT16')='DECFLOAT(16)')and
+          (ColType(Model5, T, 'T_DECFLOAT34')='DECFLOAT(34)')and
+          (ColType(Model5, T, 'T_TIMESTAMP_TZ')='TIMESTAMP WITH TIME ZONE')and
+          (ColType(Model5, T, 'T_TIME_TZ')='TIME WITH TIME ZONE')and
+          (ColType(Model5, T, 'T_BINARY')='BINARY(16)')and
+          (ColType(Model5, T, 'T_VARBINARY')='VARBINARY(64)')and
+          (ColType(Model5, T, 'T_DOMAENE')='NUMERIC(12,2)'),
+          'types of Firebird kept');
+      end;
+
+      //------------------------------------------------------------
+      WriteLn;
+      WriteLn('--- 20. the model saved and loaded');
+      Model5.SaveToFile(GetTempDir+'dbdesigner_beispiel_test.xml');
+      Model6:=TEERModel.Create(ParentForm);
+      Model6.Parent:=ParentForm;
+      Model6.LoadFromFile(GetTempDir+'dbdesigner_beispiel_test.xml');
+      Check(ModelsEqual(Model5, Model6), 'all tables equal');
+
+      //------------------------------------------------------------
+      WriteLn;
+      WriteLn('--- 21. the SQL script of the model loaded with isql');
+      IsqlOut:=RunIsql(Isql, ExportScript(Model5, False)+'COMMIT;'#13#10+
+        'SELECT ''TABLES='' || COUNT(*) FROM RDB$RELATIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0;'#13#10+
+        'SELECT ''COMPUTED='' || COUNT(*) FROM RDB$RELATION_FIELDS rf '+
+        'JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME=rf.RDB$FIELD_SOURCE '+
+        'WHERE COALESCE(rf.RDB$SYSTEM_FLAG, 0)=0 AND f.RDB$COMPUTED_SOURCE IS NOT NULL;'#13#10+
+        'SELECT ''GTT='' || COUNT(*) FROM RDB$RELATIONS WHERE RDB$RELATION_TYPE IN (4, 5);'#13#10+
+        'SELECT ''DESC='' || COUNT(*) FROM RDB$INDICES WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0 AND RDB$INDEX_TYPE=1;'#13#10+
+        'SELECT ''PARTIAL='' || COUNT(*) FROM RDB$INDICES WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0 AND RDB$CONDITION_SOURCE IS NOT NULL;'#13#10+
+        'SELECT ''EXPR='' || COUNT(*) FROM RDB$INDICES WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0 AND RDB$EXPRESSION_SOURCE IS NOT NULL;'#13#10,
+        GetTempDir+'dbdesigner_beispiel_export.fdb');
+      CheckIsql(IsqlOut, 'script of the example model');
+      Check(Pos('TABLES=14', IsqlOut)>0, '14 tables');
+      Check(Pos('COMPUTED=3', IsqlOut)>0, '3 computed columns');
+      Check(Pos('GTT=2', IsqlOut)>0, '2 global temporary tables');
+      Check(Pos('DESC=2', IsqlOut)>0, '2 descending indices');
+      Check(Pos('PARTIAL=2', IsqlOut)>0, '2 partial indices');
+      Check(Pos('EXPR=1', IsqlOut)>0, '1 index on an expression');
+
+      //------------------------------------------------------------
+      Sync(Model5, '22. the reverse engineered model has no changes');
+      CheckNoChanges;
+      Check(SQLVal('SELECT BRUTTO_PREIS FROM ARTIKEL WHERE ARTIKEL_ID=4')<>'', 'computed column computes');
+
+      DMDB.SQLConn.Close;
     end;
   except
     on E: Exception do

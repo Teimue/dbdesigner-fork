@@ -42,6 +42,10 @@ procedure SQLiteSyncTables(EERModel: TEERModel; ModelTables: TList;
   DbTables: TStringList; Log: TStrings; SyncErrors: TStrings;
   KeepExTbls, StdInsertsOnCreate: Boolean; var C: TSQLiteSyncCounters);
 
+//The statement with its comments (-- to the end of the line, /* */) as
+//blanks; quoted text is left as it is
+function StripSQLComments(const s: string): string;
+
 //The expression of a generated column, read from the CREATE TABLE statement
 //(SQLite keeps it nowhere else); '' if the column is no generated column
 function SQLiteGeneratedColumnExpr(const CreateSQL, ColName: string): string;

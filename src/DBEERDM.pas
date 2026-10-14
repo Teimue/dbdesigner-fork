@@ -3564,32 +3564,13 @@ begin
 end;
 
 function TDMDBEER.RemoveCommentsFromSQLCmd(cmd: string): string;
-var s: string;
 begin
-  s:=cmd;
-
-  while(Pos('/*', s)>0)do
-    //if there is a closing */
-    if(Pos('*/', s)>0)then
-    begin
-      s:=Copy(s, 1, Pos('/*', s))+Copy(s, Pos('*/', s)+2, Length(s));
-    end
-    else
-      s:=Copy(s, 1, Pos('/*', s));
-
-  while(Pos('--', s)>0)do
-    if(Pos(#13, s)>0)then
-      s:=Copy(s, 1, Pos('--', s))+Copy(s, Pos(#13, s), Length(s))
-    else
-      s:=Copy(s, 1, Pos('--', s));
-
-  while(Pos('//', s)>0)do
-    if(Pos(#13, s)>0)then
-      s:=Copy(s, 1, Pos('//', s))+Copy(s, Pos(#13, s), Length(s))
-    else
-      s:=Copy(s, 1, Pos('//', s));
-
-  result := s;
+  //The loops that were here took the first CR of the whole text as the end
+  //of a -- comment: with a CR in front of the comment the text grew until
+  //the memory ran out, without CR the rest of the text was cut off
+  //(a CREATE TABLE written with CRLF and comments, AUTOINCREMENT after a
+  //comment). They also cut at // in a text like 'http://'
+  RemoveCommentsFromSQLCmd:=StripSQLComments(cmd);
 end;
 
 
