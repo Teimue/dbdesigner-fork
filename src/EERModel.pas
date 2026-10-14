@@ -1239,6 +1239,9 @@ type
     //XML (GetObjAsXMLModel) - undo deletes the object, redo reloads it
     at_PasteObj=70;
 
+    //The datatype of a SQLite column declared without type
+    NoTypeDatatypeName='(no type)';
+
     //SQLCmdType
     ct_SQLCmd=1;
     ct_SQLScript=2;
@@ -1255,6 +1258,10 @@ type
 
   //s without one pair of brackets around all of it: (a+b) -> a+b, (a)+(b) stays
   function StripOuterBrackets(const s: string): string;
+  //The type of a column for which no type is written: a SQLite column
+  //declared without type (BLOB affinity). Other databases get a binary type
+  function IsNoTypeDatatype(theDatatype: TObject): Boolean;
+  function NoTypeFallback(const DatabaseType: string): string;
   //A SQLite default that is a function call, which SQLite takes in brackets only
   function SQLiteDefaultNeedsBrackets(const s: string): Boolean;
   //A default of the model as SQLite or FireBird take it: a function call in
@@ -10008,6 +10015,15 @@ begin
     if(DatabaseType = 'SQLite')and(IsSQLiteAutoIncPK(i))then
       //SQLite: AUTOINCREMENT needs exactly INTEGER PRIMARY KEY, no params
       s:=s+'INTEGER'
+    else if(IsNoTypeDatatype(theDatatype))and
+      Not((DatabaseType = 'SQLite')and(TableOptions.Values['SQLiteStrict']='1'))then
+    begin
+      //A column without type: none for SQLite, a binary type elsewhere
+      if(DatabaseType = 'FireBird')then
+        s:=s+FirebirdDatatype('BLOB', '')
+      else
+        s:=s+NoTypeFallback(DatabaseType);
+    end
     else if(DatabaseType = 'SQLite')and(TableOptions.Values['SQLiteStrict']='1')then
       //A STRICT table takes INT, INTEGER, REAL, TEXT, BLOB and ANY only
       s:=s+SQLiteStrictType(theDatatype.GetPhysicalTypeName)
@@ -10194,7 +10210,9 @@ begin
   expr:='('+StripOuterBrackets(Trim(theColumn.GeneratedExpr))+')';
 
   theDatatype:=ParentEERModel.GetDataType(theColumn.idDatatype);
-  if(theDatatype<>nil)then
+  if(IsNoTypeDatatype(theDatatype))then
+    typ:=NoTypeFallback(DatabaseType)
+  else if(theDatatype<>nil)then
     typ:=theDatatype.GetPhysicalTypeName+theColumn.DatatypeParams
   else
     typ:='';
@@ -10247,6 +10265,25 @@ begin
     GetSQLIndexExpressionCode:='(('+expr+'))'
   else
     GetSQLIndexExpressionCode:='('+expr+')';
+end;
+
+function IsNoTypeDatatype(theDatatype: TObject): Boolean;
+begin
+  IsNoTypeDatatype:=(theDatatype<>nil)and
+    (CompareText(TEERDatatype(theDatatype).TypeName, NoTypeDatatypeName)=0);
+end;
+
+function NoTypeFallback(const DatabaseType: string): string;
+begin
+  if(DatabaseType = 'PostgreSQL')then
+    NoTypeFallback:='BYTEA'
+  else if(DatabaseType = 'SQL Server')then
+    NoTypeFallback:='VARBINARY(MAX)'
+  else if(DatabaseType = 'SQLite')then
+    NoTypeFallback:=''
+  else
+    //MySQL, Oracle; FireBird maps it to BLOB SUB_TYPE BINARY
+    NoTypeFallback:='BLOB';
 end;
 
 function StripOuterBrackets(const s: string): string;

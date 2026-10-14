@@ -160,9 +160,13 @@ end;
 
 function FirebirdColumnType(theModel: TEERModel; theColumn: TEERColumn): string;
 begin
-  Result:=FirebirdDatatype(
-    TEERDatatype(theModel.GetDataType(theColumn.idDatatype)).GetPhysicalTypeName,
-    theColumn.DatatypeParams);
+  //A column without type (from SQLite): binary
+  if(IsNoTypeDatatype(TEERDatatype(theModel.GetDataType(theColumn.idDatatype))))then
+    Result:=FirebirdDatatype('BLOB', '')
+  else
+    Result:=FirebirdDatatype(
+      TEERDatatype(theModel.GetDataType(theColumn.idDatatype)).GetPhysicalTypeName,
+      theColumn.DatatypeParams);
 end;
 
 //The type of a column as SQL, from the values of RDB$FIELDS

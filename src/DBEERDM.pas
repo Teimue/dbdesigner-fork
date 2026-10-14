@@ -1790,8 +1790,17 @@ begin
   if(theDatatype=nil)and(CompareText(DatatypeName, 'ANY')=0)then
     theDatatype:=EERModel.AddUserDatatype('ANY', 'SQLite', '');
 
-  //No declared type (BLOB affinity), or a datatype that could not be made:
-  //follow SQLite's type affinity rules
+  //No declared type: a datatype of the model for which no type is written,
+  //so the SQL code and the synchronisation have no type either
+  if(theDatatype=nil)and(DatatypeName='')then
+  begin
+    theDatatype:=EERModel.GetDataTypeByName(NoTypeDatatypeName);
+    if(theDatatype=nil)then
+      theDatatype:=EERModel.AddUserDatatype(NoTypeDatatypeName,
+        'SQLite: column declared without type (BLOB affinity)', '');
+  end;
+
+  //A datatype that could not be made: follow SQLite's type affinity rules
   if(theDatatype=nil)then
   begin
     s:=UpperCase(DatatypeName);

@@ -10,11 +10,11 @@ program TestSQLiteSync;
 // 3.37 or newer, else the part is skipped): reverse engineering of generated
 // columns, indices on an expression, descending and partial indices, CHECK
 // constraints, STRICT, WITHOUT ROWID, text defaults and declared type
-// names, COLLATE and ON CONFLICT; the model saved and loaded, its SQL
-// script run in an empty database, and the synchronisation, which rebuilds
-// only the table with a column without type and keeps everything, then has
-// no changes. At last three tables are rebuilt on purpose: COLLATE, ON
-// CONFLICT, the UNIQUE constraints and DEFERRABLE have to stay.
+// names, a column without type, COLLATE and ON CONFLICT; the model saved
+// and loaded, its SQL script run in an empty database, and the
+// synchronisation, which changes nothing, twice. At last three tables are
+// rebuilt on purpose: COLLATE, ON CONFLICT, the UNIQUE constraints and
+// DEFERRABLE have to stay.
 //
 // Needs the application infrastructure (data modules, LCL):
 //   lazbuild tests/TestSQLiteSync.lpi && bin/TestSQLiteSync
@@ -476,6 +476,7 @@ begin
           (ColType(Model3, T, 't_varying_char')='VARYING CHARACTER(255)')and
           (ColType(Model3, T, 't_decimal')='DECIMAL(10,5)'),
           'declared type names kept');
+        Check(ColType(Model3, T, 't_ohne_typ')=NoTypeDatatypeName, 'column without type');
       end;
 
       //------------------------------------------------------------
@@ -507,9 +508,9 @@ begin
       //------------------------------------------------------------
       SyncModel:=Model3;
       Sync('13. synchronisation of the reverse engineered model');
-      Check(LogHas('Rebuild table datentypen'), 'datentypen rebuilt (column without type)');
-      Check(Pos('Rebuild', StringReplace(Log.Text, 'Rebuild table datentypen', '', []))=0,
-        'no other table rebuilt');
+      Check(Not(LogHas('Rebuild'))and(Not(LogHas('Modifying'))), 'no table rebuilt, no column changed');
+      Check(SQLVal('SELECT type FROM pragma_table_info(''datentypen'') WHERE name=''t_ohne_typ''')='',
+        'the column without type has none');
       Check(Not(LogHas('Create index'))and(Not(LogHas('Update index'))),
         'no index created or updated (UNIQUE constraints and COLLATE kept)');
       Check(SQLVal('SELECT count(*) FROM pragma_index_list(''kunde'')')='2',
