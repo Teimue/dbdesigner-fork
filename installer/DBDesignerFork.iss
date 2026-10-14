@@ -90,11 +90,17 @@ Source: "{#BinDir}\Data\*"; DestDir: "{app}\Data"; Flags: ignoreversion recurses
 Source: "{#BinDir}\Gfx\*"; DestDir: "{app}\Gfx"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BinDir}\Doc\*"; DestDir: "{app}\Doc"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; The example model goes into the documents (all users: the public documents,
-; current user: the own documents) - below "Program Files" it could not be
+; The example models go into the documents (all users: the public documents,
+; current user: the own documents) - below "Program Files" they could not be
 ; saved. The open dialog of the program starts there (GetDefaultModelDir).
 ; A model the user has changed is neither overwritten nor removed.
 Source: "{#BinDir}\Examples\order.xml"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
+; The example databases of SQLite and Firebird: the SQL script that makes
+; the database and the model reverse engineered from it
+Source: "{#BinDir}\Examples\beispiel_sqlite.sql"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#BinDir}\Examples\beispiel_sqlite.xml"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#BinDir}\Examples\beispiel_firebird.sql"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#BinDir}\Examples\beispiel_firebird.xml"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
 
 ; 64 bit client libraries (SQLite, MySQL and what libmysql needs). They are
 ; not part of the repository; a library that is missing is left out.

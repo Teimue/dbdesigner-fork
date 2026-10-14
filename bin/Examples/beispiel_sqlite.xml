@@ -1,7 +1,7 @@
 <?xml version="1.0" standalone="yes" ?>
 <DBMODEL Version="4.0">
 <SETTINGS>
-<GLOBALSETTINGS ModelName="SQLite" IDModel="0" IDVersion="0" VersionStr="1.0.0.0" Comments="" UseVersionHistroy="1" AutoIncVersion="1" DatabaseType="MySQL" ZoomFac="100.00" XPos="0" YPos="0" DefaultDataType="5" DefaultTablePrefix="0" DefSaveDBConn="" DefSyncDBConn="" DefQueryDBConn="" Printer="" HPageCount="4.0" PageAspectRatio="1.440892512336409" PageOrientation="1" PageFormat="A4 (210x297 mm, 8.26x11.7 inches)" SelectedPages="" UsePositionGrid="0" PositionGridX="20" PositionGridY="20" TableNameInRefs="0" DefaultTableType="0" ActivateRefDefForNewRelations="1" FKPrefix="" FKPostfix="" CreateFKRefDefIndex="0" DBQuoteCharacter="`" CreateSQLforLinkedObjects="0" DefModelFont="Tahoma" CanvasWidth="4096" CanvasHeight="2842" />
+<GLOBALSETTINGS ModelName="Beispiel SQLite" IDModel="0" IDVersion="0" VersionStr="1.0.0.0" Comments="" UseVersionHistroy="1" AutoIncVersion="1" DatabaseType="MySQL" ZoomFac="100.00" XPos="0" YPos="0" DefaultDataType="5" DefaultTablePrefix="0" DefSaveDBConn="" DefSyncDBConn="" DefQueryDBConn="" Printer="" HPageCount="4.0" PageAspectRatio="1.440892512336409" PageOrientation="1" PageFormat="A4 (210x297 mm, 8.26x11.7 inches)" SelectedPages="" UsePositionGrid="0" PositionGridX="20" PositionGridY="20" TableNameInRefs="0" DefaultTableType="0" ActivateRefDefForNewRelations="1" FKPrefix="" FKPostfix="" CreateFKRefDefIndex="0" DBQuoteCharacter="`" CreateSQLforLinkedObjects="0" DefModelFont="Tahoma" CanvasWidth="4096" CanvasHeight="2842" />
 <DATATYPEGROUPS>
 <DATATYPEGROUP Name="Numeric Types" Icon="1" />
 <DATATYPEGROUP Name="Date and Time Types" Icon="2" />
@@ -272,9 +272,11 @@
 <PARAM Name="length" />
 </PARAMS>
 </DATATYPE>
-<DATATYPE ID="61" IDGroup="4" TypeName="BOOLEAN" Description="SQLite" ParamCount="0" OptionCount="0" ParamRequired="0" EditParamsAsString="0" SynonymGroup="0" PhysicalMapping="0" PhysicalTypeName="" >
+<DATATYPE ID="61" IDGroup="4" TypeName="(no type)" Description="SQLite: column declared without type (BLOB affinity)" ParamCount="0" OptionCount="0" ParamRequired="0" EditParamsAsString="0" SynonymGroup="0" PhysicalMapping="0" PhysicalTypeName="" >
 </DATATYPE>
-<DATATYPE ID="62" IDGroup="4" TypeName="ANY" Description="SQLite" ParamCount="0" OptionCount="0" ParamRequired="0" EditParamsAsString="0" SynonymGroup="0" PhysicalMapping="0" PhysicalTypeName="" >
+<DATATYPE ID="62" IDGroup="4" TypeName="BOOLEAN" Description="SQLite" ParamCount="0" OptionCount="0" ParamRequired="0" EditParamsAsString="0" SynonymGroup="0" PhysicalMapping="0" PhysicalTypeName="" >
+</DATATYPE>
+<DATATYPE ID="63" IDGroup="4" TypeName="ANY" Description="SQLite" ParamCount="0" OptionCount="0" ParamRequired="0" EditParamsAsString="0" SynonymGroup="0" PhysicalMapping="0" PhysicalTypeName="" >
 </DATATYPE>
 </DATATYPES>
 <COMMON_DATATYPES>
@@ -349,7 +351,7 @@
 <OPTIONSELECT Value="0" />
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1018" ColName="land" PrevColName="" Pos="7" idDatatype="19" DatatypeParams="(2)" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="\aDE\a" Comments="">
+<COLUMN ID="1018" ColName="land" PrevColName="" Pos="7" idDatatype="19" DatatypeParams="(2)" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="\aDE\a" Comments="" Collation="NOCASE">
 <OPTIONSELECTED>
 <OPTIONSELECT Value="0" />
 </OPTIONSELECTED>
@@ -483,7 +485,7 @@
 </INDEX>
 <INDEX ID="1041" IndexName="idx_artikel_bez_nocase" IndexKind="2" FKRefDef_Obj_id="-1">
 <INDEXCOLUMNS>
-<INDEXCOLUMN idColumn="1027" LengthParam="0" />
+<INDEXCOLUMN idColumn="1027" Collation="NOCASE" LengthParam="0" />
 <INDEXCOLUMN idColumn="1026" LengthParam="0" />
 </INDEXCOLUMNS>
 </INDEX>
@@ -498,7 +500,7 @@
 <INDEXCOLUMN idColumn="1026" LengthParam="0" />
 </INDEXCOLUMNS>
 </INDEX>
-<INDEX ID="1044" IndexName="artikel_unique_5" IndexKind="2" FKRefDef_Obj_id="-1">
+<INDEX ID="1044" IndexName="artikel_unique_5" IndexKind="2" FKRefDef_Obj_id="-1" Constraint="1" OnConflict="ABORT">
 <INDEXCOLUMNS>
 <INDEXCOLUMN idColumn="1025" LengthParam="0" />
 </INDEXCOLUMNS>
@@ -765,7 +767,7 @@
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1088" ColName="t_ohne_typ" PrevColName="" Pos="21" idDatatype="24" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="0" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
+<COLUMN ID="1088" ColName="t_ohne_typ" PrevColName="" Pos="21" idDatatype="61" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="0" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
@@ -799,7 +801,7 @@
 <OPTIONSELECT Value="0" />
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1095" ColName="t_boolean" PrevColName="" Pos="28" idDatatype="61" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="0" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
+<COLUMN ID="1095" ColName="t_boolean" PrevColName="" Pos="28" idDatatype="62" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="0" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
@@ -842,7 +844,7 @@
 <OPTIONSELECT Value="0" />
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1103" ColName="name" PrevColName="" Pos="3" idDatatype="20" DatatypeParams="(80)" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
+<COLUMN ID="1103" ColName="name" PrevColName="" Pos="3" idDatatype="20" DatatypeParams="(80)" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="" Collation="NOCASE">
 <OPTIONSELECTED>
 <OPTIONSELECT Value="0" />
 </OPTIONSELECTED>
@@ -853,7 +855,7 @@
 <OPTIONSELECT Value="0" />
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1105" ColName="aktiv" PrevColName="" Pos="5" idDatatype="61" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="1" Comments="">
+<COLUMN ID="1105" ColName="aktiv" PrevColName="" Pos="5" idDatatype="62" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="1" Comments="">
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
@@ -871,7 +873,7 @@
 <INDEXCOLUMN idColumn="1101" LengthParam="0" />
 </INDEXCOLUMNS>
 </INDEX>
-<INDEX ID="1107" IndexName="kategorie_unique_0" IndexKind="2" FKRefDef_Obj_id="-1">
+<INDEX ID="1107" IndexName="uq_kategorie_name" IndexKind="2" FKRefDef_Obj_id="-1" Constraint="1">
 <INDEXCOLUMNS>
 <INDEXCOLUMN idColumn="1102" LengthParam="0" />
 <INDEXCOLUMN idColumn="1103" LengthParam="0" />
@@ -899,11 +901,11 @@
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1112" ColName="nachname" PrevColName="" Pos="5" idDatatype="28" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
+<COLUMN ID="1112" ColName="nachname" PrevColName="" Pos="5" idDatatype="28" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="" NotNullConflict="FAIL">
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1113" ColName="email" PrevColName="" Pos="6" idDatatype="28" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
+<COLUMN ID="1113" ColName="email" PrevColName="" Pos="6" idDatatype="28" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="" Collation="NOCASE">
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
@@ -922,7 +924,7 @@
 <OPTIONSELECT Value="0" />
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1117" ColName="zusatzdaten" PrevColName="" Pos="10" idDatatype="62" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="0" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
+<COLUMN ID="1117" ColName="zusatzdaten" PrevColName="" Pos="10" idDatatype="63" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="0" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
@@ -951,12 +953,12 @@
 <INDEXCOLUMN idColumn="1108" LengthParam="0" />
 </INDEXCOLUMNS>
 </INDEX>
-<INDEX ID="1121" IndexName="kunde_unique_0" IndexKind="2" FKRefDef_Obj_id="-1">
+<INDEX ID="1121" IndexName="uq_kunde_email" IndexKind="2" FKRefDef_Obj_id="-1" Constraint="1">
 <INDEXCOLUMNS>
 <INDEXCOLUMN idColumn="1113" LengthParam="0" />
 </INDEXCOLUMNS>
 </INDEX>
-<INDEX ID="1122" IndexName="kunde_unique_1" IndexKind="2" FKRefDef_Obj_id="-1">
+<INDEX ID="1122" IndexName="kunde_unique_1" IndexKind="2" FKRefDef_Obj_id="-1" Constraint="1">
 <INDEXCOLUMNS>
 <INDEXCOLUMN idColumn="1109" LengthParam="0" />
 </INDEXCOLUMNS>
@@ -1055,7 +1057,7 @@
 <INDEXCOLUMN idColumn="1131" LengthParam="0" />
 </INDEXCOLUMNS>
 </INDEX>
-<INDEX ID="1137" IndexName="lieferung_unique_1" IndexKind="2" FKRefDef_Obj_id="-1">
+<INDEX ID="1137" IndexName="lieferung_unique_1" IndexKind="2" FKRefDef_Obj_id="-1" Constraint="1">
 <INDEXCOLUMNS>
 <INDEXCOLUMN idColumn="1133" LengthParam="0" />
 </INDEXCOLUMNS>
@@ -1113,7 +1115,7 @@
 <OPTIONSELECT Value="0" />
 </OPTIONSELECTED>
 </COLUMN>
-<COLUMN ID="1147" ColName="wort" PrevColName="" Pos="2" idDatatype="28" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="">
+<COLUMN ID="1147" ColName="wort" PrevColName="" Pos="2" idDatatype="28" DatatypeParams="" Width="0" Prec="0" PrimaryKey="0" NotNull="1" AutoInc="0" IsForeignKey="0" DefaultValue="" Comments="" Collation="NOCASE">
 <OPTIONSELECTED>
 </OPTIONSELECTED>
 </COLUMN>
@@ -1127,7 +1129,7 @@
 <INDEXCOLUMN idColumn="1146" LengthParam="0" />
 </INDEXCOLUMNS>
 </INDEX>
-<INDEX ID="1149" IndexName="schlagwort_unique_0" IndexKind="2" FKRefDef_Obj_id="-1">
+<INDEX ID="1149" IndexName="schlagwort_unique_0" IndexKind="2" FKRefDef_Obj_id="-1" Constraint="1">
 <INDEXCOLUMNS>
 <INDEXCOLUMN idColumn="1147" LengthParam="0" />
 </INDEXCOLUMNS>
@@ -1143,7 +1145,7 @@
 <RELATION ID="1154" RelationName="Rel_05" Kind="2" SrcTable="1001" DestTable="1003" FKFields="artikel_id=artikel_id\n" FKFieldsComments="\n" relDirection="2" MidOffset="0" OptionalStart="0" OptionalEnd="0" CaptionOffsetX="0" CaptionOffsetY="0" StartIntervalOffsetX="0" StartIntervalOffsetY="0" EndIntervalOffsetX="0" EndIntervalOffsetY="0" CreateRefDef="1" Invisible="0" RefDef="Matching=0\nOnDelete=0\nOnUpdate=1\n" Comments="" FKRefDefIndex_Obj_id="-1" Splitted="0" IsLinkedObject="0" IDLinkedModel="-1" Obj_id_Linked="-1" OrderPos="18" />
 <RELATION ID="1155" RelationName="Rel_06" Kind="1" SrcTable="1004" DestTable="1003" FKFields="bestellung_id=bestellung_id\n" FKFieldsComments="\n" relDirection="4" MidOffset="0" OptionalStart="0" OptionalEnd="0" CaptionOffsetX="0" CaptionOffsetY="0" StartIntervalOffsetX="0" StartIntervalOffsetY="0" EndIntervalOffsetX="0" EndIntervalOffsetY="0" CreateRefDef="1" Invisible="0" RefDef="Matching=0\nOnDelete=1\nOnUpdate=3\n" Comments="" FKRefDefIndex_Obj_id="-1" Splitted="0" IsLinkedObject="0" IDLinkedModel="-1" Obj_id_Linked="-1" OrderPos="19" />
 <RELATION ID="1156" RelationName="Rel_07" Kind="2" SrcTable="1000" DestTable="1004" FKFields="adresse_id=lieferadresse_id\n" FKFieldsComments="\n" relDirection="2" MidOffset="0" OptionalStart="0" OptionalEnd="0" CaptionOffsetX="0" CaptionOffsetY="0" StartIntervalOffsetX="0" StartIntervalOffsetY="0" EndIntervalOffsetX="0" EndIntervalOffsetY="0" CreateRefDef="1" Invisible="0" RefDef="Matching=0\nOnDelete=2\nOnUpdate=3\n" Comments="" FKRefDefIndex_Obj_id="-1" Splitted="0" IsLinkedObject="0" IDLinkedModel="-1" Obj_id_Linked="-1" OrderPos="20" />
-<RELATION ID="1157" RelationName="Rel_08" Kind="2" SrcTable="1007" DestTable="1004" FKFields="kunde_id=kunde_id\n" FKFieldsComments="\n" relDirection="1" MidOffset="0" OptionalStart="0" OptionalEnd="0" CaptionOffsetX="0" CaptionOffsetY="0" StartIntervalOffsetX="0" StartIntervalOffsetY="0" EndIntervalOffsetX="0" EndIntervalOffsetY="0" CreateRefDef="1" Invisible="0" RefDef="Matching=0\nOnDelete=0\nOnUpdate=3\n" Comments="" FKRefDefIndex_Obj_id="-1" Splitted="0" IsLinkedObject="0" IDLinkedModel="-1" Obj_id_Linked="-1" OrderPos="21" />
+<RELATION ID="1157" RelationName="Rel_08" Kind="2" SrcTable="1007" DestTable="1004" FKFields="kunde_id=kunde_id\n" FKFieldsComments="\n" relDirection="1" MidOffset="0" OptionalStart="0" OptionalEnd="0" CaptionOffsetX="0" CaptionOffsetY="0" StartIntervalOffsetX="0" StartIntervalOffsetY="0" EndIntervalOffsetX="0" EndIntervalOffsetY="0" CreateRefDef="1" Invisible="0" RefDef="Matching=0\nOnDelete=0\nOnUpdate=3\nDeferrable=DEFERRED\n" Comments="" FKRefDefIndex_Obj_id="-1" Splitted="0" IsLinkedObject="0" IDLinkedModel="-1" Obj_id_Linked="-1" OrderPos="21" />
 <RELATION ID="1158" RelationName="Rel_09" Kind="2" SrcTable="1006" DestTable="1006" FKFields="kategorie_id=eltern_id\n" FKFieldsComments="\n" relDirection="2" MidOffset="0" OptionalStart="0" OptionalEnd="0" CaptionOffsetX="0" CaptionOffsetY="0" StartIntervalOffsetX="0" StartIntervalOffsetY="0" EndIntervalOffsetX="0" EndIntervalOffsetY="0" CreateRefDef="1" Invisible="0" RefDef="Matching=0\nOnDelete=2\nOnUpdate=1\n" Comments="" FKRefDefIndex_Obj_id="-1" Splitted="0" IsLinkedObject="0" IDLinkedModel="-1" Obj_id_Linked="-1" OrderPos="22" />
 <RELATION ID="1159" RelationName="Rel_10" Kind="2" SrcTable="1007" DestTable="1007" FKFields="kunde_id=werber_id\n" FKFieldsComments="\n" relDirection="2" MidOffset="0" OptionalStart="0" OptionalEnd="0" CaptionOffsetX="0" CaptionOffsetY="0" StartIntervalOffsetX="0" StartIntervalOffsetY="0" EndIntervalOffsetX="0" EndIntervalOffsetY="0" CreateRefDef="1" Invisible="0" RefDef="Matching=0\nOnDelete=2\nOnUpdate=3\n" Comments="" FKRefDefIndex_Obj_id="-1" Splitted="0" IsLinkedObject="0" IDLinkedModel="-1" Obj_id_Linked="-1" OrderPos="23" />
 <RELATION ID="1160" RelationName="Rel_11" Kind="1" SrcTable="1001" DestTable="1008" FKFields="artikel_id=artikel_id\n" FKFieldsComments="\n" relDirection="4" MidOffset="0" OptionalStart="0" OptionalEnd="0" CaptionOffsetX="0" CaptionOffsetY="0" StartIntervalOffsetX="0" StartIntervalOffsetY="0" EndIntervalOffsetX="0" EndIntervalOffsetY="0" CreateRefDef="1" Invisible="0" RefDef="Matching=0\nOnDelete=1\nOnUpdate=3\n" Comments="" FKRefDefIndex_Obj_id="-1" Splitted="0" IsLinkedObject="0" IDLinkedModel="-1" Obj_id_Linked="-1" OrderPos="24" />
