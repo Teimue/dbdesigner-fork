@@ -9780,6 +9780,13 @@ begin
             4: s:=s+#13#10+'      ON UPDATE SET DEFAULT';
           end;
 
+        //A foreign key checked at the end of the transaction (RefDef
+        //Deferrable=DEFERRED or IMMEDIATE); MySQL, SQL Server and FireBird
+        //have no deferrable foreign keys
+        if(theRel.RefDef.Values['Deferrable']<>'')and((DatabaseType = 'SQLite')or
+          (DatabaseType = 'PostgreSQL')or(DatabaseType = 'Oracle'))then
+          s:=s+#13#10+'      DEFERRABLE INITIALLY '+theRel.RefDef.Values['Deferrable'];
+
         inc(relCounter);
       end;
     end;

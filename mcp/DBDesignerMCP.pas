@@ -435,6 +435,9 @@ begin
       StrToIntDef(Rel.RefDef.Values['OnDelete'], 3)));
     Result.Add('on_update', NameInList(RefActionNames,
       StrToIntDef(Rel.RefDef.Values['OnUpdate'], 3)));
+    //DEFERRABLE INITIALLY DEFERRED / IMMEDIATE (SQLite, PostgreSQL, Oracle)
+    if(Rel.RefDef.Values['Deferrable']<>'')then
+      Result.Add('deferrable', U(Rel.RefDef.Values['Deferrable']));
   end;
   if(Rel.Comments<>'')then
     Result.Add('comments', U(Rel.Comments));

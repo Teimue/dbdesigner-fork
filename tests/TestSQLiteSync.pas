@@ -13,8 +13,8 @@ program TestSQLiteSync;
 // names, COLLATE and ON CONFLICT; the model saved and loaded, its SQL
 // script run in an empty database, and the synchronisation, which rebuilds
 // only the table with a column without type and keeps everything, then has
-// no changes. At last two tables are rebuilt on purpose: COLLATE, ON
-// CONFLICT and the UNIQUE constraints have to stay.
+// no changes. At last three tables are rebuilt on purpose: COLLATE, ON
+// CONFLICT, the UNIQUE constraints and DEFERRABLE have to stay.
 //
 // Needs the application infrastructure (data modules, LCL):
 //   lazbuild tests/TestSQLiteSync.lpi && bin/TestSQLiteSync
@@ -461,6 +461,13 @@ begin
         Check((Idx<>nil)and(Idx.OnConflict='ABORT'), 'UNIQUE ON CONFLICT ABORT of artikelnr');
         Check(FindIndex(Artikel, 'idx_artikel_bez_nocase').ColumnCollations.Values[
           IntToStr(Col(Artikel, 'bezeichnung').Obj_id)]='NOCASE', 'COLLATE of an index column');
+        j:=0;
+        T:=FindTable(Model3, 'bestellung');
+        for i:=0 to T.RelEnd.Count-1 do
+          if(TEERRel(T.RelEnd[i]).SrcTbl=Kunde)and
+            (TEERRel(T.RelEnd[i]).RefDef.Values['Deferrable']='DEFERRED')then
+            inc(j);
+        Check(j=1, 'foreign key bestellung -> kunde DEFERRABLE INITIALLY DEFERRED');
 
         T:=FindTable(Model3, 'datentypen');
         Check((ColType(Model3, T, 't_clob')='CLOB')and(ColType(Model3, T, 't_boolean')='BOOLEAN')and
@@ -531,8 +538,14 @@ begin
       //Another datatype rebuilds kunde and artikel
       Col(Kunde, 'avatar').idDatatype:=TEERDatatype(Model3.GetDataTypeByName('TEXT')).id;
       Col(Artikel, 'bild').idDatatype:=TEERDatatype(Model3.GetDataTypeByName('TEXT')).id;
-      Sync('15. rebuilt tables keep COLLATE, ON CONFLICT and UNIQUE constraints');
-      Check(LogHas('Rebuild table kunde')and LogHas('Rebuild table artikel'), 'kunde and artikel rebuilt');
+      Col(FindTable(Model3, 'bestellung'), 'bemerkung').idDatatype:=
+        TEERDatatype(Model3.GetDataTypeByName('TEXT')).id;
+      Sync('15. rebuilt tables keep COLLATE, ON CONFLICT, UNIQUE constraints and DEFERRABLE');
+      Check(LogHas('Rebuild table kunde')and LogHas('Rebuild table artikel')and
+        LogHas('Rebuild table bestellung'), 'kunde, artikel and bestellung rebuilt');
+      Check(Pos('DEFERRABLE INITIALLY DEFERRED',
+        SQLVal('SELECT sql FROM sqlite_master WHERE name=''bestellung'''))>0,
+        'DEFERRABLE INITIALLY DEFERRED of bestellung kept');
       s:=SQLVal('SELECT sql FROM sqlite_master WHERE name=''kunde''');
       Check(Pos('COLLATE NOCASE', s)>0, 'COLLATE NOCASE of email kept');
       Check(Pos('NOT NULL ON CONFLICT FAIL', s)>0, 'NOT NULL ON CONFLICT FAIL kept');

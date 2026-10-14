@@ -1258,6 +1258,7 @@ var EERModel: TEERModel;
   IsStrict, WithoutRowid: Boolean;
   PKConflict, s, effColl: string;
   k: integer;
+  DeferKeys: TStringList;
 begin
   EERModel:=theModel;
 
@@ -1566,6 +1567,17 @@ begin
         theTable:=TEERTable(DbTables[i]);
         quotedName:=StringReplace(theTable.ObjName, '''', '''''', [rfReplaceAll]);
 
+        //DEFERRABLE is only in the CREATE TABLE text
+        sqlcmd:='';
+        DMDB.SchemaSQLQuery.SQL.Text:='SELECT sql FROM sqlite_master '+
+          'WHERE type=''table'' AND name='''+quotedName+'''';
+        DMDB.SchemaSQLQuery.Open;
+        if(Not(DMDB.SchemaSQLQuery.EOF))then
+          sqlcmd:=DMDB.SchemaSQLQuery.Fields[0].AsString;
+        DMDB.SchemaSQLQuery.Close;
+        DeferKeys:=TStringList.Create;
+        SQLiteDeferrableKeys(sqlcmd, DeferKeys);
+
         DMDB.SchemaSQLQuery.SQL.Text:='SELECT id AS fkid, seq AS fkseq, '+
           '"table" AS reftable, "from" AS fromcol, "to" AS tocol, '+
           'on_update, on_delete FROM pragma_foreign_key_list('''+quotedName+''') '+
@@ -1643,10 +1655,24 @@ begin
           if(AllFKColsArePK)and(parentTbl<>theTable)then
             theRel.RelKind:=rk_1n;
 
+          //DEFERRABLE INITIALLY ..., found by the columns of the foreign key
+          s:='';
+          for j:=0 to theRel.FKFields.Count-1 do
+          begin
+            if(j>0)then
+              s:=s+',';
+            s:=s+theRel.FKFields.ValueFromIndex[j];
+          end;
+          for j:=0 to DeferKeys.Count-1 do
+            if(CompareText(Copy(DeferKeys[j], 1, Pos(#9, DeferKeys[j])-1), s)=0)then
+              theRel.RefDef.Values['Deferrable']:=
+                Copy(DeferKeys[j], Pos(#9, DeferKeys[j])+1, Length(DeferKeys[j]));
+
           theRel.SrcTbl.RefreshRelations;
           theRel.DestTbl.RefreshRelations;
         end;
         DMDB.SchemaSQLQuery.Close;
+        DeferKeys.Free;
       end;
 
       //2. Guess the remaining ones by name / primary key like the other

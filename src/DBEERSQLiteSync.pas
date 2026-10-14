@@ -71,6 +71,11 @@ procedure SQLiteTableFlags(const CreateSQL: string; var IsStrict, WithoutRowid: 
 procedure SQLiteTableClauses(const CreateSQL: string; Cols, Uniques: TStrings;
   var PKConflict: string);
 
+//The deferrable foreign keys of a CREATE TABLE statement: one line per
+//foreign key, its columns (comma separated) TAB DEFERRED or IMMEDIATE (the
+//INITIALLY of DEFERRABLE)
+procedure SQLiteDeferrableKeys(const CreateSQL: string; Keys: TStrings);
+
 implementation
 
 uses DB, SQLDB, Dialogs, Controls, MainDM, DBDM;
@@ -640,6 +645,77 @@ begin
   end;
 end;
 
+procedure SQLiteDeferrableKeys(const CreateSQL: string; Keys: TStrings);
+var s, cols, w: string;
+  p, e, k, i, m, n, start: integer;
+  Parts, T, Items: TStringList;
+begin
+  Keys.Clear;
+  s:=StripSQLComments(CreateSQL);
+  p:=Pos('(', s);
+  if(p=0)then
+    Exit;
+  e:=MatchingBracket(s, p);
+  if(e=0)then
+    Exit;
+
+  Parts:=TStringList.Create;
+  T:=TStringList.Create;
+  Items:=TStringList.Create;
+  try
+    SplitTopLevel(Copy(s, p+1, e-p-1), Parts);
+    for k:=0 to Parts.Count-1 do
+    begin
+      TopTokens(Parts[k], T);
+      if(T.Count=0)then
+        continue;
+
+      //The columns of the foreign key and where its clause starts
+      cols:='';
+      start:=-1;
+      i:=0;
+      if(UpperCase(T[0])='CONSTRAINT')then
+        i:=2;
+      if(i+2<T.Count)and(UpperCase(T[i])='FOREIGN')and(UpperCase(T[i+1])='KEY')then
+      begin
+        SplitTopLevel(Copy(T[i+2], 2, Length(T[i+2])-2), Items);
+        for m:=0 to Items.Count-1 do
+        begin
+          if(m>0)then
+            cols:=cols+',';
+          cols:=cols+FirstName(Items[m], n);
+        end;
+        start:=i+3;
+      end
+      else if(Not((UpperCase(T[i])='PRIMARY')or(UpperCase(T[i])='UNIQUE')or
+        (UpperCase(T[i])='CHECK')))then
+        //A column with REFERENCES in its definition
+        for m:=1 to T.Count-1 do
+          if(UpperCase(T[m])='REFERENCES')and(start=-1)then
+          begin
+            cols:=Unquoted(T[0]);
+            start:=m;
+          end;
+      if(start=-1)then
+        continue;
+
+      for m:=start to T.Count-1 do
+        if(UpperCase(T[m])='DEFERRABLE')and(UpperCase(T[m-1])<>'NOT')then
+        begin
+          w:='IMMEDIATE';
+          if(m+2<T.Count)and(UpperCase(T[m+1])='INITIALLY')then
+            w:=UpperCase(T[m+2]);
+          Keys.Add(cols+#9+w);
+          break;
+        end;
+    end;
+  finally
+    Items.Free;
+    T.Free;
+    Parts.Free;
+  end;
+end;
+
 //The statement without the ASC of the index columns, which is the default
 //order: (a ASC, b) is the same index as (a, b)
 function WithoutAscKeywords(const s: string): string;
@@ -1003,6 +1079,16 @@ var
         Lines.Add('U:'+UpperCase(Names.CommaText+'|'+Copy(line, Pos(#9, line)+1, Length(line))));
       end;
       Lines.Add('P:'+UpperCase(pk));
+      //Deferrable foreign keys
+      SQLiteDeferrableKeys(QueryStr('SELECT sql FROM sqlite_master WHERE type=''table'' '+
+        'AND lower(name)=lower('+QuotedStr(tbl)+')'), Uniques);
+      for k:=0 to Uniques.Count-1 do
+      begin
+        Names.CommaText:=Copy(Uniques[k], 1, Pos(#9, Uniques[k])-1);
+        for m:=0 to Names.Count-1 do
+          Names[m]:=NewName(Names[m]);
+        Lines.Add('F:'+UpperCase(Names.CommaText+'|'+Copy(Uniques[k], Pos(#9, Uniques[k])+1, Length(Uniques[k]))));
+      end;
       Lines.Sort;
       TableClauses:=Lines.Text;
     finally
@@ -1358,7 +1444,7 @@ var
       //COLLATE of the columns, ON CONFLICT, UNIQUE constraints
       if(TableClauses(TmpTbl, nil)<>TableClauses(X, Renames))then
       begin
-        Log.Add('Change COLLATE / ON CONFLICT / UNIQUE constraints on table '+X);
+        Log.Add('Change COLLATE / ON CONFLICT / UNIQUE constraints / DEFERRABLE on table '+X);
         NeedRebuild:=True;
       end;
 
