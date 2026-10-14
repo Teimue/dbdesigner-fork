@@ -94,6 +94,13 @@ const
     'WHERE rc.RDB$CONSTRAINT_TYPE=''CHECK'' AND rc.RDB$RELATION_NAME=%s '+
     'AND t.RDB$TRIGGER_TYPE=1 ORDER BY rc.RDB$CONSTRAINT_NAME';
 
+  //The CHECK constraints of the domains of the columns of a table
+  DomainChecksSQL = 'SELECT TRIM(rf.RDB$FIELD_NAME) AS COLNAME, f.RDB$VALIDATION_SOURCE AS VSRC '+
+    'FROM RDB$RELATION_FIELDS rf '+
+    'JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME=rf.RDB$FIELD_SOURCE '+
+    'WHERE rf.RDB$RELATION_NAME=%s AND f.RDB$VALIDATION_SOURCE IS NOT NULL '+
+    'ORDER BY rf.RDB$FIELD_POSITION';
+
   //The indices on an expression (COMPUTED BY) of a table
   ExpressionIndicesSQL = 'SELECT TRIM(i.RDB$INDEX_NAME) AS IDXNAME, '+
     'COALESCE(i.RDB$UNIQUE_FLAG, 0) AS IDXUNIQUE, i.RDB$EXPRESSION_SOURCE AS IDXEXPR, '+
@@ -147,6 +154,48 @@ begin
   if(CompareText(Copy(Result, 1, 5), 'CHECK')=0)then
     Result:=Trim(Copy(Result, 6, Length(Result)));
   Result:=StripOuterBrackets(Result);
+end;
+
+//The CHECK of a domain as a CHECK of the table: VALUE is the column
+//(VALUE >= 0 -> NETTO_PREIS >= 0); a VALUE in quotes stays
+function DomainCheckExpression(const s, ColName: string): string;
+var t, col: string;
+  p: integer;
+  q: char;
+begin
+  t:=CheckExpressionOf(s);
+  col:=FirebirdName(ColName, False);
+  Result:='';
+  p:=1;
+  q:=#0;
+  while(p<=Length(t))do
+  begin
+    if(q<>#0)then
+    begin
+      if(t[p]=q)then
+        q:=#0;
+      Result:=Result+t[p];
+      inc(p);
+    end
+    else if(t[p] in ['''', '"'])then
+    begin
+      q:=t[p];
+      Result:=Result+t[p];
+      inc(p);
+    end
+    else if(CompareText(Copy(t, p, 5), 'VALUE')=0)and
+      ((p=1)or(Not(t[p-1] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$'])))and
+      ((p+5>Length(t))or(Not(t[p+5] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$'])))then
+    begin
+      Result:=Result+col;
+      inc(p, 5);
+    end
+    else
+    begin
+      Result:=Result+t[p];
+      inc(p);
+    end;
+  end;
 end;
 
 //The name of a CHECK constraint for the model: '' for a name Firebird made
@@ -656,6 +705,18 @@ begin
       begin
         theTable.AddCheck(CheckNameOf(Q.FieldByName('CNAME').AsString),
           CheckExpressionOf(Q.FieldByName('CSRC').AsString));
+        Q.Next;
+      end;
+      Q.Close;
+
+      //The CHECK of the domain of a column: the model has the base type of
+      //the column, so the CHECK becomes one of the table (without a name)
+      Q.SQL.Text:=Format(DomainChecksSQL, [QuotedStr(theTable.ObjName)]);
+      Q.Open;
+      while(Not(Q.EOF))do
+      begin
+        theTable.AddCheck('', DomainCheckExpression(Q.FieldByName('VSRC').AsString,
+          Q.FieldByName('COLNAME').AsString));
         Q.Next;
       end;
       Q.Close;
@@ -1297,7 +1358,8 @@ var
   end;
 
   //The CHECK constraints of a table in the database: Names[k] and the
-  //normalised expression Exprs[k]
+  //normalised expression Exprs[k]. Those of the domains of its columns
+  //follow with an empty name: they count, but they are not dropped
   procedure LoadChecks(const tbl: string; Names, Exprs: TStrings);
   begin
     Names.Clear;
@@ -1309,6 +1371,20 @@ var
       begin
         Names.Add(Q.FieldByName('CNAME').AsString);
         Exprs.Add(NormExpr(CheckExpressionOf(Q.FieldByName('CSRC').AsString)));
+        Q.Next;
+      end;
+    finally
+      Q.Close;
+    end;
+
+    Q.SQL.Text:=Format(DomainChecksSQL, [QuotedStr(tbl)]);
+    Q.Open;
+    try
+      while(Not(Q.EOF))do
+      begin
+        Names.Add('');
+        Exprs.Add(NormExpr(DomainCheckExpression(Q.FieldByName('VSRC').AsString,
+          Q.FieldByName('COLNAME').AsString)));
         Q.Next;
       end;
     finally
@@ -1338,6 +1414,9 @@ var
       LoadChecks(tbl, Names, Exprs);
       for k:=0 to Names.Count-1 do
       begin
+        //The CHECK of a domain belongs to the domain
+        if(Names[k]='')then
+          continue;
         found:=False;
         for m:=0 to aTable.CheckConstraints.Count-1 do
           if(NormExpr(aTable.CheckExpression(m))=Exprs[k])and

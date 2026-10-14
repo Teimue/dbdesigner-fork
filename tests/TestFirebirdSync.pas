@@ -14,7 +14,8 @@ program TestFirebirdSync;
 // bin/Examples/beispiel_firebird.sql: reverse engineering of computed
 // columns, indices on an expression, descending and partial indices,
 // global temporary tables, text defaults and the types of Firebird
-// (NUMERIC, INT128, DECFLOAT, time zones, BINARY), CHECK constraints; the
+// (NUMERIC, INT128, DECFLOAT, time zones, BINARY), CHECK constraints (also
+// those of domains); the
 // model saved and loaded, its SQL script loaded with isql, a
 // synchronisation without changes, and one with a CHECK constraint
 // changed, dropped and added.
@@ -770,8 +771,13 @@ begin
           (ColType(Model5, T, 'T_DOMAENE')='NUMERIC(12,2)'),
           'types of Firebird kept');
         Kunde:=GetTable(Model5, 'KUNDE');
-        Check((Kunde.CheckConstraints.Count=3)and(Kunde.CheckName(0)='CK_KUNDE_ANREDE')and
+        Check((Kunde.CheckConstraints.Count=4)and(Kunde.CheckName(0)='CK_KUNDE_ANREDE')and
           (Kunde.CheckExpression(1)='KUNDENNR SIMILAR TO ''K[0-9]{5}'''), 'CHECK constraints of KUNDE');
+        Check((Kunde.CheckName(3)='')and
+          (Kunde.CheckExpression(3)='EMAIL IS NULL OR EMAIL LIKE ''%_@_%._%'''),
+          'CHECK of the domain D_EMAIL as CHECK of the table');
+        Check((Artikel.CheckConstraints.Count=2)and(Artikel.CheckExpression(1)='NETTO_PREIS >= 0'),
+          'CHECK of the domain D_GELD for NETTO_PREIS');
         Check((GetTable(Model5, 'LIEFERUNG').CheckConstraints.Count=1)and
           (GetTable(Model5, 'LIEFERUNG').CheckName(0)='')and
           (GetTable(Model5, 'LIEFERUNG').CheckExpression(0)='MENGE > 0'),
@@ -808,7 +814,7 @@ begin
       Check(Pos('DESC=2', IsqlOut)>0, '2 descending indices');
       Check(Pos('PARTIAL=2', IsqlOut)>0, '2 partial indices');
       Check(Pos('EXPR=1', IsqlOut)>0, '1 index on an expression');
-      Check(Pos('CHECKS=11', IsqlOut)>0, '11 CHECK constraints');
+      Check(Pos('CHECKS=17', IsqlOut)>0, '17 CHECK constraints (11 of the tables, 6 of domains)');
 
       //------------------------------------------------------------
       Sync(Model5, '22. the reverse engineered model has no changes');
