@@ -49,3 +49,5 @@ Testdata/
 
 # Setup programs built by Inno Setup
 installer/Output/
+# example database, made by tools/make-example-databases.py
+bin/Examples/beispiel.fdb

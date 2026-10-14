@@ -1,6 +1,7 @@
 ﻿; Inno Setup script for DBDesigner Fork (Windows, 64 bit)
 ;
-; Build the program, the plugins and the MCP server first (see README.md), then
+; Build the program, the plugins and the MCP server first (see README.md), make
+; the example databases with "python tools\make-example-databases.py", then
 ;   "C:\Program Files\Inno Setup 7\ISCC.exe" installer\DBDesignerFork.iss
 ; The setup program is written to installer\Output.
 ;
@@ -101,6 +102,19 @@ Source: "{#BinDir}\Examples\beispiel_sqlite.sql"; DestDir: "{autodocs}\DBDesigne
 Source: "{#BinDir}\Examples\beispiel_sqlite.xml"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#BinDir}\Examples\beispiel_firebird.sql"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#BinDir}\Examples\beispiel_firebird.xml"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
+; The databases made from the two scripts (tools\make-example-databases.py,
+; not part of the repository); a database the user has changed is neither
+; overwritten nor removed
+#if FileExists(SourcePath + BinDir + "\Examples\beispiel.sqlite")
+Source: "{#BinDir}\Examples\beispiel.sqlite"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
+#else
+  #pragma warning "No bin\Examples\beispiel.sqlite (python tools\make-example-databases.py), it is left out"
+#endif
+#if FileExists(SourcePath + BinDir + "\Examples\beispiel.fdb")
+Source: "{#BinDir}\Examples\beispiel.fdb"; DestDir: "{autodocs}\DBDesigner"; Flags: onlyifdoesntexist uninsneveruninstall
+#else
+  #pragma warning "No bin\Examples\beispiel.fdb (python tools\make-example-databases.py), it is left out"
+#endif
 
 ; 64 bit client libraries (SQLite, MySQL and what libmysql needs). They are
 ; not part of the repository; a library that is missing is left out.
