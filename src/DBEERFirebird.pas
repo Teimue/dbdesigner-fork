@@ -85,6 +85,15 @@ const
     'WHERE i.RDB$RELATION_NAME=%0:s AND COALESCE(i.RDB$SYSTEM_FLAG, 0)=0 '+
     'ORDER BY i.RDB$INDEX_NAME, s.RDB$FIELD_POSITION';
 
+  //The CHECK constraints of a table: Firebird keeps the expression in the
+  //source of the two triggers it makes for each (before insert and update)
+  ChecksSQL = 'SELECT TRIM(rc.RDB$CONSTRAINT_NAME) AS CNAME, t.RDB$TRIGGER_SOURCE AS CSRC '+
+    'FROM RDB$RELATION_CONSTRAINTS rc '+
+    'JOIN RDB$CHECK_CONSTRAINTS cc ON cc.RDB$CONSTRAINT_NAME=rc.RDB$CONSTRAINT_NAME '+
+    'JOIN RDB$TRIGGERS t ON t.RDB$TRIGGER_NAME=cc.RDB$TRIGGER_NAME '+
+    'WHERE rc.RDB$CONSTRAINT_TYPE=''CHECK'' AND rc.RDB$RELATION_NAME=%s '+
+    'AND t.RDB$TRIGGER_TYPE=1 ORDER BY rc.RDB$CONSTRAINT_NAME';
+
   //The indices on an expression (COMPUTED BY) of a table
   ExpressionIndicesSQL = 'SELECT TRIM(i.RDB$INDEX_NAME) AS IDXNAME, '+
     'COALESCE(i.RDB$UNIQUE_FLAG, 0) AS IDXUNIQUE, i.RDB$EXPRESSION_SOURCE AS IDXEXPR, '+
@@ -129,6 +138,24 @@ begin
     ConditionColumn:='i.RDB$CONDITION_SOURCE'
   else
     ConditionColumn:='CAST(NULL AS VARCHAR(1))';
+end;
+
+//The expression of a CHECK constraint from its trigger source CHECK (...)
+function CheckExpressionOf(const s: string): string;
+begin
+  Result:=Trim(s);
+  if(CompareText(Copy(Result, 1, 5), 'CHECK')=0)then
+    Result:=Trim(Copy(Result, 6, Length(Result)));
+  Result:=StripOuterBrackets(Result);
+end;
+
+//The name of a CHECK constraint for the model: '' for a name Firebird made
+function CheckNameOf(const s: string): string;
+begin
+  if(CompareText(Copy(s, 1, 6), 'INTEG_')=0)then
+    CheckNameOf:=''
+  else
+    CheckNameOf:=s;
 end;
 
 //The condition of a partial index without its WHERE
@@ -618,6 +645,17 @@ begin
 
           prevIndex:=Q.FieldByName('IDXNAME').AsString;
         end;
+        Q.Next;
+      end;
+      Q.Close;
+
+      //CHECK constraints
+      Q.SQL.Text:=Format(ChecksSQL, [QuotedStr(theTable.ObjName)]);
+      Q.Open;
+      while(Not(Q.EOF))do
+      begin
+        theTable.AddCheck(CheckNameOf(Q.FieldByName('CNAME').AsString),
+          CheckExpressionOf(Q.FieldByName('CSRC').AsString));
         Q.Next;
       end;
       Q.Close;
@@ -1258,6 +1296,96 @@ var
       Exec('DROP TABLE '+QId(TmpTbl));
   end;
 
+  //The CHECK constraints of a table in the database: Names[k] and the
+  //normalised expression Exprs[k]
+  procedure LoadChecks(const tbl: string; Names, Exprs: TStrings);
+  begin
+    Names.Clear;
+    Exprs.Clear;
+    Q.SQL.Text:=Format(ChecksSQL, [QuotedStr(tbl)]);
+    Q.Open;
+    try
+      while(Not(Q.EOF))do
+      begin
+        Names.Add(Q.FieldByName('CNAME').AsString);
+        Exprs.Add(NormExpr(CheckExpressionOf(Q.FieldByName('CSRC').AsString)));
+        Q.Next;
+      end;
+    finally
+      Q.Close;
+    end;
+  end;
+
+  //The clause of the k-th CHECK constraint of a model table for ALTER TABLE ADD
+  function CheckClause(aTable: TEERTable; k: integer): string;
+  begin
+    Result:='';
+    if(aTable.CheckName(k)<>'')then
+      Result:='CONSTRAINT '+NewId(aTable.CheckName(k))+' ';
+    Result:=Result+'CHECK ('+StripOuterBrackets(aTable.CheckExpression(k))+')';
+  end;
+
+  //Drop the CHECK constraints the model table does not have (by expression
+  //and name), before the columns they use are changed
+  procedure DropObsoleteChecks(aTable: TEERTable; const tbl: string);
+  var Names, Exprs: TStringList;
+    k, m: integer;
+    found: Boolean;
+  begin
+    Names:=TStringList.Create;
+    Exprs:=TStringList.Create;
+    try
+      LoadChecks(tbl, Names, Exprs);
+      for k:=0 to Names.Count-1 do
+      begin
+        found:=False;
+        for m:=0 to aTable.CheckConstraints.Count-1 do
+          if(NormExpr(aTable.CheckExpression(m))=Exprs[k])and
+            ((aTable.CheckName(m)='')or(CompareText(StoredName(aTable.CheckName(m)), Names[k])=0))then
+            found:=True;
+        if(Not(found))then
+        begin
+          Log.Add('Drop check constraint '+Names[k]+' on table '+tbl);
+          TryExec('ALTER TABLE '+QId(tbl)+' DROP CONSTRAINT '+QId(Names[k]));
+        end;
+      end;
+    finally
+      Exprs.Free;
+      Names.Free;
+    end;
+  end;
+
+  //Add the CHECK constraints of the model the table does not have
+  procedure AddMissingChecks(aTable: TEERTable; const tbl: string);
+  var Names, Exprs: TStringList;
+    k, m: integer;
+    found: Boolean;
+  begin
+    Names:=TStringList.Create;
+    Exprs:=TStringList.Create;
+    try
+      LoadChecks(tbl, Names, Exprs);
+      for m:=0 to aTable.CheckConstraints.Count-1 do
+      begin
+        if(Trim(aTable.CheckExpression(m))='')then
+          continue;
+        found:=False;
+        for k:=0 to Names.Count-1 do
+          if(NormExpr(aTable.CheckExpression(m))=Exprs[k])and
+            ((aTable.CheckName(m)='')or(CompareText(StoredName(aTable.CheckName(m)), Names[k])=0))then
+            found:=True;
+        if(Not(found))then
+        begin
+          Log.Add('Add check constraint to table '+tbl+': '+CheckClause(aTable, m));
+          TryExec('ALTER TABLE '+QId(tbl)+' ADD '+CheckClause(aTable, m));
+        end;
+      end;
+    finally
+      Exprs.Free;
+      Names.Free;
+    end;
+  end;
+
   //What a global temporary table does at the end of a transaction
   function OnCommitRows(aTable: TEERTable): string;
   begin
@@ -1295,6 +1423,8 @@ var
       ModelIndices(aTable, NewId(aTable.ObjName), IdxNames, IdxDefs, IdxStmts);
       for k:=0 to IdxStmts.Count-1 do
         TryExec(IdxStmts[k]);
+
+      AddMissingChecks(aTable, StoredName(aTable.ObjName));
     finally
       IdxStmts.Free;
       IdxDefs.Free;
@@ -1610,6 +1740,10 @@ var
           end;
 
       //---------------------
+      //CHECK constraints the model does not have, before their columns change
+      DropObsoleteChecks(aTable, X);
+
+      //---------------------
       //Columns that are not in the model
       for m:=0 to High(OldCols) do
         if(Not(Used[m]))then
@@ -1706,6 +1840,10 @@ var
           end;
         end;
       end;
+
+      //---------------------
+      //CHECK constraints of the model the table does not have
+      AddMissingChecks(aTable, X);
 
       //---------------------
       //Primary key and indices

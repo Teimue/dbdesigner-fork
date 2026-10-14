@@ -14,9 +14,10 @@ program TestFirebirdSync;
 // bin/Examples/beispiel_firebird.sql: reverse engineering of computed
 // columns, indices on an expression, descending and partial indices,
 // global temporary tables, text defaults and the types of Firebird
-// (NUMERIC, INT128, DECFLOAT, time zones, BINARY); the model saved and
-// loaded, its SQL script loaded with isql, and a synchronisation without
-// changes.
+// (NUMERIC, INT128, DECFLOAT, time zones, BINARY), CHECK constraints; the
+// model saved and loaded, its SQL script loaded with isql, a
+// synchronisation without changes, and one with a CHECK constraint
+// changed, dropped and added.
 //
 // Needs the application infrastructure (data modules, LCL) and the Firebird
 // client library with the embedded engine (the zip kit of Firebird 3 or
@@ -285,7 +286,8 @@ begin
   Check(Not(LogHas('Modifying'))and
     (Not(LogHas('Add Column')))and(Not(LogHas('Dropping')))and
     (Not(LogHas('index')))and(Not(LogHas('Create non existing')))and
-    (Not(LogHas('foreign key')))and(Not(LogHas('primary key'))),
+    (Not(LogHas('foreign key')))and(Not(LogHas('primary key')))and
+    (Not(LogHas('check constraint'))),
     'nothing changed');
 end;
 
@@ -767,6 +769,13 @@ begin
           (ColType(Model5, T, 'T_VARBINARY')='VARBINARY(64)')and
           (ColType(Model5, T, 'T_DOMAENE')='NUMERIC(12,2)'),
           'types of Firebird kept');
+        Kunde:=GetTable(Model5, 'KUNDE');
+        Check((Kunde.CheckConstraints.Count=3)and(Kunde.CheckName(0)='CK_KUNDE_ANREDE')and
+          (Kunde.CheckExpression(1)='KUNDENNR SIMILAR TO ''K[0-9]{5}'''), 'CHECK constraints of KUNDE');
+        Check((GetTable(Model5, 'LIEFERUNG').CheckConstraints.Count=1)and
+          (GetTable(Model5, 'LIEFERUNG').CheckName(0)='')and
+          (GetTable(Model5, 'LIEFERUNG').CheckExpression(0)='MENGE > 0'),
+          'CHECK constraint of a column, without a name');
       end;
 
       //------------------------------------------------------------
@@ -789,7 +798,8 @@ begin
         'SELECT ''GTT='' || COUNT(*) FROM RDB$RELATIONS WHERE RDB$RELATION_TYPE IN (4, 5);'#13#10+
         'SELECT ''DESC='' || COUNT(*) FROM RDB$INDICES WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0 AND RDB$INDEX_TYPE=1;'#13#10+
         'SELECT ''PARTIAL='' || COUNT(*) FROM RDB$INDICES WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0 AND RDB$CONDITION_SOURCE IS NOT NULL;'#13#10+
-        'SELECT ''EXPR='' || COUNT(*) FROM RDB$INDICES WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0 AND RDB$EXPRESSION_SOURCE IS NOT NULL;'#13#10,
+        'SELECT ''EXPR='' || COUNT(*) FROM RDB$INDICES WHERE COALESCE(RDB$SYSTEM_FLAG, 0)=0 AND RDB$EXPRESSION_SOURCE IS NOT NULL;'#13#10+
+        'SELECT ''CHECKS='' || COUNT(*) FROM RDB$RELATION_CONSTRAINTS WHERE RDB$CONSTRAINT_TYPE=''CHECK'';'#13#10,
         GetTempDir+'dbdesigner_beispiel_export.fdb');
       CheckIsql(IsqlOut, 'script of the example model');
       Check(Pos('TABLES=14', IsqlOut)>0, '14 tables');
@@ -798,11 +808,31 @@ begin
       Check(Pos('DESC=2', IsqlOut)>0, '2 descending indices');
       Check(Pos('PARTIAL=2', IsqlOut)>0, '2 partial indices');
       Check(Pos('EXPR=1', IsqlOut)>0, '1 index on an expression');
+      Check(Pos('CHECKS=11', IsqlOut)>0, '11 CHECK constraints');
 
       //------------------------------------------------------------
       Sync(Model5, '22. the reverse engineered model has no changes');
       CheckNoChanges;
       Check(SQLVal('SELECT BRUTTO_PREIS FROM ARTIKEL WHERE ARTIKEL_ID=4')<>'', 'computed column computes');
+
+      //CK_KUNDE_RABATT another expression, CK_KUNDE_ANREDE dropped, a new one
+      Kunde:=GetTable(Model5, 'KUNDE');
+      Kunde.CheckConstraints.Clear;
+      Kunde.AddCheck('CK_KUNDE_NR', 'KUNDENNR SIMILAR TO ''K[0-9]{5}''');
+      Kunde.AddCheck('CK_KUNDE_RABATT', 'RABATT BETWEEN 0 AND 0.3');
+      Kunde.AddCheck('CK_KUNDE_PUNKTE', 'BONUSPUNKTE >= 0');
+      Sync(Model5, '23. changed CHECK constraints');
+      Check(SQLVal('SELECT TRIM(RDB$CONSTRAINT_NAME) FROM RDB$RELATION_CONSTRAINTS '+
+        'WHERE RDB$CONSTRAINT_TYPE=''CHECK'' AND RDB$RELATION_NAME=''KUNDE'' ORDER BY 1')=
+        'CK_KUNDE_NR,CK_KUNDE_PUNKTE,CK_KUNDE_RABATT', 'constraints of KUNDE');
+      Check(Pos('0.3', SQLVal('SELECT t.RDB$TRIGGER_SOURCE FROM RDB$CHECK_CONSTRAINTS cc '+
+        'JOIN RDB$TRIGGERS t ON t.RDB$TRIGGER_NAME=cc.RDB$TRIGGER_NAME '+
+        'WHERE cc.RDB$CONSTRAINT_NAME=''CK_KUNDE_RABATT'' AND t.RDB$TRIGGER_TYPE=1'))>0,
+        'CK_KUNDE_RABATT has the new expression');
+      Check(SQLVal('SELECT COUNT(*) FROM KUNDE')='3', 'rows kept');
+
+      Sync(Model5, '24. no changes after the CHECK constraints');
+      CheckNoChanges;
 
       DMDB.SQLConn.Close;
     end;
