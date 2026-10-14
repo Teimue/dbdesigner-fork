@@ -340,6 +340,11 @@ begin
 
   if(Column.DefaultValue<>'')then
     Result.Add('default', U(Column.DefaultValue));
+  if(Column.IsGenerated)then
+  begin
+    Result.Add('generated', U(Column.GeneratedExpr));
+    Result.Add('generated_stored', Column.GeneratedStored);
+  end;
   if(Column.Comments<>'')then
     Result.Add('comments', U(Column.Comments));
 end;
@@ -363,6 +368,22 @@ begin
   //The index of a foreign key is made and removed with its relation
   if(Index.FKRefDef_Obj_id>-1)then
     Result.Add('foreign_key_index', True);
+  if(Index.Expression<>'')then
+    Result.Add('expression', U(Index.Expression));
+  Cols:=TJSONArray.Create;
+  for i:=0 to Index.Columns.Count-1 do
+    if(Index.DescColumns.IndexOf(Index.Columns[i])>=0)then
+    begin
+      Column:=Table.GetColumnByID(StrToIntDef(Index.Columns[i], -1));
+      if(Column<>nil)then
+        Cols.Add(U(Column.ColName));
+    end;
+  if(Cols.Count>0)then
+    Result.Add('descending_columns', Cols)
+  else
+    Cols.Free;
+  if(Index.Condition<>'')then
+    Result.Add('condition', U(Index.Condition));
 end;
 
 function RelationToJSON(Rel: TEERRel): TJSONObject;
@@ -550,6 +571,9 @@ end;
 //the MySQL engine and options, the standard inserts
 procedure AddTableOptionsToJSON(Table: TEERTable; Dest: TJSONObject);
 var Options: TJSONObject;
+  Checks: TJSONArray;
+  Check: TJSONObject;
+  i: integer;
 
   procedure AddNumber(const Key, OptionName: string);
   begin
@@ -572,7 +596,31 @@ var Options: TJSONObject;
 begin
   Dest.Add('mysql_engine', NameInList(TableTypeNames, Table.TableType));
   if(Table.Temporary)then
+  begin
     Dest.Add('temporary', True);
+    //What a global temporary table of Firebird does at COMMIT
+    if(CompareText(Table.TableOptions.Values['OnCommit'], 'PRESERVE')=0)then
+      Dest.Add('on_commit', 'PRESERVE ROWS')
+    else
+      Dest.Add('on_commit', 'DELETE ROWS');
+  end;
+  if(Table.TableOptions.Values['SQLiteStrict']='1')then
+    Dest.Add('sqlite_strict', True);
+  if(Table.TableOptions.Values['SQLiteWithoutRowid']='1')then
+    Dest.Add('sqlite_without_rowid', True);
+  if(Table.CheckConstraints.Count>0)then
+  begin
+    Checks:=TJSONArray.Create;
+    for i:=0 to Table.CheckConstraints.Count-1 do
+    begin
+      Check:=TJSONObject.Create;
+      if(Table.CheckName(i)<>'')then
+        Check.Add('name', U(Table.CheckName(i)));
+      Check.Add('expression', U(Table.CheckExpression(i)));
+      Checks.Add(Check);
+    end;
+    Dest.Add('check_constraints', Checks);
+  end;
 
   Options:=TJSONObject.Create;
   AddNumber('next_auto_increment', 'NextAutoIncVal');
@@ -826,6 +874,26 @@ begin
   end;
 end;
 
+//"generated" and "generated_stored" of add_column and change_column
+procedure SetGenerated(Column: TEERColumn; Args: TJSONObject);
+begin
+  if(HasArg(Args, 'generated'))then
+    Column.GeneratedExpr:=StripOuterBrackets(ArgStr(Args, 'generated'));
+  if(HasArg(Args, 'generated_stored'))then
+    Column.GeneratedStored:=ArgBool(Args, 'generated_stored', False);
+  if(Column.IsGenerated)then
+  begin
+    if(HasArg(Args, 'default'))and(ArgStr(Args, 'default')<>'')then
+      raise EToolError.Create('A generated column has no default.');
+    if(ArgBool(Args, 'auto_increment', False))then
+      raise EToolError.Create('A generated column has no auto increment.');
+    Column.DefaultValue:='';
+    Column.AutoInc:=False;
+  end
+  else
+    Column.GeneratedStored:=False;
+end;
+
 //A new column at the end of the table, from the arguments name, datatype,
 //primary_key, not_null, auto_increment, default and comments
 procedure AddColumn(Table: TEERTable; Args: TJSONObject);
@@ -867,6 +935,12 @@ begin
       Column.OptionSelected[i]:=(Options.IndexOf(Datatype.Options[i])>=0);
     Column.DefaultValue:=ArgStr(Args, 'default');
     Column.Comments:=ArgStr(Args, 'comments');
+    try
+      SetGenerated(Column, Args);
+    except
+      Column.Free;
+      raise;
+    end;
     Table.Columns.Add(Column);
   finally
     Options.Free;
@@ -1209,6 +1283,8 @@ const
     ('index_directory', 'TblIndexDir'));
 var Table: TEERTable;
   Engine, RowFormat, Given, i: integer;
+  NewChecks: TStringList;
+  Check: TJSONObject;
 begin
   Table:=NeedTable(ArgStr(Args, 'table'));
   NeedChangeable(Table);
@@ -1217,6 +1293,10 @@ begin
   if(HasArg(Args, 'comments'))then inc(Given);
   if(HasArg(Args, 'mysql_engine'))then inc(Given);
   if(HasArg(Args, 'temporary'))then inc(Given);
+  if(HasArg(Args, 'on_commit'))then inc(Given);
+  if(HasArg(Args, 'check_constraints'))then inc(Given);
+  if(HasArg(Args, 'sqlite_strict'))then inc(Given);
+  if(HasArg(Args, 'sqlite_without_rowid'))then inc(Given);
   if(HasArg(Args, 'row_format'))then inc(Given);
   for i:=0 to High(Numbers) do
     if(HasArg(Args, Numbers[i, 0]))then inc(Given);
@@ -1226,7 +1306,8 @@ begin
     if(HasArg(Args, Texts[i, 0]))then inc(Given);
   if(Given=0)then
     raise EToolError.Create('Nothing to change: give comments, mysql_engine, '+
-      'temporary, next_auto_increment, average_row_length, min_rows, max_rows, '+
+      'temporary, on_commit, check_constraints, sqlite_strict, sqlite_without_rowid, '+
+      'next_auto_increment, average_row_length, min_rows, max_rows, '+
       'row_checksum, pack_keys, delay_key_write, row_format, data_directory or '+
       'index_directory. rename_table changes the name.');
 
@@ -1253,12 +1334,64 @@ begin
   for i:=0 to High(Numbers) do
     if(HasArg(Args, Numbers[i, 0]))and(ArgInt(Args, Numbers[i, 0], 0)<0)then
       raise EToolError.CreateFmt('"%s" is not negative; 0 is for none.', [Numbers[i, 0]]);
+  //The CHECK constraints are checked before anything is changed
+  NewChecks:=TStringList.Create;
+  try
+  if(HasArg(Args, 'check_constraints'))then
+  begin
+    if(Args.Types['check_constraints']<>jtArray)then
+      raise EToolError.Create('"check_constraints" has to be a list of {name, expression}.');
+    for i:=0 to Args.Arrays['check_constraints'].Count-1 do
+    begin
+      if(Args.Arrays['check_constraints'].Types[i]<>jtObject)then
+        raise EToolError.Create('"check_constraints" has to be a list of {name, expression}.');
+      Check:=Args.Arrays['check_constraints'].Objects[i];
+      if(Trim(ArgStr(Check, 'expression'))='')then
+        raise EToolError.Create('A CHECK constraint needs an "expression".');
+      NewChecks.Add(ArgStr(Check, 'name')+#9+ArgStr(Check, 'expression'));
+    end;
+  end;
+  if(HasArg(Args, 'on_commit'))and
+    (CompareText(ArgStr(Args, 'on_commit'), 'DELETE ROWS')<>0)and
+    (CompareText(ArgStr(Args, 'on_commit'), 'PRESERVE ROWS')<>0)then
+    raise EToolError.Create('"on_commit" has to be DELETE ROWS or PRESERVE ROWS.');
 
   if(HasArg(Args, 'comments'))then
     Table.Comments:=ArgStr(Args, 'comments');
   Table.TableType:=Engine;
   if(HasArg(Args, 'temporary'))then
     Table.Temporary:=ArgBool(Args, 'temporary', Table.Temporary);
+  if(HasArg(Args, 'on_commit'))then
+  begin
+    if(CompareText(ArgStr(Args, 'on_commit'), 'PRESERVE ROWS')=0)then
+      Table.TableOptions.Values['OnCommit']:='PRESERVE'
+    else
+      Table.TableOptions.Values['OnCommit']:='DELETE';
+  end;
+  if(HasArg(Args, 'check_constraints'))then
+  begin
+    Table.CheckConstraints.Clear;
+    for i:=0 to NewChecks.Count-1 do
+      Table.AddCheck(Copy(NewChecks[i], 1, Pos(#9, NewChecks[i])-1),
+        Copy(NewChecks[i], Pos(#9, NewChecks[i])+1, Length(NewChecks[i])));
+  end;
+  finally
+    NewChecks.Free;
+  end;
+  if(HasArg(Args, 'sqlite_strict'))then
+  begin
+    if(ArgBool(Args, 'sqlite_strict', False))then
+      Table.TableOptions.Values['SQLiteStrict']:='1'
+    else
+      Table.TableOptions.Values['SQLiteStrict']:='';
+  end;
+  if(HasArg(Args, 'sqlite_without_rowid'))then
+  begin
+    if(ArgBool(Args, 'sqlite_without_rowid', False))then
+      Table.TableOptions.Values['SQLiteWithoutRowid']:='1'
+    else
+      Table.TableOptions.Values['SQLiteWithoutRowid']:='';
+  end;
 
   //The table options as the table editor stores them: a number or nothing,
   //a flag as 1 or 0, the row format as its position in the list
@@ -1332,9 +1465,11 @@ begin
   if(Not(HasArg(Args, 'new_name') or HasArg(Args, 'datatype') or
     HasArg(Args, 'primary_key') or HasArg(Args, 'not_null') or
     HasArg(Args, 'auto_increment') or HasArg(Args, 'default') or
-    HasArg(Args, 'comments')))then
+    HasArg(Args, 'comments') or HasArg(Args, 'generated') or
+    HasArg(Args, 'generated_stored')))then
     raise EToolError.Create('Nothing to change: give new_name, datatype, '+
-      'primary_key, not_null, auto_increment, default or comments.');
+      'primary_key, not_null, auto_increment, default, generated, '+
+      'generated_stored or comments.');
 
   //Datatype and primary key of a foreign key column follow the relation
   if(Column.IsForeignKey)and(HasArg(Args, 'datatype') or HasArg(Args, 'primary_key'))then
@@ -1416,6 +1551,7 @@ begin
     Column.DefaultValue:=ArgStr(Args, 'default');
   if(HasArg(Args, 'comments'))then
     Column.Comments:=ArgStr(Args, 'comments');
+  SetGenerated(Column, Args);
 
   TableChanged(Table);
   Result:=TableToJSON(Table);
@@ -1551,9 +1687,10 @@ var Table: TEERTable;
   Cols: TJSONArray;
   Column: TEERColumn;
   Index: TEERIndex;
-  IndexName: string;
+  IndexName, Expression: string;
   Kind, ID, i: integer;
-  IDs: TStringList;
+  IDs, DescIDs: TStringList;
+  Desc: TJSONArray;
 begin
   Table:=NeedTable(ArgStr(Args, 'table'));
   NeedChangeable(Table);
@@ -1561,13 +1698,19 @@ begin
   Cols:=nil;
   if(HasArg(Args, 'columns'))and(Args.Types['columns']=jtArray)then
     Cols:=Args.Arrays['columns'];
-  if(Cols=nil)or(Cols.Count=0)then
-    raise EToolError.Create('"columns" has to name at least one column.');
+  Expression:=StripOuterBrackets(ArgStr(Args, 'expression'));
+  if(Expression<>'')and(Cols<>nil)and(Cols.Count>0)then
+    raise EToolError.Create('An index has "columns" or an "expression", not both.');
+  if(Expression='')and((Cols=nil)or(Cols.Count=0))then
+    raise EToolError.Create('"columns" has to name at least one column, '+
+      'or "expression" gives the key of an index on an expression.');
 
   Kind:=IndexInList(IndexKindNames, ArgStr(Args, 'kind', 'INDEX'));
   if(Kind<=ik_PRIMARY)then
     raise EToolError.Create('"kind" has to be INDEX, UNIQUE or FULLTEXT. The '+
       'primary index is made from the primary key columns.');
+  if(Expression<>'')and(Kind=ik_FULLTEXT_INDEX)then
+    raise EToolError.Create('An index on an expression is INDEX or UNIQUE.');
 
   ID:=DMMain.GetNextGlobalID;
   IndexName:=Trim(ArgStr(Args, 'name'));
@@ -1581,8 +1724,10 @@ begin
       raise EToolError.CreateFmt('The table "%s" has an index "%s" already.',
         [Table.ObjName, IndexName]);
 
+  DescIDs:=TStringList.Create;
   IDs:=TStringList.Create;
   try
+    if(Cols<>nil)then
     for i:=0 to Cols.Count-1 do
     begin
       if(Cols.Types[i]<>jtString)then
@@ -1593,15 +1738,34 @@ begin
       IDs.Add(IntToStr(Column.Obj_id));
     end;
 
+    //The columns sorted in descending order, out of those of the index
+    Desc:=nil;
+    if(HasArg(Args, 'descending_columns'))and(Args.Types['descending_columns']=jtArray)then
+      Desc:=Args.Arrays['descending_columns'];
+    if(Desc<>nil)then
+      for i:=0 to Desc.Count-1 do
+      begin
+        if(Desc.Types[i]<>jtString)then
+          raise EToolError.Create('"descending_columns" has to be a list of column names.');
+        Column:=NeedColumn(Table, Desc.Strings[i]);
+        if(IDs.IndexOf(IntToStr(Column.Obj_id))=-1)then
+          raise EToolError.CreateFmt('The column "%s" is not in the index.', [Column.ColName]);
+        DescIDs.Add(IntToStr(Column.Obj_id));
+      end;
+
     Index:=TEERIndex.Create(Table);
     Index.Obj_id:=ID;
     Index.IndexName:=IndexName;
     Index.IndexKind:=Kind;
     Index.Columns.Assign(IDs);
+    Index.Expression:=Expression;
+    Index.DescColumns.Assign(DescIDs);
+    Index.Condition:=Trim(ArgStr(Args, 'condition'));
     Table.Indices.Add(Index);
     Index.Pos:=Table.Indices.Count-1;
   finally
     IDs.Free;
+    DescIDs.Free;
   end;
 
   Table.RefreshObj;
@@ -3384,7 +3548,12 @@ begin
       'rs and options, e.g. INTEGER, VARCHAR(45), DECIMAL(10,2), INTEGER '+
       'UNSIGNED"},"primary_key":{"type":"boolean"},"not_null":{"type":"bo'+
       'olean"},"auto_increment":{"type":"boolean"},"default":{"type":"str'+
-      'ing","description":"Default value"},"comments":{"type":"string"}},'+
+      'ing","description":"Default value"},"generated":{"type":"string","'+
+      'description":"Expression of a generated (computed) column, e.g. pr'+
+      'ice * amount; such a column has no default and no auto increment"'+
+      '},"generated_stored":{"type":"boolean","description":"The generat'+
+      'ed column is stored (STORED), else computed when read (VIRTUAL); F'+
+      'irebird computes always"},"comments":{"type":"string"}},'+
       '"required":["table","name","datatype"]}'),
     Tool('add_relation',
       'Add a relation from a parent table to a child table. The foreign k'+
@@ -3419,7 +3588,8 @@ begin
       '["table","new_name"]}'),
     Tool('change_column',
       'Change a column of a table of the open model: its name, datatype, '+
-      'primary key, not null, auto increment, default or comments. Only w'+
+      'primary key, not null, auto increment, default, generated expressi'+
+      'on or comments. Only w'+
       'hat is given is changed. The model keeps the former name of a rena'+
       'med column, so sync_database renames it in the database; the relat'+
       'ions go on using the column. Datatype and primary key of a foreign'+
@@ -3432,8 +3602,11 @@ begin
       'e":"string","description":"e.g. INTEGER, VARCHAR(45), DECIMAL(10,2'+
       '), INTEGER UNSIGNED"},"primary_key":{"type":"boolean"},"not_null":'+
       '{"type":"boolean"},"auto_increment":{"type":"boolean"},"default":{'+
-      '"type":"string","description":"Default value, empty for none"},"co'+
-      'mments":{"type":"string"}},"required":["table","column"]}'),
+      '"type":"string","description":"Default value, empty for none"},"ge'+
+      'nerated":{"type":"string","description":"Expression of a generated'+
+      ' (computed) column; empty makes it a normal column"},"generated_st'+
+      'ored":{"type":"boolean","description":"STORED instead of VIRTUAL"}'+
+      ',"comments":{"type":"string"}},"required":["table","column"]}'),
     Tool('delete_column',
       'Delete a column of a table of the open model; it is taken out of t'+
       'he indices as well. A foreign key column is deleted with its relat'+
@@ -3458,16 +3631,23 @@ begin
       'ption":"Keep the foreign key columns as ordinary columns (default '+
       'false)"}}}'),
     Tool('add_index',
-      'Add an index to a table of the open model. The primary index and t'+
-      'he indices of foreign keys are made by the model. Returns the tabl'+
-      'e.',
+      'Add an index to a table of the open model, on columns or on an exp'+
+      'ression. The primary index and the indices of foreign keys are mad'+
+      'e by the model. Returns the table.',
       '{"type":"object","properties":{"table":{"type":"string","descripti'+
       'on":"Name of the table"},"columns":{"type":"array","items":{"type"'+
       ':"string"},"description":"Names of the columns, in the order of th'+
       'e index"},"name":{"type":"string","description":"Name of the index'+
       '; default <table>_index<number>"},"kind":{"type":"string","enum":['+
-      '"INDEX","UNIQUE","FULLTEXT"],"description":"Default INDEX"}},"requ'+
-      'ired":["table","columns"]}'),
+      '"INDEX","UNIQUE","FULLTEXT"],"description":"Default INDEX"},"expre'+
+      'ssion":{"type":"string","description":"Instead of columns: the key'+
+      ' of an index on an expression, e.g. lower(name) (Firebird: COMPUTE'+
+      'D BY)"},"descending_columns":{"type":"array","items":{"type":"stri'+
+      'ng"},"description":"Columns of the index in descending order (Fire'+
+      'bird: all columns or none)"},"condition":{"type":"string","descrip'+
+      'tion":"Partial index: the condition without WHERE, e.g. status = '+
+      '''open'' (SQLite, Firebird 5, PostgreSQL, SQL Server)"}},"required'+
+      '":["table"]}'),
     Tool('delete_index',
       'Delete an index of a table of the open model. Not the primary inde'+
       'x and not the index of a foreign key. Returns the table.',
@@ -3670,16 +3850,27 @@ begin
       'ault 40)"},"y":{"type":"integer"},"row_width":{"type":"integer","d'+
       'escription":"Width after which a new row begins (default 1400)"}}}'),
     Tool('change_table',
-      'Change a table of the open model: its comments, and for MySQL the '+
-      'engine, the temporary flag and the table options. Only what is giv'+
-      'en is changed. Engine and options are written in the SQL code for '+
-      'MySQL only. rename_table changes the name. Returns the table.',
+      'Change a table of the open model: its comments, the temporary flag'+
+      ' (for Firebird a global temporary table with on_commit), and for M'+
+      'ySQL the engine and the table options. Only what is given is chang'+
+      'ed. Engine and options are written in the SQL code for MySQL only.'+
+      ' rename_table changes the name. Returns the table.',
       '{"type":"object","properties":{"table":{"type":"string","descripti'+
       'on":"Name of the table"},"comments":{"type":"string"},"mysql_engin'+
       'e":{"type":"string","enum":["MyISAM","InnoDB","HEAP","BDB","ISAM",'+
       '"MERGE"],"description":"HEAP is written as MEMORY, BDB as InnoDB; '+
       'MyISAM and ISAM give no ENGINE clause"},"temporary":{"type":"boole'+
-      'an","description":"CREATE TEMPORARY TABLE"},"next_auto_increment":'+
+      'an","description":"CREATE TEMPORARY TABLE"},"on_commit":{"type":"'+
+      'string","enum":["DELETE ROWS","PRESERVE ROWS"],"description":"Fire'+
+      'bird, temporary table: rows live for the transaction (default) or '+
+      'the connection"},"check_constraints":{"type":"array","items":{"typ'+
+      'e":"object","properties":{"name":{"type":"string"},"expression":{'+
+      '"type":"string","description":"e.g. price >= 0"}},"required":["ex'+
+      'pression"]},"description":"The CHECK constraints of the table; rep'+
+      'laces those it has, [] for none"},"sqlite_strict":{"type":"boolean'+
+      '","description":"SQLite: STRICT table"},"sqlite_without_rowid":{"t'+
+      'ype":"boolean","description":"SQLite: WITHOUT ROWID table"},"next_'+
+      'auto_increment":'+
       '{"type":"integer","description":"AUTO_INCREMENT; 0 for none"},"ave'+
       'rage_row_length":{"type":"integer","description":"AVG_ROW_LENGTH; '+
       '0 for none"},"min_rows":{"type":"integer","description":"MIN_ROWS;'+

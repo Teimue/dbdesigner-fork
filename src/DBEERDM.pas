@@ -1244,6 +1244,8 @@ var EERModel: TEERModel;
   sqlcmd, quotedName, DeclType, DatatypeParams, DefVal,
     prevIndex, fkId, pkColName, fkColName: string;
   pkCount, pkColCount: integer;
+  ChecksList: TStringList;
+  IsStrict, WithoutRowid: Boolean;
 begin
   EERModel:=theModel;
 
@@ -1319,10 +1321,13 @@ begin
       DMDB.SchemaSQLQuery.Close;
       HasAutoInc:=(Pos('AUTOINCREMENT', UpperCase(RemoveCommentsFromSQLCmd(sqlcmd)))>0);
 
-      //Columns
+      //Columns. pragma_table_info leaves the generated columns out,
+      //pragma_table_xinfo has them (hidden 2: virtual, 3: stored; 1 is a
+      //hidden column of a virtual table)
       pkColCount:=0;
       DMDB.SchemaSQLQuery.SQL.Text:='SELECT cid, name, type, "notnull" AS colnotnull, '+
-        'dflt_value, pk FROM pragma_table_info('''+quotedName+''') ORDER BY cid';
+        'dflt_value, pk, hidden FROM pragma_table_xinfo('''+quotedName+''') '+
+        'WHERE hidden<>1 ORDER BY cid';
       DMDB.SchemaSQLQuery.Open;
       while(Not(DMDB.SchemaSQLQuery.EOF))do
       begin
@@ -1340,15 +1345,24 @@ begin
         theColumn.AutoInc:=False;
         theColumn.IsForeignKey:=False;
 
-        //Default value: SQLite returns it as written in the DDL,
-        //strip one pair of enclosing quotes like MySQL's SHOW FIELDS does
+        //Default value: SQLite returns it as written in the DDL. A text
+        //keeps its quotes, the model takes the default as SQL; only when
+        //the SQL export adds the quotes itself (option AddQuotesToDefVals)
+        //the value is without them
         DefVal:='';
         if(Not(DMDB.SchemaSQLQuery.FieldByName('dflt_value').IsNull))then
           DefVal:=DMDB.SchemaSQLQuery.FieldByName('dflt_value').AsString;
-        if(Length(DefVal)>=2)and(DefVal[1]='''')and(DefVal[Length(DefVal)]='''')then
-          DefVal:=Copy(DefVal, 2, Length(DefVal)-2);
+        if(DMEER.AddQuotesToDefVals)then
+          DefVal:=UnquoteSQLText(DefVal);
         if(CompareText(DefVal, 'NULL')<>0)then
           theColumn.DefaultValue:=DefVal;
+
+        //Generated column: its expression is only in the CREATE TABLE text
+        if(DMDB.SchemaSQLQuery.FieldByName('hidden').AsInteger>=2)then
+        begin
+          theColumn.GeneratedExpr:=SQLiteGeneratedColumnExpr(sqlcmd, theColumn.ColName);
+          theColumn.GeneratedStored:=(DMDB.SchemaSQLQuery.FieldByName('hidden').AsInteger=3);
+        end;
 
         //Datatype
         DeclType:=DMDB.SchemaSQLQuery.FieldByName('type').AsString;
@@ -1365,6 +1379,23 @@ begin
       end;
       DMDB.SchemaSQLQuery.Close;
 
+      //CHECK constraints (of the table and of the columns) and the options
+      //STRICT and WITHOUT ROWID, all only in the CREATE TABLE text
+      ChecksList:=TStringList.Create;
+      try
+        SQLiteTableChecks(sqlcmd, ChecksList);
+        for j:=0 to ChecksList.Count-1 do
+          theTable.AddCheck(Copy(ChecksList[j], 1, Pos(#9, ChecksList[j])-1),
+            Copy(ChecksList[j], Pos(#9, ChecksList[j])+1, Length(ChecksList[j])));
+      finally
+        ChecksList.Free;
+      end;
+      SQLiteTableFlags(sqlcmd, IsStrict, WithoutRowid);
+      if(IsStrict)then
+        theTable.TableOptions.Values['SQLiteStrict']:='1';
+      if(WithoutRowid)then
+        theTable.TableOptions.Values['SQLiteWithoutRowid']:='1';
+
       //AUTOINCREMENT: only valid for a single INTEGER PRIMARY KEY column
       if(HasAutoInc)and(pkColCount=1)then
         for j:=0 to theTable.Columns.Count-1 do
@@ -1380,10 +1411,11 @@ begin
       theIndex:=nil;
       DMDB.SchemaSQLQuery.SQL.Text:='SELECT il.seq AS idxseq, il.name AS idxname, '+
         'il."unique" AS idxunique, il.origin AS idxorigin, ii.seqno AS colseq, '+
-        'ii.name AS colname '+
+        'ii.name AS colname, ii."desc" AS coldesc, m.sql AS idxsql '+
         'FROM pragma_index_list('''+quotedName+''') il '+
-        'JOIN pragma_index_info(il.name) ii '+
-        'WHERE il.origin<>''pk'' ORDER BY il.seq, ii.seqno';
+        'JOIN pragma_index_xinfo(il.name) ii '+
+        'LEFT JOIN sqlite_master m ON m.type=''index'' AND m.name=il.name '+
+        'WHERE il.origin<>''pk'' AND ii."key"=1 ORDER BY il.seq, ii.seqno';
       DMDB.SchemaSQLQuery.Open;
       while(Not(DMDB.SchemaSQLQuery.EOF))do
       begin
@@ -1400,17 +1432,37 @@ begin
             theIndex.IndexKind:=ik_UNIQUE_INDEX
           else
             theIndex.IndexKind:=ik_INDEX;
+          //Partial index
+          theIndex.Condition:=SQLiteIndexCondition(DMDB.SchemaSQLQuery.FieldByName('idxsql').AsString);
           theTable.Indices.Add(theIndex);
           theIndex.Pos:=theTable.Indices.Count-1;
         end;
 
-        //expression indexes have no column name
-        if(Not(DMDB.SchemaSQLQuery.FieldByName('colname').IsNull))then
+        //A key part that is an expression has no column name: the index
+        //keeps its whole key as written (lower(name), id)
+        if(DMDB.SchemaSQLQuery.FieldByName('colname').IsNull)then
+        begin
+          if(theIndex.Expression='')then
+          begin
+            theIndex.Expression:=SQLiteIndexKey(DMDB.SchemaSQLQuery.FieldByName('idxsql').AsString);
+            //The key keeps the order of its parts (lower(name) DESC)
+            if(theIndex.Expression<>'')then
+            begin
+              theIndex.Columns.Clear;
+              theIndex.DescColumns.Clear;
+            end;
+          end;
+        end
+        else if(theIndex.Expression='')then
         begin
           theColumn:=TEERColumn(theTable.GetColumnByName(
             DMDB.SchemaSQLQuery.FieldByName('colname').AsString));
           if(theColumn<>nil)then
+          begin
             theIndex.Columns.Add(IntToStr(theColumn.Obj_id));
+            if(DMDB.SchemaSQLQuery.FieldByName('coldesc').AsInteger=1)then
+              theIndex.DescColumns.Add(IntToStr(theColumn.Obj_id));
+          end;
         end;
 
         prevIndex:=DMDB.SchemaSQLQuery.FieldByName('idxname').AsString;
@@ -1549,6 +1601,38 @@ begin
   end;
 end;
 
+//The words are all options of the datatype, e.g. UNSIGNED ZEROFILL of INT
+function OnlyOptions(theDatatype: TEERDatatype; const Words: string): Boolean;
+var w, rest: string;
+  k: integer;
+  found: Boolean;
+begin
+  Result:=True;
+  rest:=Trim(Words);
+  while(rest<>'')do
+  begin
+    if(Pos(' ', rest)>0)then
+    begin
+      w:=Copy(rest, 1, Pos(' ', rest)-1);
+      rest:=Trim(Copy(rest, Pos(' ', rest)+1, Length(rest)));
+    end
+    else
+    begin
+      w:=rest;
+      rest:='';
+    end;
+    found:=False;
+    for k:=0 to theDatatype.OptionCount-1 do
+      if(CompareText(theDatatype.Options[k], w)=0)then
+        found:=True;
+    if(Not(found))then
+    begin
+      Result:=False;
+      Exit;
+    end;
+  end;
+end;
+
 function TDMDBEER.GetSQLiteDatatype(theModel: Pointer; DeclType: string; DatatypeSubst: TStringList; var DatatypeParams: string): Pointer;
 var EERModel: TEERModel;
   DatatypeName, s: string;
@@ -1574,7 +1658,8 @@ begin
       s:=DatatypeSubst.Values[DatatypeName];
   theDatatype:=EERModel.GetDataTypeByName(s);
 
-  //First word only, e.g. "INT UNSIGNED" -> INT
+  //First word only, e.g. "INT UNSIGNED" -> INT, when the other words are
+  //options of that datatype (not "UNSIGNED BIG INT", "VARYING CHARACTER")
   if(theDatatype=nil)and(Pos(' ', DatatypeName)>0)then
   begin
     s:=Copy(DatatypeName, 1, Pos(' ', DatatypeName)-1);
@@ -1582,9 +1667,32 @@ begin
       if(DatatypeSubst.Values[s]<>'')then
         s:=DatatypeSubst.Values[s];
     theDatatype:=EERModel.GetDataTypeByName(s);
+    if(theDatatype<>nil)and(Not(OnlyOptions(theDatatype,
+      Copy(DatatypeName, Pos(' ', DatatypeName)+1, Length(DatatypeName)))))then
+      theDatatype:=nil;
   end;
 
-  //Unknown declared type: follow SQLite's type affinity rules
+  //Any other declared type is kept as it is written (CLOB, NCHAR,
+  //BOOLEAN, VARYING CHARACTER ...): it becomes a datatype of the model, so
+  //the SQL code and the synchronisation write the type of the database.
+  //SQLite derives the affinity from the name, it stays the same
+  if(theDatatype=nil)and(DatatypeName<>'')then
+  begin
+    s:=DatatypeName;
+    while(Pos('  ', s)>0)do
+      s:=StringReplace(s, '  ', ' ', [rfReplaceAll]);
+    if(DatatypeParams<>'')then
+      theDatatype:=EERModel.AddUserDatatype(s, 'SQLite', 'length')
+    else
+      theDatatype:=EERModel.AddUserDatatype(s, 'SQLite', '');
+  end;
+
+  //ANY, the type of a STRICT table for values of any kind
+  if(theDatatype=nil)and(CompareText(DatatypeName, 'ANY')=0)then
+    theDatatype:=EERModel.AddUserDatatype('ANY', 'SQLite', '');
+
+  //No declared type (BLOB affinity), or a datatype that could not be made:
+  //follow SQLite's type affinity rules
   if(theDatatype=nil)then
   begin
     s:=UpperCase(DatatypeName);

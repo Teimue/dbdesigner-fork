@@ -162,7 +162,7 @@ begin
           theStr:='id'+TableEditor.TableNameEd.Text;
       end;
       7:
-        theStr:=TEERColumn(TableEditor.EERTable.Columns[TableEditor.ColumnGrid.Row-1]).DefaultValue;
+        theStr:=TEERColumn(TableEditor.EERTable.Columns[TableEditor.ColumnGrid.Row-1]).DefaultOrGenerated;
       8:
         theStr:=TEERColumn(TableEditor.EERTable.Columns[TableEditor.ColumnGrid.Row-1]).Comments;
     end;
@@ -266,9 +266,9 @@ begin
     end;
   end;
 
-  //Default value
+  //Default value; AS (expr) [STORED] makes the column a generated one
   if(Col=7)and(TableEditor.ColumnGrid.Row<=TableEditor.EERTable.Columns.Count)then
-    TEERColumn(TableEditor.EERTable.Columns[TableEditor.ColumnGrid.Row-1]).DefaultValue:=theStr;
+    TEERColumn(TableEditor.EERTable.Columns[TableEditor.ColumnGrid.Row-1]).SetDefaultOrGenerated(theStr);
 
   //Comment
   if(Col=8)and(TableEditor.ColumnGrid.Row<=TableEditor.EERTable.Columns.Count)then

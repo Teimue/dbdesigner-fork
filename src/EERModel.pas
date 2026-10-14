@@ -234,6 +234,9 @@ type
     function GetDataType(id: integer): Pointer;
     function GetDataTypeByName(name: string): Pointer;
     function GetDataTypeByNameSubst(DatatypeName: string; DatatypeSubstList: TStringList): Pointer;
+    //Add a datatype to the group of the user defined ones, with one parameter
+    //ParamName or none
+    function AddUserDatatype(const TypeName, Description, ParamName: string): Pointer;
 
     //MouseOverObj functions
     procedure SetMouseOverObj(Obj: TObject; SubObj: Pointer);
@@ -677,6 +680,12 @@ type
     // SQLite: column is the single integer auto-increment PK column
     // (emitted inline as INTEGER PRIMARY KEY AUTOINCREMENT)
     function IsSQLiteAutoIncPK(ColIdx: integer): Boolean;
+    //The k-th CHECK constraint
+    function CheckName(k: integer): string;
+    function CheckExpression(k: integer): string;
+    procedure AddCheck(const AName, AExpression: string);
+    //SQLite: the type of a column as a STRICT table takes it
+    function SQLiteStrictType(const TypeName: string): string;
 
     // SQLite: trim trailing blanks, at most one empty line in a row
     function TidySQLiteScript(const Script: string): string;
@@ -706,6 +715,11 @@ type
                                        OutputComments: boolean = false;
                                        IdentityColumn: boolean = false //FireBird: auto increment as identity column instead of generator and trigger
                                        ): string;
+    //The part after the name of a generated column: [type] AS (expr) [STORED]
+    function GetSQLGeneratedColumnCode(i: integer; DatabaseType: string;
+      OutputComments: boolean = false): string;
+    //The key of an index on an expression for CREATE INDEX ... ON tbl <key>
+    function GetSQLIndexExpressionCode(theIndex: TObject; DatabaseType: string): string;
     function GetSQLDropCode(IfExists:boolean = false; DatabaseType: string = 'My SQL'): string;
     //The name of an object in the SQL code for the database type
     function GetSQLName(const AName, DatabaseType: string): string;
@@ -762,6 +776,11 @@ type
     PrevTableName: string;
 
     TableOptions: TStringList;
+
+    //CHECK constraints of the table, one per line: name, TAB, expression
+    //(the name may be empty). SQLite's options STRICT and WITHOUT ROWID are
+    //in TableOptions (SQLiteStrict=1, SQLiteWithoutRowid=1)
+    CheckConstraints: TStringList;
 
     StandardInserts: TStringList;
     UseStandardInserts: Boolean;
@@ -1094,8 +1113,16 @@ type
     OptionSelected: Array[0..5] of Boolean; //stores selected options
     DefaultValue: string;   //Default Value of the Column
     Comments: string;       //Comments
+    GeneratedExpr: string;  //Expression of a generated (computed) column, '' for a normal column
+    GeneratedStored: Boolean; //The generated column is stored (else computed when read)
 
     tmp: string;
+
+    function IsGenerated: Boolean;
+    //The default value, or AS (expr) [STORED] for a generated column, as the
+    //table editor shows and takes it
+    function DefaultOrGenerated: string;
+    procedure SetDefaultOrGenerated(const s: string);
   end;
 
   //-----------------------------------------------
@@ -1116,6 +1143,12 @@ type
     Columns,                   //Stores the idColumns
     ColumnParams: TStringList; //Stores optional column params (length for blob)
     FKRefDef_Obj_id: integer;  //Stores the Obj_id of the parent Relation or -1
+    Expression: string;        //Index on an expression: the key as SQL (lower(name)), no columns then
+    DescColumns: TStringList;  //The idColumns sorted in descending order
+    Condition: string;         //Partial index: the condition without WHERE, '' for all rows
+
+    //All columns descending (FireBird has the order for the whole index only)
+    function AllDescending: Boolean;
   end;
 
   //-----------------------------------------------
@@ -1214,6 +1247,17 @@ type
 
   function ReverseRelDirection(theRelDir: integer): integer;
   function SortRelations(Item1, Item2: Pointer): Integer;
+
+  //s without one pair of brackets around all of it: (a+b) -> a+b, (a)+(b) stays
+  function StripOuterBrackets(const s: string): string;
+  //A SQLite default that is a function call, which SQLite takes in brackets only
+  function SQLiteDefaultNeedsBrackets(const s: string): Boolean;
+  //A default of the model as SQLite or FireBird take it: a function call in
+  //brackets (SQLite), plain text in quotes (Europe/Berlin -> 'Europe/Berlin');
+  //for other databases as it is
+  function SQLDefaultValue(const Value, DatabaseType: string): string;
+  //'it''s' -> it's; a value that is no text literal stays as it is
+  function UnquoteSQLText(const s: string): string;
 
 implementation
 
@@ -2500,6 +2544,39 @@ begin
       GetDataTypeByName:=Datatypes[i];
       break;
     end;
+end;
+
+function TEERModel.AddUserDatatype(const TypeName, Description, ParamName: string): Pointer;
+var NewID, i: integer;
+  theDatatype: TEERDatatype;
+begin
+  //The next id, as the datatype palette of the program finds it
+  NewID:=1;
+  for i:=0 to Datatypes.Count-1 do
+    if(NewID<=TEERDatatype(Datatypes[i]).id)then
+      NewID:=TEERDatatype(Datatypes[i]).id+1;
+
+  theDatatype:=TEERDatatype.Create(self);
+  theDatatype.id:=NewID;
+  theDatatype.TypeName:=TypeName;
+  //The group of the user defined datatypes
+  theDatatype.group:=4;
+  if(theDatatype.group>=DatatypeGroups.Count)then
+    theDatatype.group:=DatatypeGroups.Count-1;
+  theDatatype.description:=Description;
+  theDatatype.OptionCount:=0;
+  theDatatype.EditParamsAsString:=False;
+  theDatatype.SynonymGroup:=0;
+  if(ParamName<>'')then
+  begin
+    theDatatype.ParamCount:=1;
+    theDatatype.Param[0]:=ParamName;
+  end
+  else
+    theDatatype.ParamCount:=0;
+  theDatatype.ParamRequired:=False;
+  Datatypes.Add(theDatatype);
+  Result:=theDatatype;
 end;
 
 function TEERModel.GetDataTypeByNameSubst(DatatypeName: string; DatatypeSubstList: TStringList): Pointer;
@@ -8209,6 +8286,7 @@ begin
 
   //The table options
   TableOptions:=TStringList.Create;
+  CheckConstraints:=TStringList.Create;
 
   //Stores the TableImg
   RefreshStrechedImg:=False;
@@ -8250,6 +8328,7 @@ begin
   StandardInserts.Free;
 
   TableOptions.Free;
+  CheckConstraints.Free;
 
   StrechedImg.Free;
 
@@ -9367,6 +9446,7 @@ var s, s1: string;
   TableName : string;
   LocalComment : string;
   IsFirebird : boolean;
+  DescKeyword : string;
 
   //A name in quotes as the target database needs it
   function QN(const AName: string): string;
@@ -9489,8 +9569,14 @@ begin
     if(Not(CreateIndices))and(TEERIndex(Indices[i]).IndexName<>'PRIMARY')then
       continue;
 
-    //An index without columns has no valid SQL form (INDEX name())
-    if(TEERIndex(Indices[i]).Columns.Count=0)then
+    //An index without columns has no valid SQL form (INDEX name()), unless
+    //it is on an expression; SQL Server has no index on an expression
+    if(TEERIndex(Indices[i]).Expression<>'')then
+    begin
+      if(TEERIndex(Indices[i]).IndexKind=ik_PRIMARY)or(DatabaseType = 'SQL Server')then
+        continue;
+    end
+    else if(TEERIndex(Indices[i]).Columns.Count=0)then
       continue;
 
     //SQLite: the PRIMARY KEY of an AUTOINCREMENT column is already inline
@@ -9522,21 +9608,32 @@ begin
 
     if(DatabaseType <> 'SQLite')and(not IsFirebird)then
       s:=s+'  ';
+    //FireBird knows the order for the whole index only
+    if(IsFirebird)and(TEERIndex(Indices[i]).AllDescending)then
+      DescKeyword:='DESCENDING '
+    else
+      DescKeyword:='';
+
     case TEERIndex(Indices[i]).IndexKind of
       ik_PRIMARY:
         sIndex:=sIndex+'PRIMARY KEY(';
       ik_INDEX:
-        sIndex:=sIndex+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
+        sIndex:=sIndex+DescKeyword+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
       ik_UNIQUE_INDEX:
-        sIndex:=sIndex+'UNIQUE INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
+        sIndex:=sIndex+'UNIQUE '+DescKeyword+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
       ik_FULLTEXT_INDEX:
         //FULLTEXT is MySQL syntax; SQLite and FireBird get a plain index
         if(DatabaseType = 'SQLite')or(IsFirebird)then
-          sIndex:=sIndex+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'('
+          sIndex:=sIndex+DescKeyword+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'('
         else
           sIndex:=sIndex+'FULLTEXT INDEX '+DBQuote+TEERIndex(Indices[i]).IndexName+DBQuote+indexOnTable+'(';
     end;
 
+    //Index on an expression: the key instead of the column list
+    if(TEERIndex(Indices[i]).Expression<>'')then
+      sIndex:=Copy(sIndex, 1, Length(sIndex)-1)+
+        GetSQLIndexExpressionCode(Indices[i], DatabaseType)
+    else
     for j:=0 to TEERIndex(Indices[i]).Columns.Count-1 do
     begin
       sIndex:=sIndex+QN(TEERColumn(GetColumnByID(StrToInt(TEERIndex(Indices[i]).Columns[j]))).ColName);
@@ -9545,6 +9642,11 @@ begin
       if(DatabaseType = 'My SQL')and
         (TEERIndex(Indices[i]).ColumnParams.Values[TEERIndex(Indices[i]).Columns[j]]<>'')then
         sIndex:=sIndex+'('+TEERIndex(Indices[i]).ColumnParams.Values[TEERIndex(Indices[i]).Columns[j]]+')';
+
+      //The order of a column; FireBird has it in front of INDEX
+      if(Not(IsFirebird))and(TEERIndex(Indices[i]).IndexKind<>ik_PRIMARY)and
+        (TEERIndex(Indices[i]).DescColumns.IndexOf(TEERIndex(Indices[i]).Columns[j])>=0)then
+        sIndex:=sIndex+' DESC';
 
       if(j<TEERIndex(Indices[i]).Columns.Count-1)then
         sIndex:=sIndex+', ';
@@ -9556,7 +9658,14 @@ begin
       end;
     end;
 
-    sIndex:=sIndex+')';
+    if(TEERIndex(Indices[i]).Expression='')then
+      sIndex:=sIndex+')';
+
+    //Partial index: CREATE INDEX ... WHERE (not in MySQL and Oracle)
+    if(indexPortable)and(Trim(TEERIndex(Indices[i]).Condition)<>'')and
+      ((DatabaseType = 'SQLite')or(IsFirebird)or(DatabaseType = 'PostgreSQL')or
+       (DatabaseType = 'SQL Server'))then
+      sIndex:=sIndex+' WHERE '+Trim(TEERIndex(Indices[i]).Condition);
 
     if indexPortable then
     begin
@@ -9645,7 +9754,40 @@ begin
     end;
   end;
 
+  //CHECK constraints
+  for i:=0 to CheckConstraints.Count-1 do
+    if(Trim(CheckExpression(i))<>'')then
+    begin
+      s:=s+','+#13#10+'  ';
+      if(CheckName(i)<>'')then
+        s:=s+'CONSTRAINT '+QN(CheckName(i))+' ';
+      s:=s+'CHECK ('+StripOuterBrackets(CheckExpression(i))+')';
+    end;
+
   s:=s+')';
+
+  //SQLite: table options after the column list
+  if(DatabaseType = 'SQLite')then
+  begin
+    if(TableOptions.Values['SQLiteWithoutRowid']='1')then
+      s:=s+' WITHOUT ROWID';
+    if(TableOptions.Values['SQLiteStrict']='1')then
+    begin
+      if(TableOptions.Values['SQLiteWithoutRowid']='1')then
+        s:=s+',';
+      s:=s+' STRICT';
+    end;
+  end;
+
+  //FireBird: the rows of a global temporary table live for a transaction
+  //(the default) or for the connection
+  if(isTemporary)and(IsFirebird)then
+  begin
+    if(CompareText(TableOptions.Values['OnCommit'], 'PRESERVE')=0)then
+      s:=s+#13#10+'ON COMMIT PRESERVE ROWS'
+    else
+      s:=s+#13#10+'ON COMMIT DELETE ROWS';
+  end;
 
   //TableType (MYISAM is standard). MySQL 5.5 dropped the old TYPE= keyword,
   //ENGINE= is accepted since 4.0.18. HEAP is the old name of MEMORY; BDB and
@@ -9808,6 +9950,14 @@ begin
   else
     s:=TEERColumn(Columns[i]).ColName+' ';
 
+  //A generated column has no default, no auto increment and no NULL clause
+  if(TEERColumn(Columns[i]).IsGenerated)then
+  begin
+    GetSQLColumnCreateDefCode:=s+GetSQLGeneratedColumnCode(i, DatabaseType, OutputComments);
+    TableFieldGen:='';
+    Exit;
+  end;
+
   if
     (TEERColumn(Columns[i]).AutoInc)
     and (DatabaseType = 'PostgreSQL') then
@@ -9820,6 +9970,9 @@ begin
     if(DatabaseType = 'SQLite')and(IsSQLiteAutoIncPK(i))then
       //SQLite: AUTOINCREMENT needs exactly INTEGER PRIMARY KEY, no params
       s:=s+'INTEGER'
+    else if(DatabaseType = 'SQLite')and(TableOptions.Values['SQLiteStrict']='1')then
+      //A STRICT table takes INT, INTEGER, REAL, TEXT, BLOB and ANY only
+      s:=s+SQLiteStrictType(theDatatype.GetPhysicalTypeName)
     else if(DatabaseType = 'FireBird')then
     begin
       //The model keeps the MySQL datatypes
@@ -9867,7 +10020,11 @@ begin
   if(TEERColumn(Columns[i]).DefaultValue<>'')and
     not((DatabaseType = 'FireBird')and(IdentityColumn)and(TEERColumn(Columns[i]).AutoInc))then
     if(Not(DMEER.AddQuotesToDefVals))then
-      defaultTag:='DEFAULT '+TEERColumn(Columns[i]).DefaultValue
+    begin
+      //SQLite takes a function call only in brackets: DEFAULT (date('now'));
+      //text without quotes (from older reverse engineering) gets them
+      defaultTag:='DEFAULT '+SQLDefaultValue(TEERColumn(Columns[i]).DefaultValue, DatabaseType);
+    end
     else
       defaultTag:='DEFAULT '''+TEERColumn(Columns[i]).DefaultValue+'''';
 
@@ -9927,6 +10084,219 @@ begin
   end;
 
   GetSQLColumnCreateDefCode:=s;
+end;
+
+function TEERTable.CheckName(k: integer): string;
+var s: string;
+begin
+  s:=CheckConstraints[k];
+  if(Pos(#9, s)>0)then
+    CheckName:=Copy(s, 1, Pos(#9, s)-1)
+  else
+    CheckName:='';
+end;
+
+function TEERTable.CheckExpression(k: integer): string;
+var s: string;
+begin
+  s:=CheckConstraints[k];
+  CheckExpression:=Copy(s, Pos(#9, s)+1, Length(s));
+end;
+
+procedure TEERTable.AddCheck(const AName, AExpression: string);
+var e: string;
+begin
+  //One line per constraint
+  e:=StringReplace(StringReplace(StringReplace(Trim(AExpression),
+    #13#10, ' ', [rfReplaceAll]), #10, ' ', [rfReplaceAll]), #13, ' ', [rfReplaceAll]);
+  CheckConstraints.Add(Trim(AName)+#9+StripOuterBrackets(e));
+end;
+
+function TEERTable.SQLiteStrictType(const TypeName: string): string;
+var u: string;
+begin
+  u:=UpperCase(Trim(TypeName));
+  //SQLite's rules of the type affinity
+  if(u='INT')or(u='INTEGER')or(u='REAL')or(u='TEXT')or(u='BLOB')or(u='ANY')then
+    Result:=u
+  else if(Pos('INT', u)>0)then
+    Result:='INTEGER'
+  else if(Pos('CHAR', u)>0)or(Pos('CLOB', u)>0)or(Pos('TEXT', u)>0)then
+    Result:='TEXT'
+  else if(u='')or(Pos('BLOB', u)>0)then
+    Result:='BLOB'
+  else if(Pos('REAL', u)>0)or(Pos('FLOA', u)>0)or(Pos('DOUB', u)>0)then
+    Result:='REAL'
+  else
+    //NUMERIC affinity has no STRICT type
+    Result:='ANY';
+end;
+
+function TEERTable.GetSQLGeneratedColumnCode(i: integer; DatabaseType: string;
+  OutputComments: boolean = false): string;
+var s, typ, expr, ColComment: string;
+  theColumn: TEERColumn;
+  theDatatype: TEERDatatype;
+begin
+  theColumn:=TEERColumn(Columns[i]);
+  expr:='('+StripOuterBrackets(Trim(theColumn.GeneratedExpr))+')';
+
+  theDatatype:=ParentEERModel.GetDataType(theColumn.idDatatype);
+  if(theDatatype<>nil)then
+    typ:=theDatatype.GetPhysicalTypeName+theColumn.DatatypeParams
+  else
+    typ:='';
+  if(DatabaseType = 'SQLite')and(TableOptions.Values['SQLiteStrict']='1')and(theDatatype<>nil)then
+    typ:=SQLiteStrictType(theDatatype.GetPhysicalTypeName);
+
+  if(DatabaseType = 'FireBird')then
+    //The type follows from the expression
+    s:='COMPUTED BY '+expr
+  else if(DatabaseType = 'SQL Server')then
+  begin
+    s:='AS '+expr;
+    if(theColumn.GeneratedStored)then
+      s:=s+' PERSISTED';
+  end
+  else if(DatabaseType = 'PostgreSQL')then
+    //PostgreSQL before 18 has stored generated columns only
+    s:=typ+' GENERATED ALWAYS AS '+expr+' STORED'
+  else if(DatabaseType = 'Oracle')then
+    //Oracle has virtual columns only
+    s:=typ+' GENERATED ALWAYS AS '+expr+' VIRTUAL'
+  else
+  begin
+    //MySQL 5.7 and SQLite 3.31 have both kinds
+    s:=typ+' GENERATED ALWAYS AS '+expr;
+    if(theColumn.GeneratedStored)then
+      s:=s+' STORED'
+    else
+      s:=s+' VIRTUAL';
+    if(theColumn.NotNull)and(Not(theColumn.PrimaryKey))then
+      s:=s+' NOT NULL';
+  end;
+
+  ColComment:=StringReplace(Trim(theColumn.Comments), '''', '''''', [rfReplaceAll]);
+  if(OutputComments)and(ColComment<>'')and(DatabaseType = 'My SQL')then
+    s:=s+' COMMENT '''+ColComment+'''';
+
+  GetSQLGeneratedColumnCode:=Trim(s);
+end;
+
+function TEERTable.GetSQLIndexExpressionCode(theIndex: TObject; DatabaseType: string): string;
+var expr: string;
+begin
+  expr:=StripOuterBrackets(Trim(TEERIndex(theIndex).Expression));
+
+  if(DatabaseType = 'FireBird')then
+    GetSQLIndexExpressionCode:='COMPUTED BY ('+expr+')'
+  else if(DatabaseType = 'My SQL')or(DatabaseType = 'PostgreSQL')then
+    //A key part that is an expression needs its own brackets there
+    GetSQLIndexExpressionCode:='(('+expr+'))'
+  else
+    GetSQLIndexExpressionCode:='('+expr+')';
+end;
+
+function StripOuterBrackets(const s: string): string;
+var k, depth: integer;
+  inQuote: char;
+begin
+  Result:=Trim(s);
+  while(Length(Result)>=2)and(Result[1]='(')and(Result[Length(Result)]=')')do
+  begin
+    //The first bracket has to close at the very end
+    depth:=0;
+    inQuote:=#0;
+    for k:=1 to Length(Result) do
+    begin
+      if(inQuote<>#0)then
+      begin
+        if(Result[k]=inQuote)then
+          inQuote:=#0;
+      end
+      else if(Result[k] in ['''', '"'])then
+        inQuote:=Result[k]
+      else if(Result[k]='(')then
+        inc(depth)
+      else if(Result[k]=')')then
+      begin
+        dec(depth);
+        if(depth=0)and(k<Length(Result))then
+          Exit;
+      end;
+    end;
+    Result:=Trim(Copy(Result, 2, Length(Result)-2));
+  end;
+end;
+
+function UnquoteSQLText(const s: string): string;
+begin
+  Result:=s;
+  if(Length(s)>=2)and(s[1]='''')and(s[Length(s)]='''')then
+    Result:=StringReplace(Copy(s, 2, Length(s)-2), '''''', '''', [rfReplaceAll]);
+end;
+
+function SQLDefaultValue(const Value, DatabaseType: string): string;
+const
+  //What SQLite and FireBird take as a default besides literals
+  Keywords: array[0..12] of string = ('NULL', 'TRUE', 'FALSE', 'CURRENT_DATE',
+    'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'LOCALTIME', 'LOCALTIMESTAMP',
+    'CURRENT_USER', 'CURRENT_ROLE', 'USER', 'CURRENT_CONNECTION',
+    'CURRENT_TRANSACTION');
+var t: string;
+  k: integer;
+  IsText: Boolean;
+
+  //-1, 0.5, 1.5e10 (whatever the decimal separator of the system is)
+  function IsNumber: Boolean;
+  var n: integer;
+  begin
+    IsNumber:=(t[1] in ['0'..'9', '+', '-', '.']);
+    for n:=1 to Length(t) do
+      if(Not(t[n] in ['0'..'9', '+', '-', '.', 'e', 'E']))then
+        IsNumber:=False;
+  end;
+
+begin
+  Result:=Value;
+  if(DatabaseType<>'SQLite')and(DatabaseType<>'FireBird')then
+    Exit;
+
+  t:=Trim(Value);
+  if(t='')then
+    Exit;
+
+  if(DatabaseType='SQLite')and(SQLiteDefaultNeedsBrackets(t))then
+  begin
+    Result:='('+t+')';
+    Exit;
+  end;
+
+  //Literals (also DATE '2020-01-01', x'00'), brackets, function calls,
+  //numbers and the keywords stay as they are
+  IsText:=Not((Pos('''', t)>0)or(Pos('(', t)>0)or(t[1]='"')or
+    IsNumber or
+    ((Length(t)>2)and(t[1]='0')and(t[2] in ['x', 'X'])));
+  if(IsText)then
+    for k:=0 to High(Keywords) do
+      if(CompareText(t, Keywords[k])=0)then
+        IsText:=False;
+
+  if(IsText)then
+    Result:=''''+StringReplace(t, '''', '''''', [rfReplaceAll])+'''';
+end;
+
+function SQLiteDefaultNeedsBrackets(const s: string): Boolean;
+var v: string;
+begin
+  v:=Trim(s);
+  //A string or blob literal, or already in brackets
+  if(v='')or(v[1] in ['''', '"', '('])or
+    ((Length(v)>1)and(v[1] in ['x', 'X'])and(v[2]=''''))then
+    SQLiteDefaultNeedsBrackets:=False
+  else
+    //Literals, CURRENT_TIMESTAMP and names (taken as text) are fine without
+    SQLiteDefaultNeedsBrackets:=(Pos('(', v)>0);
 end;
 
 function TEERTable.GetSQLName(const AName, DatabaseType: string): string;
@@ -10061,6 +10431,7 @@ end;
 function TEERTable.GetXML: string;
 var s: string;
   j, k: integer;
+  ChecksXML: TStringList;
   CO: TEERColumn;
   DT: TEERDatatype;
 begin
@@ -10082,8 +10453,24 @@ begin
     'IsLinkedObject="'+IntToStr(Ord(IsLinkedObject))+'" '+
     'IDLinkedModel="'+IntToStr(IDLinkedModel)+'" '+
     'Obj_id_Linked="'+IntToStr(Obj_id_Linked)+'" '+
-    'OrderPos="'+IntToStr(OrderPos)+'" '+
-    '>'+#13#10;
+    'OrderPos="'+IntToStr(OrderPos)+'" ';
+  //Only a table with CHECK constraints has it, other files stay as they were.
+  //Two lines per constraint, name and expression (a TAB would become a blank)
+  if(CheckConstraints.Count>0)then
+  begin
+    ChecksXML:=TStringList.Create;
+    try
+      for j:=0 to CheckConstraints.Count-1 do
+      begin
+        ChecksXML.Add(CheckName(j));
+        ChecksXML.Add(CheckExpression(j));
+      end;
+      s:=s+'CheckConstraints="'+DMMain.EncodeText4XML(ChecksXML.Text)+'" ';
+    finally
+      ChecksXML.Free;
+    end;
+  end;
+  s:=s+'>'+#13#10;
 
   //Columns
   s:=s+'<COLUMNS>'+#13#10;
@@ -10104,8 +10491,12 @@ begin
       'AutoInc="'+IntToStr(Ord(CO.AutoInc))+'" '+
       'IsForeignKey="'+IntToStr(Ord(CO.IsForeignKey))+'" '+
       'DefaultValue="'+DMMain.EncodeText4XML(CO.DefaultValue)+'" '+
-      'Comments="'+DMMain.EncodeText4XML(CO.Comments)+'"'+
-      '>'+#13#10;
+      'Comments="'+DMMain.EncodeText4XML(CO.Comments)+'"';
+    //Only a generated column has them, the files of other columns stay as they were
+    if(CO.IsGenerated)then
+      s:=s+' GeneratedExpr="'+DMMain.EncodeText4XML(CO.GeneratedExpr)+'" '+
+        'GeneratedStored="'+IntToStr(Ord(CO.GeneratedStored))+'"';
+    s:=s+'>'+#13#10;
 
     //Selected Options
     s:=s+'<OPTIONSELECTED>'+#13#10;
@@ -10147,14 +10538,21 @@ begin
         'ID="'+IntToStr(TEERIndex(Indices[j]).Obj_id)+'" '+
         'IndexName="'+DMMain.EncodeText4XML(TEERIndex(Indices[j]).IndexName)+'" '+
         'IndexKind="'+IntToStr(TEERIndex(Indices[j]).IndexKind)+'" '+
-        'FKRefDef_Obj_id="'+IntToStr(Ord(TEERIndex(Indices[j]).FKRefDef_Obj_id))+'"'+
-        '>'+#13#10;
+        'FKRefDef_Obj_id="'+IntToStr(Ord(TEERIndex(Indices[j]).FKRefDef_Obj_id))+'"';
+      if(TEERIndex(Indices[j]).Expression<>'')then
+        s:=s+' Expression="'+DMMain.EncodeText4XML(TEERIndex(Indices[j]).Expression)+'"';
+      if(TEERIndex(Indices[j]).Condition<>'')then
+        s:=s+' Condition="'+DMMain.EncodeText4XML(TEERIndex(Indices[j]).Condition)+'"';
+      s:=s+'>'+#13#10;
 
       //Write Index Columns
       s:=s+'<INDEXCOLUMNS>'+#13#10;
       for k:=0 to TEERIndex(Indices[j]).Columns.Count-1 do
       begin
         s:=s+'<INDEXCOLUMN idColumn="'+TEERIndex(Indices[j]).Columns[k]+'" ';
+        //Only a descending column has it, other files stay as they were
+        if(TEERIndex(Indices[j]).DescColumns.IndexOf(TEERIndex(Indices[j]).Columns[k])>=0)then
+          s:=s+'Descending="1" ';
         if(TEERIndex(Indices[j]).ColumnParams.Values[TEERIndex(Indices[j]).Columns[k]]<>'')then
           s:=s+'LengthParam="'+TEERIndex(Indices[j]).ColumnParams.Values[TEERIndex(Indices[j]).Columns[k]]+'" />'+#13#10
         else
@@ -10307,6 +10705,8 @@ end;
 
 procedure TEERTable.SetXML2(theXMLParser: TXmlParser);
 var s: string;
+  ChecksXML: TStringList;
+  i: integer;
 
   procedure getTABLECOLUMNSoptions(thecolumn: TEERColumn);
   var i: integer;
@@ -10373,6 +10773,10 @@ var s: string;
           theColumn.DefaultValue:=DMMain.DecodeXMLText(DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('DefaultValue')));
 
           theColumn.Comments:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('Comments'));
+
+          //Files of 2.1.0 and older have no generated columns
+          theColumn.GeneratedExpr:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('GeneratedExpr'));
+          theColumn.GeneratedStored:=(theXMLParser.CurAttr.Value('GeneratedStored')='1');
 
           Columns.Add(theColumn);
         end
@@ -10442,6 +10846,9 @@ var s: string;
         if(theXMLParser.CurName='INDEXCOLUMN')then
         begin
           theIndex.Columns.Add(theXMLParser.CurAttr.Value('idColumn'));
+          //Files of 2.1.0 and older have ascending indices only
+          if(theXMLParser.CurAttr.Value('Descending')='1')then
+            theIndex.DescColumns.Add(theXMLParser.CurAttr.Value('idColumn'));
 
           //Try to read Index Column Lengths
           try
@@ -10480,6 +10887,10 @@ var s: string;
           theIndex.Obj_id:=StrToInt(theXMLParser.CurAttr.Value('ID'));
           theIndex.IndexName:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('IndexName'));
           theIndex.IndexKind:=StrToInt(theXMLParser.CurAttr.Value('IndexKind'));
+          //Files of 2.1.0 and older have no indices on an expression
+          theIndex.Expression:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('Expression'));
+          //and no partial indices
+          theIndex.Condition:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('Condition'));
 
           Indices.Add(theIndex);
 
@@ -10540,6 +10951,17 @@ begin
     UseStandardInserts:=(theXMLParser.CurAttr.Value('UseStandardInserts')='1');
     StandardInserts.Text:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('StandardInserts'));
     TableOptions.Text:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('TableOptions'));
+    //Files of 2.1.0 and older have no CHECK constraints; two lines each,
+    //name and expression
+    CheckConstraints.Clear;
+    ChecksXML:=TStringList.Create;
+    try
+      ChecksXML.Text:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('CheckConstraints'));
+      for i:=0 to (ChecksXML.Count div 2)-1 do
+        AddCheck(ChecksXML[2*i], ChecksXML[2*i+1]);
+    finally
+      ChecksXML.Free;
+    end;
 
     //nmTable was introduced in 4.0.3.22, so it may not be present in file
     try
@@ -10623,6 +11045,7 @@ begin
     PrevTableName:=theSourceTbl.PrevTableName;
 
     TableOptions.Text:=theSourceTbl.TableOptions.Text;
+    CheckConstraints.Text:=theSourceTbl.CheckConstraints.Text;
 
     StandardInserts.Text:=theSourceTbl.StandardInserts.Text;
     UseStandardInserts:=theSourceTbl.UseStandardInserts;
@@ -10671,6 +11094,7 @@ begin
       (Temporary=TEERTable(Source).Temporary)and
       (PrevTableName=TEERTable(Source).PrevTableName)and
       (TableOptions.Text=TEERTable(Source).TableOptions.Text)and
+      (CheckConstraints.Text=TEERTable(Source).CheckConstraints.Text)and
       (StandardInserts.Text=TEERTable(Source).StandardInserts.Text)and
       (UseStandardInserts=TEERTable(Source).UseStandardInserts)and
       (nmTable=TEERTable(Source).GetnmTableStatus)then
@@ -14492,9 +14916,64 @@ begin
     OptionSelected:=theSource.OptionSelected;
     DefaultValue:=theSource.DefaultValue;
     Comments:=theSource.Comments;
+    GeneratedExpr:=theSource.GeneratedExpr;
+    GeneratedStored:=theSource.GeneratedStored;
   end
   else
     inherited Assign(Source);
+end;
+
+function TEERColumn.IsGenerated: Boolean;
+begin
+  IsGenerated:=(Trim(GeneratedExpr)<>'');
+end;
+
+function TEERColumn.DefaultOrGenerated: string;
+begin
+  if(IsGenerated)then
+  begin
+    Result:='AS ('+StripOuterBrackets(GeneratedExpr)+')';
+    if(GeneratedStored)then
+      Result:=Result+' STORED';
+  end
+  else
+    Result:=DefaultValue;
+end;
+
+procedure TEERColumn.SetDefaultOrGenerated(const s: string);
+var t, u: string;
+begin
+  t:=Trim(s);
+  u:=UpperCase(t);
+  //[GENERATED ALWAYS] AS (expr) [STORED | VIRTUAL]
+  if(Copy(u, 1, 17)='GENERATED ALWAYS ')then
+  begin
+    t:=Trim(Copy(t, 18, Length(t)));
+    u:=UpperCase(t);
+  end;
+  if(Copy(u, 1, 2)='AS')and(Copy(TrimLeft(Copy(t, 3, Length(t))), 1, 1)='(')then
+  begin
+    t:=TrimLeft(Copy(t, 3, Length(t)));
+    u:=UpperCase(t);
+    GeneratedStored:=False;
+    if(Copy(u, Length(u)-6, 7)=' STORED')then
+    begin
+      GeneratedStored:=True;
+      t:=TrimRight(Copy(t, 1, Length(t)-7));
+    end
+    else if(Copy(u, Length(u)-7, 8)=' VIRTUAL')then
+      t:=TrimRight(Copy(t, 1, Length(t)-8));
+    GeneratedExpr:=StripOuterBrackets(t);
+    //A generated column has no default and no auto increment
+    DefaultValue:='';
+    AutoInc:=False;
+  end
+  else
+  begin
+    GeneratedExpr:='';
+    GeneratedStored:=False;
+    DefaultValue:=s;
+  end;
 end;
 
 function TEERColumn.ObjIsEqualTo(Source: TObject): Boolean;
@@ -14518,7 +14997,9 @@ begin
       (IsForeignKey=TEERColumn(Source).IsForeignKey)and
       (FK_checked=TEERColumn(Source).FK_checked)and
       (DefaultValue=TEERColumn(Source).DefaultValue)and
-      (Comments=TEERColumn(Source).Comments)then
+      (Comments=TEERColumn(Source).Comments)and
+      (GeneratedExpr=TEERColumn(Source).GeneratedExpr)and
+      (GeneratedStored=TEERColumn(Source).GeneratedStored)then
     begin
       ObjIsEqualTo:=True;
 
@@ -14540,6 +15021,7 @@ begin
 
   Columns:=TStringList.Create;
   ColumnParams:=TStringList.Create;
+  DescColumns:=TStringList.Create;
 
   IndexKind:=ik_INDEX;
   FKRefDef_Obj_id:=-1;
@@ -14551,6 +15033,7 @@ destructor TEERIndex.Destroy;
 begin
   Columns.Free;
   ColumnParams.Free;
+  DescColumns.Free;
 
   inherited;
 end;
@@ -14570,6 +15053,9 @@ begin
     ColumnParams.Assign(TEERIndex(Source).ColumnParams);
 
     FKRefDef_Obj_id:=TEERIndex(Source).FKRefDef_Obj_id;
+    Expression:=TEERIndex(Source).Expression;
+    DescColumns.Assign(TEERIndex(Source).DescColumns);
+    Condition:=TEERIndex(Source).Condition;
   end
   else
     inherited Assign(Source);
@@ -14587,9 +15073,21 @@ begin
       (IndexKind=TEERIndex(Source).IndexKind)and
       (Columns.Text=TEERIndex(Source).Columns.Text)and
       (ColumnParams.Text=TEERIndex(Source).ColumnParams.Text)and
-      (FKRefDef_Obj_id=TEERIndex(Source).FKRefDef_Obj_id)then
+      (FKRefDef_Obj_id=TEERIndex(Source).FKRefDef_Obj_id)and
+      (Expression=TEERIndex(Source).Expression)and
+      (DescColumns.Text=TEERIndex(Source).DescColumns.Text)and
+      (Condition=TEERIndex(Source).Condition)then
       ObjIsEqualTo:=True;
   end;
+end;
+
+function TEERIndex.AllDescending: Boolean;
+var k: integer;
+begin
+  AllDescending:=(Columns.Count>0);
+  for k:=0 to Columns.Count-1 do
+    if(DescColumns.IndexOf(Columns[k])=-1)then
+      AllDescending:=False;
 end;
 
 // -----------------------------------------------

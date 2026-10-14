@@ -74,22 +74,32 @@ const
     'ORDER BY rc.RDB$RELATION_NAME, rc.RDB$CONSTRAINT_NAME, s.RDB$FIELD_POSITION';
 
   //The indices of a table with their columns, one row per column.
-  //Expression indices have no columns and are left out
+  //Expression indices have no columns, ExpressionIndicesSQL reads them
   IndicesSQL = 'SELECT TRIM(i.RDB$INDEX_NAME) AS IDXNAME, '+
     'COALESCE(i.RDB$UNIQUE_FLAG, 0) AS IDXUNIQUE, COALESCE(i.RDB$INDEX_TYPE, 0) AS IDXDESC, '+
     'TRIM(s.RDB$FIELD_NAME) AS COLNAME, TRIM(rc.RDB$CONSTRAINT_TYPE) AS CONSTRTYPE, '+
-    'TRIM(rc.RDB$CONSTRAINT_NAME) AS CONSTRNAME '+
+    'TRIM(rc.RDB$CONSTRAINT_NAME) AS CONSTRNAME, %1:s AS IDXCOND '+
     'FROM RDB$INDICES i '+
     'JOIN RDB$INDEX_SEGMENTS s ON s.RDB$INDEX_NAME=i.RDB$INDEX_NAME '+
     'LEFT JOIN RDB$RELATION_CONSTRAINTS rc ON rc.RDB$INDEX_NAME=i.RDB$INDEX_NAME '+
-    'WHERE i.RDB$RELATION_NAME=%s AND COALESCE(i.RDB$SYSTEM_FLAG, 0)=0 '+
+    'WHERE i.RDB$RELATION_NAME=%0:s AND COALESCE(i.RDB$SYSTEM_FLAG, 0)=0 '+
     'ORDER BY i.RDB$INDEX_NAME, s.RDB$FIELD_POSITION';
+
+  //The indices on an expression (COMPUTED BY) of a table
+  ExpressionIndicesSQL = 'SELECT TRIM(i.RDB$INDEX_NAME) AS IDXNAME, '+
+    'COALESCE(i.RDB$UNIQUE_FLAG, 0) AS IDXUNIQUE, i.RDB$EXPRESSION_SOURCE AS IDXEXPR, '+
+    '%1:s AS IDXCOND '+
+    'FROM RDB$INDICES i '+
+    'WHERE i.RDB$RELATION_NAME=%0:s AND COALESCE(i.RDB$SYSTEM_FLAG, 0)=0 '+
+    'AND i.RDB$EXPRESSION_SOURCE IS NOT NULL '+
+    'ORDER BY i.RDB$INDEX_NAME';
 
 type
   TFBColInfo = record
     Name,
     Typ,           //Firebird type, e.g. NUMERIC(10,2)
     Dflt,          //default value without the DEFAULT keyword
+    Computed,      //expression of a computed column (COMPUTED BY), '' for others
     Comment: string;
     NotNull, Identity: Boolean;
   end;
@@ -97,6 +107,38 @@ type
 
 // -----------------------------------------------------------------------------
 // Shared helpers
+
+//An expression to compare: without the outer brackets, blanks and quotes,
+//in upper case
+function NormExpr(const s: string): string;
+var k: integer;
+  t: string;
+begin
+  t:=StripOuterBrackets(s);
+  Result:='';
+  for k:=1 to Length(t) do
+    if(Not(t[k] in [#9, #10, #13, ' ', '"']))then
+      Result:=Result+UpCase(t[k]);
+end;
+
+//The column with the condition of a partial index for IndicesSQL; partial
+//indices came with Firebird 5
+function ConditionColumn(EngineVer: integer): string;
+begin
+  if(EngineVer>=5)then
+    ConditionColumn:='i.RDB$CONDITION_SOURCE'
+  else
+    ConditionColumn:='CAST(NULL AS VARCHAR(1))';
+end;
+
+//The condition of a partial index without its WHERE
+function IndexCondition(const s: string): string;
+begin
+  Result:=Trim(s);
+  if(CompareText(Copy(Result, 1, 5), 'WHERE')=0)and(Length(Result)>5)and
+    (Result[6] in [' ', #9, #10, #13, '('])then
+    Result:=Trim(Copy(Result, 6, Length(Result)));
+end;
 
 //The name exactly as it is stored in the database
 function QId(const s: string): string;
@@ -251,7 +293,8 @@ begin
     'COALESCE(f.RDB$FIELD_SCALE, 0) AS FSCALE, COALESCE(f.RDB$CHARACTER_SET_ID, 0) AS FCHARSET, '+
     'COALESCE(rf.RDB$NULL_FLAG, f.RDB$NULL_FLAG, 0) AS NOTNULLFLAG, '+
     'COALESCE(rf.RDB$DEFAULT_SOURCE, f.RDB$DEFAULT_SOURCE) AS DEFSRC, '+
-    identCol+' AS IDENTTYPE, rf.RDB$DESCRIPTION AS DESCR '+
+    identCol+' AS IDENTTYPE, rf.RDB$DESCRIPTION AS DESCR, '+
+    'f.RDB$COMPUTED_SOURCE AS COMPSRC '+
     'FROM RDB$RELATION_FIELDS rf '+
     'JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME=rf.RDB$FIELD_SOURCE '+
     'WHERE rf.RDB$RELATION_NAME='+QuotedStr(tbl)+' '+
@@ -275,6 +318,10 @@ begin
       Cols[n].Comment:='';
       if(Not(Q.FieldByName('DESCR').IsNull))then
         Cols[n].Comment:=Trim(Q.FieldByName('DESCR').AsString);
+      //Stored as written behind COMPUTED BY, in its brackets
+      Cols[n].Computed:='';
+      if(Not(Q.FieldByName('COMPSRC').IsNull))then
+        Cols[n].Computed:=StripOuterBrackets(Q.FieldByName('COMPSRC').AsString);
       Q.Next;
     end;
   finally
@@ -343,10 +390,21 @@ end;
 // -----------------------------------------------------------------------------
 // Reverse engineering
 
-//The model datatype for a Firebird type like NUMERIC(10,2)
+//The datatype of the model for a Firebird type the model does not have
+//(INT128, DECFLOAT, ... WITH TIME ZONE, BINARY, VARBINARY): it is added to
+//the model like a user defined datatype, so the SQL code and the
+//synchronisation write the type as it is in the database
+function AddFirebirdDatatype(EERModel: TEERModel; const TypeName, ParamName: string): TEERDatatype;
+begin
+  Result:=TEERDatatype(EERModel.AddUserDatatype(TypeName, 'Firebird', ParamName));
+end;
+
+//The model datatype for a Firebird type like NUMERIC(10,2). The type is
+//kept as Firebird has it, so the synchronisation finds no difference:
+//NUMERIC stays NUMERIC, DECFLOAT(16) stays DECFLOAT(16)
 function ModelDatatype(EERModel: TEERModel; const FBType: string;
   DatatypeSubst: TStringList; var DatatypeParams: string): TEERDatatype;
-var n, s: string;
+var n, s, ParamName: string;
 begin
   n:=FBType;
   DatatypeParams:='';
@@ -356,26 +414,24 @@ begin
     n:=Trim(Copy(n, 1, Pos('(', n)-1));
   end;
 
-  if(n='NUMERIC')or(n='DECIMAL')then
-    s:='DECIMAL'
-  else if(n='INT128')then
+  //Types of Firebird the model may not have, with the name of their parameter
+  ParamName:='';
+  if(n='INT128')or(n='TIME WITH TIME ZONE')or(n='TIMESTAMP WITH TIME ZONE')then
+    s:=n
+  else if(n='DECFLOAT')then
   begin
-    s:='DECIMAL';
-    DatatypeParams:='(38,0)';
+    s:=n;
+    ParamName:='precision';
   end
-  else if(n='DOUBLE PRECISION')or(Copy(n, 1, 8)='DECFLOAT')then
+  else if(n='BINARY')or(n='VARBINARY')then
   begin
-    s:='DOUBLE';
-    DatatypeParams:='';
+    s:=n;
+    ParamName:='length';
   end
-  else if(Copy(n, 1, 9)='TIMESTAMP')then
+  else if(n='DOUBLE PRECISION')then
+    s:='DOUBLE'
+  else if(n='TIMESTAMP')then
     s:='DATETIME'
-  else if(Copy(n, 1, 4)='TIME')then
-    s:='TIME'
-  else if(n='BINARY')then
-    s:='CHAR'
-  else if(n='VARBINARY')then
-    s:='VARCHAR'
   else if(n='BLOB SUB_TYPE TEXT')then
     s:='TEXT'
   else if(n='BLOB SUB_TYPE BINARY')then
@@ -391,6 +447,9 @@ begin
       s:=DatatypeSubst.Values[n];
 
   Result:=TEERDatatype(EERModel.GetDataTypeByName(s));
+  if(Result=nil)and(s=n)and((ParamName<>'')or(n='INT128')or
+    (n='TIME WITH TIME ZONE')or(n='TIMESTAMP WITH TIME ZONE'))then
+    Result:=AddFirebirdDatatype(EERModel, n, ParamName);
   if(Result=nil)then
   begin
     Result:=TEERDatatype(EERModel.GetDataType(EERModel.DefaultDataType));
@@ -468,6 +527,18 @@ begin
       if(Trim(s)<>'')then
         theTable.Comments:=Trim(s);
 
+      //Global temporary table: 4 ON COMMIT PRESERVE ROWS, 5 ON COMMIT DELETE ROWS
+      s:=QueryStr(Q, 'SELECT RDB$RELATION_TYPE FROM RDB$RELATIONS '+
+        'WHERE RDB$RELATION_NAME='+QuotedStr(theTable.ObjName));
+      if(s='4')or(s='5')then
+      begin
+        theTable.Temporary:=True;
+        if(s='4')then
+          theTable.TableOptions.Values['OnCommit']:='PRESERVE'
+        else
+          theTable.TableOptions.Values['OnCommit']:='DELETE';
+      end;
+
       //Columns
       LoadPrimaryKey(Q, theTable.ObjName, s, PKCols);
       LoadColumns(Q, theTable.ObjName, EngineVer, Cols);
@@ -484,12 +555,16 @@ begin
         theColumn.AutoInc:=Cols[j].Identity;
         theColumn.IsForeignKey:=False;
         theColumn.Comments:=Cols[j].Comment;
+        //Computed columns are never stored in Firebird
+        theColumn.GeneratedExpr:=Cols[j].Computed;
+        theColumn.GeneratedStored:=False;
 
-        //Default value as written in the DDL, strip one pair of enclosing
-        //quotes like MySQL's SHOW FIELDS does
+        //Default value as written in the DDL: a text keeps its quotes, the
+        //model takes the default as SQL. Only when the SQL export adds the
+        //quotes itself (option AddQuotesToDefVals) the value is without them
         DefVal:=Cols[j].Dflt;
-        if(Length(DefVal)>=2)and(DefVal[1]='''')and(DefVal[Length(DefVal)]='''')then
-          DefVal:=Copy(DefVal, 2, Length(DefVal)-2);
+        if(DMEER.AddQuotesToDefVals)then
+          DefVal:=UnquoteSQLText(DefVal);
         if(CompareText(DefVal, 'NULL')<>0)then
           theColumn.DefaultValue:=DefVal;
 
@@ -506,7 +581,7 @@ begin
       //belong to their constraints; a UNIQUE constraint is a unique index
       prevIndex:='';
       theIndex:=nil;
-      Q.SQL.Text:=Format(IndicesSQL, [QuotedStr(theTable.ObjName)]);
+      Q.SQL.Text:=Format(IndicesSQL, [QuotedStr(theTable.ObjName), ConditionColumn(EngineVer)]);
       Q.Open;
       while(Not(Q.EOF))do
       begin
@@ -522,16 +597,43 @@ begin
               theIndex.IndexKind:=ik_UNIQUE_INDEX
             else
               theIndex.IndexKind:=ik_INDEX;
+            //Partial index (Firebird 5)
+            theIndex.Condition:=IndexCondition(Q.FieldByName('IDXCOND').AsString);
             theTable.Indices.Add(theIndex);
             theIndex.Pos:=theTable.Indices.Count-1;
           end;
 
           theColumn:=TEERColumn(theTable.GetColumnByName(Q.FieldByName('COLNAME').AsString));
           if(theColumn<>nil)then
+          begin
             theIndex.Columns.Add(IntToStr(theColumn.Obj_id));
+            //A descending index has all its columns descending
+            if(Q.FieldByName('IDXDESC').AsInteger=1)then
+              theIndex.DescColumns.Add(IntToStr(theColumn.Obj_id));
+          end;
 
           prevIndex:=Q.FieldByName('IDXNAME').AsString;
         end;
+        Q.Next;
+      end;
+      Q.Close;
+
+      //Indices on an expression
+      Q.SQL.Text:=Format(ExpressionIndicesSQL, [QuotedStr(theTable.ObjName), ConditionColumn(EngineVer)]);
+      Q.Open;
+      while(Not(Q.EOF))do
+      begin
+        theIndex:=TEERIndex.Create(theTable);
+        theIndex.Obj_id:=DMMain.GetNextGlobalID;
+        theIndex.IndexName:=Q.FieldByName('IDXNAME').AsString;
+        if(Q.FieldByName('IDXUNIQUE').AsInteger=1)then
+          theIndex.IndexKind:=ik_UNIQUE_INDEX
+        else
+          theIndex.IndexKind:=ik_INDEX;
+        theIndex.Expression:=StripOuterBrackets(Q.FieldByName('IDXEXPR').AsString);
+        theIndex.Condition:=IndexCondition(Q.FieldByName('IDXCOND').AsString);
+        theTable.Indices.Add(theIndex);
+        theIndex.Pos:=theTable.Indices.Count-1;
         Q.Next;
       end;
       Q.Close;
@@ -724,6 +826,14 @@ var
   //The definition of a column for CREATE TABLE / ALTER TABLE ADD
   function ColumnDef(theColumn: TEERColumn): string;
   begin
+    //A computed column has its type from the expression
+    if(theColumn.IsGenerated)then
+    begin
+      Result:=NewId(theColumn.ColName)+' COMPUTED BY ('+
+        StripOuterBrackets(theColumn.GeneratedExpr)+')';
+      Exit;
+    end;
+
     Result:=NewId(theColumn.ColName)+' '+FirebirdColumnType(EERModel, theColumn);
 
     if(theColumn.AutoInc)then
@@ -733,7 +843,7 @@ var
       if(DMEER.AddQuotesToDefVals)then
         Result:=Result+' DEFAULT '+QuotedStr(theColumn.DefaultValue)
       else
-        Result:=Result+' DEFAULT '+theColumn.DefaultValue;
+        Result:=Result+' DEFAULT '+SQLDefaultValue(theColumn.DefaultValue, 'FireBird');
     end;
 
     //The columns of a primary key have to be NOT NULL
@@ -791,8 +901,27 @@ var
     end;
   end;
 
+  //The condition of a partial index in the definitions of ModelIndices and
+  //LoadIndices, and as SQL
+  function CondDef(const Condition: string): string;
+  begin
+    if(Trim(Condition)='')then
+      CondDef:=''
+    else
+      CondDef:='|WHERE '+NormExpr(Condition);
+  end;
+
+  function CondSQL(const Condition: string): string;
+  begin
+    if(Trim(Condition)='')then
+      CondSQL:=''
+    else
+      CondSQL:=' WHERE '+Trim(Condition);
+  end;
+
   //The indices of the model table that Firebird has to create: Names[k] with
-  //its definition Defs[k] ("U|COL,COL" or "I|COL,COL") and statement Stmts[k].
+  //its definition Defs[k] ("U|COL,COL", "I|COL,COL", or "E|EXPR", "EU|EXPR"
+  //for an index on an expression) and statement Stmts[k].
   //The index of a foreign key belongs to the constraint in Firebird
   procedure ModelIndices(aTable: TEERTable; const tbl: string;
     Names, Defs, Stmts: TStrings);
@@ -812,6 +941,26 @@ var
         theIndex:=TEERIndex(aTable.Indices[k]);
         if(theIndex.IndexKind=ik_PRIMARY)or(theIndex.FKRefDef_Obj_id>-1)then
           continue;
+
+        //Index on an expression: "E|EXPR" or "EU|EXPR"
+        if(theIndex.Expression<>'')then
+        begin
+          if(theIndex.IndexKind=ik_UNIQUE_INDEX)then
+          begin
+            def:='EU|';
+            stmt:='CREATE UNIQUE INDEX ';
+          end
+          else
+          begin
+            def:='E|';
+            stmt:='CREATE INDEX ';
+          end;
+          Names.Add(theIndex.IndexName);
+          Defs.Add(def+NormExpr(theIndex.Expression)+CondDef(theIndex.Condition));
+          Stmts.Add(stmt+NewId(theIndex.IndexName)+' ON '+tbl+' COMPUTED BY ('+
+            StripOuterBrackets(theIndex.Expression)+')'+CondSQL(theIndex.Condition));
+          continue;
+        end;
 
         Cols.Clear;
         for m:=0 to theIndex.Columns.Count-1 do
@@ -834,9 +983,17 @@ var
           stmt:='CREATE INDEX ';
         end;
 
+        //Firebird has the order for the whole index only
+        if(theIndex.AllDescending)then
+        begin
+          def:='DESC '+def;
+          stmt:=StringReplace(stmt, 'INDEX ', 'DESCENDING INDEX ', []);
+        end;
+
         Names.Add(theIndex.IndexName);
-        Defs.Add(def+UpperCase(Cols.CommaText));
-        Stmts.Add(stmt+NewId(theIndex.IndexName)+' ON '+tbl+' ('+NewIdList(Cols)+')');
+        Defs.Add(def+UpperCase(Cols.CommaText)+CondDef(theIndex.Condition));
+        Stmts.Add(stmt+NewId(theIndex.IndexName)+' ON '+tbl+' ('+NewIdList(Cols)+')'+
+          CondSQL(theIndex.Condition));
       end;
     finally
       Cols.Free;
@@ -848,14 +1005,15 @@ var
   //ColMap (old=new) translates the names of columns that are being renamed
   procedure LoadIndices(const tbl: string; Names, Defs, Constraints: TStrings;
     ColMap: TStrings);
-  var prev, def, col, constrType: string;
+  var prev, def, col, constrType, cond: string;
   begin
     Names.Clear;
     Defs.Clear;
     Constraints.Clear;
     prev:='';
     def:='';
-    Q.SQL.Text:=Format(IndicesSQL, [QuotedStr(tbl)]);
+    cond:='';
+    Q.SQL.Text:=Format(IndicesSQL, [QuotedStr(tbl), ConditionColumn(EngineVer)]);
     Q.Open;
     try
       while(Not(Q.EOF))do
@@ -866,15 +1024,15 @@ var
           if(prev<>Q.FieldByName('IDXNAME').AsString)then
           begin
             if(prev<>'')then
-              Defs.Add(def);
+              Defs.Add(def+cond);
             prev:=Q.FieldByName('IDXNAME').AsString;
+            cond:=CondDef(IndexCondition(Q.FieldByName('IDXCOND').AsString));
             Names.Add(prev);
             Constraints.Add(Q.FieldByName('CONSTRNAME').AsString);
             if(Q.FieldByName('IDXUNIQUE').AsInteger=1)then
               def:='U|'
             else
               def:='I|';
-            //The model has ascending indices only
             if(Q.FieldByName('IDXDESC').AsInteger=1)then
               def:='DESC '+def;
           end
@@ -890,7 +1048,25 @@ var
         Q.Next;
       end;
       if(prev<>'')then
-        Defs.Add(def);
+        Defs.Add(def+cond);
+    finally
+      Q.Close;
+    end;
+
+    Q.SQL.Text:=Format(ExpressionIndicesSQL, [QuotedStr(tbl), ConditionColumn(EngineVer)]);
+    Q.Open;
+    try
+      while(Not(Q.EOF))do
+      begin
+        Names.Add(Q.FieldByName('IDXNAME').AsString);
+        Constraints.Add('');
+        cond:=CondDef(IndexCondition(Q.FieldByName('IDXCOND').AsString));
+        if(Q.FieldByName('IDXUNIQUE').AsInteger=1)then
+          Defs.Add('EU|'+NormExpr(Q.FieldByName('IDXEXPR').AsString)+cond)
+        else
+          Defs.Add('E|'+NormExpr(Q.FieldByName('IDXEXPR').AsString)+cond);
+        Q.Next;
+      end;
     finally
       Q.Close;
     end;
@@ -1078,6 +1254,15 @@ var
       Exec('DROP TABLE '+QId(TmpTbl));
   end;
 
+  //What a global temporary table does at the end of a transaction
+  function OnCommitRows(aTable: TEERTable): string;
+  begin
+    if(CompareText(aTable.TableOptions.Values['OnCommit'], 'PRESERVE')=0)then
+      OnCommitRows:='PRESERVE ROWS'
+    else
+      OnCommitRows:='DELETE ROWS';
+  end;
+
   //Create the table with its primary key and indices; the foreign keys are
   //added when all tables exist
   procedure CreateTable(aTable: TEERTable);
@@ -1090,11 +1275,18 @@ var
     IdxDefs:=TStringList.Create;
     IdxStmts:=TStringList.Create;
     try
-      stmt:='CREATE TABLE '+NewId(aTable.ObjName)+' ('+ColumnDefs(aTable);
+      if(aTable.Temporary)then
+        stmt:='CREATE GLOBAL TEMPORARY TABLE '
+      else
+        stmt:='CREATE TABLE ';
+      stmt:=stmt+NewId(aTable.ObjName)+' ('+ColumnDefs(aTable);
       ModelPrimaryKey(aTable, PKCols);
       if(PKCols.Count>0)then
         stmt:=stmt+', PRIMARY KEY ('+NewIdList(PKCols)+')';
-      Exec(stmt+')');
+      stmt:=stmt+')';
+      if(aTable.Temporary)then
+        stmt:=stmt+' ON COMMIT '+OnCommitRows(aTable);
+      Exec(stmt);
 
       ModelIndices(aTable, NewId(aTable.ObjName), IdxNames, IdxDefs, IdxStmts);
       for k:=0 to IdxStmts.Count-1 do
@@ -1132,6 +1324,12 @@ var
           for m:=0 to High(OldCols) do
             if(CompareText(OldCols[m].Name, theColumn.PrevColName)=0)then
               src:=OldCols[m].Name;
+        //A computed column takes no values
+        if(theColumn.IsGenerated)then
+          src:='';
+        for m:=0 to High(OldCols) do
+          if(CompareText(OldCols[m].Name, src)=0)and(OldCols[m].Computed<>'')then
+            src:='';
 
         if(src<>'')then
         begin
@@ -1253,6 +1451,15 @@ var
   begin
     //The name as it is written in the database
     X:=DbTableName(aTable.ObjName);
+
+    //Firebird cannot change the kind of a table (4, 5: global temporary)
+    s:=QueryStr(Q, 'SELECT RDB$RELATION_TYPE FROM RDB$RELATIONS '+
+      'WHERE RDB$RELATION_NAME='+QuotedStr(X));
+    if(((s='4')or(s='5'))<>aTable.Temporary)or
+      ((aTable.Temporary)and((s='4')<>(OnCommitRows(aTable)='PRESERVE ROWS')))then
+      LogError('Table '+X, 'Firebird cannot change a table into a global '+
+        'temporary table, back, or to another ON COMMIT; drop the table in the '+
+        'database and synchronise again to create it anew.');
 
     ColMap:=TStringList.Create;
     PKCols:=TStringList.Create;
@@ -1421,6 +1628,31 @@ var
             NewCols[k].Name, X));
           inc(C.ColumnAdd);
           TryExec('ALTER TABLE '+QId(X)+' ADD '+ColumnDef(theColumn));
+        end
+        else if(Src[k]>=0)and((NewCols[k].Computed<>'')or(OldCols[Src[k]].Computed<>''))then
+        begin
+          //A computed column gets its new expression; a column that becomes
+          //computed or stops being it is dropped and added again
+          m:=Src[k];
+          if(NewCols[k].Computed<>'')and(OldCols[m].Computed<>'')then
+          begin
+            if(NormExpr(NewCols[k].Computed)<>NormExpr(OldCols[m].Computed))then
+            begin
+              Log.Add(DMMain.GetTranslatedMessage('Modifying column %s from table %s', 158,
+                OldCols[m].Name, X));
+              inc(C.ColumnMod);
+              TryExec('ALTER TABLE '+QId(X)+' ALTER COLUMN '+QId(OldCols[m].Name)+
+                ' COMPUTED BY ('+StripOuterBrackets(theColumn.GeneratedExpr)+')');
+            end;
+          end
+          else
+          begin
+            Log.Add(DMMain.GetTranslatedMessage('Modifying column %s from table %s', 158,
+              OldCols[m].Name, X));
+            inc(C.ColumnMod);
+            if(TryExec('ALTER TABLE '+QId(X)+' DROP '+QId(OldCols[m].Name)))then
+              TryExec('ALTER TABLE '+QId(X)+' ADD '+ColumnDef(theColumn));
+          end;
         end
         else if(Src[k]>=0)then
         begin

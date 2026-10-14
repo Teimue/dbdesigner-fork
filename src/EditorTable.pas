@@ -840,8 +840,8 @@ begin
               end;
             end;
           7:
-            //Default value
-            TextOut(Rect.Left+3, Rect.Top+2, TEERColumn(EERTable.Columns[ARow-1]).DefaultValue);
+            //Default value, or the expression of a generated column
+            TextOut(Rect.Left+3, Rect.Top+2, TEERColumn(EERTable.Columns[ARow-1]).DefaultOrGenerated);
           8:
             //Comments
             TextOut(Rect.Left+3, Rect.Top+2, TEERColumn(EERTable.Columns[ARow-1]).Comments);
@@ -1694,6 +1694,9 @@ begin
             s:=TEERColumn(theEERColumn).ColName+'('+s+')'
           else
             s:=TEERColumn(theEERColumn).ColName;
+          if(TEERIndex(EERTable.Indices[i]).DescColumns.IndexOf(
+            TEERIndex(EERTable.Indices[i]).Columns[j])>=0)then
+            s:=s+' DESC';
 
           IndexColListBox.Items.Add(s);
 
@@ -1703,6 +1706,13 @@ begin
         else
           TEERIndex(EERTable.Indices[i]).Columns.Delete(j);
       end;
+
+      //An index on an expression shows its key, it has no columns
+      if(TEERIndex(EERTable.Indices[i]).Expression<>'')then
+        IndexColListBox.Items.Add('('+TEERIndex(EERTable.Indices[i]).Expression+')');
+      //The condition of a partial index, after the columns
+      if(TEERIndex(EERTable.Indices[i]).Condition<>'')then
+        IndexColListBox.Items.Add('WHERE '+TEERIndex(EERTable.Indices[i]).Condition);
 
       if(CompareText(TEERIndex(EERTable.Indices[i]).IndexName, 'PRIMARY')=0)then
       begin
@@ -1721,7 +1731,8 @@ begin
       //ACTIVE state (white text) - the pre-selected first column became
       //white-on-white (model-edit-bug-catalog #1). clDefault/clBtnFace
       //keep the theme colours.
-      if(TEERIndex(EERTable.Indices[i]).FKRefDef_Obj_id>-1)then
+      if(TEERIndex(EERTable.Indices[i]).FKRefDef_Obj_id>-1)or
+        (TEERIndex(EERTable.Indices[i]).Expression<>'')then
       begin
         IndexColListBox.Enabled:=False;
         IndexColListBox.Color:=clBtnFace;
@@ -1800,7 +1811,10 @@ begin
       begin
         newPos:=ItemAtPos(Point(X, Y), True);
 
-        if(newPos>-1)and(newPos<>DragStartRow)then
+        //The WHERE line of a partial index is no column
+        if(newPos>-1)and(newPos<>DragStartRow)and
+          (newPos<TEERIndex(EERTable.Indices[IndexListBox.ItemIndex]).Columns.Count)and
+          (DragStartRow<TEERIndex(EERTable.Indices[IndexListBox.ItemIndex]).Columns.Count)then
         begin
           s:=Items[DragStartRow];
 
@@ -1824,6 +1838,9 @@ begin
   if(IndexColListBox.ItemIndex>-1)and(IndexColListBox.Enabled)then
   begin
     theIndex:=TEERIndex(EERTable.Indices[IndexListBox.ItemIndex]);
+    //The WHERE line of a partial index is no column
+    if(IndexColListBox.ItemIndex>=theIndex.Columns.Count)then
+      Exit;
 
     if(CompareText(theIndex.IndexName, 'PRIMARY')=0)then
     begin
@@ -1832,6 +1849,8 @@ begin
       ColumnGrid.Invalidate;
     end;
 
+    if(theIndex.DescColumns.IndexOf(theIndex.Columns[IndexColListBox.ItemIndex])>=0)then
+      theIndex.DescColumns.Delete(theIndex.DescColumns.IndexOf(theIndex.Columns[IndexColListBox.ItemIndex]));
     theIndex.Columns.Delete(theIndex.Columns.IndexOf(theIndex.Columns[IndexColListBox.ItemIndex]));
 
     ShowIndex(theIndex.Obj_id);
@@ -2059,6 +2078,9 @@ begin
   if(IndexColListBox.ItemIndex>-1)then
   begin
     theIndex:=TEERIndex(EERTable.Indices[IndexListBox.ItemIndex]);
+    //The WHERE line of a partial index is no column
+    if(IndexColListBox.ItemIndex>=theIndex.Columns.Count)then
+      Exit;
 
     //Look for ID in the Params
     s:=theIndex.ColumnParams.Values[theIndex.Columns[IndexColListBox.ItemIndex]];

@@ -42,9 +42,426 @@ procedure SQLiteSyncTables(EERModel: TEERModel; ModelTables: TList;
   DbTables: TStringList; Log: TStrings; SyncErrors: TStrings;
   KeepExTbls, StdInsertsOnCreate: Boolean; var C: TSQLiteSyncCounters);
 
+//The expression of a generated column, read from the CREATE TABLE statement
+//(SQLite keeps it nowhere else); '' if the column is no generated column
+function SQLiteGeneratedColumnExpr(const CreateSQL, ColName: string): string;
+
+//The key of a CREATE INDEX statement, the text in the brackets after ON tbl
+function SQLiteIndexKey(const CreateIndexSQL: string): string;
+
+//The condition of a partial index, the text after WHERE; '' for all rows
+function SQLiteIndexCondition(const CreateIndexSQL: string): string;
+
+//The CHECK constraints of a CREATE TABLE statement, of the table and of its
+//columns: one line per constraint, name (may be empty), TAB, expression
+procedure SQLiteTableChecks(const CreateSQL: string; Checks: TStrings);
+
+//The table options of a CREATE TABLE statement
+procedure SQLiteTableFlags(const CreateSQL: string; var IsStrict, WithoutRowid: Boolean);
+
 implementation
 
 uses DB, SQLDB, Dialogs, Controls, MainDM, DBDM;
+
+// -----------------------------------------------------------------------------
+// Reading SQLite's own DDL text
+
+//The statement with its comments as blanks
+function StripSQLComments(const s: string): string;
+var k: integer;
+  q: char;
+begin
+  Result:=s;
+  k:=1;
+  q:=#0;
+  while(k<=Length(Result))do
+  begin
+    if(q<>#0)then
+    begin
+      if(Result[k]=q)then
+        q:=#0;
+    end
+    else if(Result[k] in ['''', '"', '`'])then
+      q:=Result[k]
+    else if(Result[k]='[')then
+      q:=']'
+    else if(Result[k]='-')and(k<Length(Result))and(Result[k+1]='-')then
+    begin
+      while(k<=Length(Result))and(Not(Result[k] in [#10, #13]))do
+      begin
+        Result[k]:=' ';
+        inc(k);
+      end;
+      continue;
+    end
+    else if(Result[k]='/')and(k<Length(Result))and(Result[k+1]='*')then
+    begin
+      while(k<=Length(Result))and
+        Not((Result[k]='*')and(k<Length(Result))and(Result[k+1]='/'))do
+      begin
+        Result[k]:=' ';
+        inc(k);
+      end;
+      if(k<Length(Result))then
+      begin
+        Result[k]:=' ';
+        Result[k+1]:=' ';
+        inc(k);
+      end;
+    end;
+    inc(k);
+  end;
+end;
+
+//The position of the bracket that closes the one at p, 0 if there is none
+function MatchingBracket(const s: string; p: integer): integer;
+var depth: integer;
+  q: char;
+begin
+  Result:=0;
+  depth:=0;
+  q:=#0;
+  while(p<=Length(s))do
+  begin
+    if(q<>#0)then
+    begin
+      if(s[p]=q)then
+        q:=#0;
+    end
+    else if(s[p] in ['''', '"', '`'])then
+      q:=s[p]
+    else if(s[p]='[')then
+      q:=']'
+    else if(s[p]='(')then
+      inc(depth)
+    else if(s[p]=')')then
+    begin
+      dec(depth);
+      if(depth=0)then
+      begin
+        Result:=p;
+        Exit;
+      end;
+    end;
+    inc(p);
+  end;
+end;
+
+//The position of the keyword w outside of brackets (AnyDepth: also inside)
+//and quotes, from p on; 0 if it is not there
+function FindKeyword(const s, w: string; p: integer; AnyDepth: Boolean = False): integer;
+var depth: integer;
+  q: char;
+begin
+  Result:=0;
+  depth:=0;
+  q:=#0;
+  while(p<=Length(s))do
+  begin
+    if(q<>#0)then
+    begin
+      if(s[p]=q)then
+        q:=#0;
+    end
+    else if(s[p] in ['''', '"', '`'])then
+      q:=s[p]
+    else if(s[p]='[')then
+      q:=']'
+    else if(s[p]='(')then
+      inc(depth)
+    else if(s[p]=')')then
+      dec(depth)
+    else if((depth=0)or(AnyDepth))and(CompareText(Copy(s, p, Length(w)), w)=0)and
+      ((p=1)or(Not(s[p-1] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$'])))and
+      ((p+Length(w)>Length(s))or
+       (Not(s[p+Length(w)] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$'])))then
+    begin
+      Result:=p;
+      Exit;
+    end;
+    inc(p);
+  end;
+end;
+
+//The parts of s between the commas outside of brackets and quotes
+procedure SplitTopLevel(const s: string; Parts: TStrings);
+var p, start, depth: integer;
+  q: char;
+begin
+  Parts.Clear;
+  depth:=0;
+  q:=#0;
+  start:=1;
+  for p:=1 to Length(s) do
+  begin
+    if(q<>#0)then
+    begin
+      if(s[p]=q)then
+        q:=#0;
+    end
+    else if(s[p] in ['''', '"', '`'])then
+      q:=s[p]
+    else if(s[p]='[')then
+      q:=']'
+    else if(s[p]='(')then
+      inc(depth)
+    else if(s[p]=')')then
+      dec(depth)
+    else if(s[p]=',')and(depth=0)then
+    begin
+      Parts.Add(Trim(Copy(s, start, p-start)));
+      start:=p+1;
+    end;
+  end;
+  Parts.Add(Trim(Copy(s, start, Length(s))));
+end;
+
+//The name a column definition starts with, without its quotes; Len: the
+//characters it takes in s
+function FirstName(const s: string; var Len: integer): string;
+var p: integer;
+  q: char;
+begin
+  Result:='';
+  Len:=0;
+  if(s='')then
+    Exit;
+  if(s[1] in ['"', '`', '['])then
+  begin
+    if(s[1]='[')then
+      q:=']'
+    else
+      q:=s[1];
+    p:=2;
+    while(p<=Length(s))do
+    begin
+      if(s[p]=q)then
+      begin
+        //A doubled quote is one quote character of the name
+        if(p<Length(s))and(s[p+1]=q)and(q<>']')then
+          inc(p)
+        else
+          break;
+      end;
+      Result:=Result+s[p];
+      inc(p);
+    end;
+    Len:=p;
+  end
+  else
+  begin
+    p:=1;
+    while(p<=Length(s))and(Not(s[p] in [' ', #9, #10, #13, '(', ',']))do
+    begin
+      Result:=Result+s[p];
+      inc(p);
+    end;
+    Len:=p-1;
+  end;
+end;
+
+function SQLiteGeneratedColumnExpr(const CreateSQL, ColName: string): string;
+var s, part: string;
+  p, e, k, n: integer;
+  Parts: TStringList;
+begin
+  Result:='';
+  s:=StripSQLComments(CreateSQL);
+  p:=Pos('(', s);
+  if(p=0)then
+    Exit;
+  e:=MatchingBracket(s, p);
+  if(e=0)then
+    Exit;
+
+  Parts:=TStringList.Create;
+  try
+    SplitTopLevel(Copy(s, p+1, e-p-1), Parts);
+    for k:=0 to Parts.Count-1 do
+    begin
+      part:=Parts[k];
+      if(CompareText(FirstName(part, n), ColName)<>0)then
+        continue;
+
+      //[GENERATED ALWAYS] AS (expr) [STORED | VIRTUAL]
+      p:=FindKeyword(part, 'AS', n+1);
+      if(p=0)then
+        Exit;
+      p:=p+2;
+      while(p<=Length(part))and(part[p] in [' ', #9, #10, #13])do
+        inc(p);
+      if(p>Length(part))or(part[p]<>'(')then
+        Exit;
+      e:=MatchingBracket(part, p);
+      if(e>0)then
+        Result:=Trim(Copy(part, p+1, e-p-1));
+      Exit;
+    end;
+  finally
+    Parts.Free;
+  end;
+end;
+
+function SQLiteIndexKey(const CreateIndexSQL: string): string;
+var s: string;
+  p, e, n: integer;
+begin
+  Result:='';
+  s:=StripSQLComments(CreateIndexSQL);
+  p:=FindKeyword(s, 'ON', 1);
+  if(p=0)then
+    Exit;
+  //Behind the name of the table
+  p:=p+2;
+  while(p<=Length(s))and(s[p] in [' ', #9, #10, #13])do
+    inc(p);
+  FirstName(Copy(s, p, Length(s)), n);
+  p:=p+n;
+  while(p<=Length(s))and(s[p]<>'(')do
+    inc(p);
+  if(p>Length(s))then
+    Exit;
+  e:=MatchingBracket(s, p);
+  if(e>0)then
+    Result:=Trim(Copy(s, p+1, e-p-1));
+end;
+
+function SQLiteIndexCondition(const CreateIndexSQL: string): string;
+var s: string;
+  p: integer;
+begin
+  Result:='';
+  s:=StripSQLComments(CreateIndexSQL);
+  //WHERE is behind the key, outside of its brackets
+  p:=FindKeyword(s, 'WHERE', 1);
+  if(p=0)then
+    Exit;
+  Result:=Trim(Copy(s, p+5, Length(s)));
+  while(Result<>'')and(Result[Length(Result)] in [';', ' ', #9, #10, #13])do
+    Delete(Result, Length(Result), 1);
+end;
+
+//The expression in the brackets that follow position p (blanks before them)
+function BracketAfter(const s: string; p: integer; var e: integer): string;
+begin
+  Result:='';
+  e:=0;
+  while(p<=Length(s))and(s[p] in [' ', #9, #10, #13])do
+    inc(p);
+  if(p>Length(s))or(s[p]<>'(')then
+    Exit;
+  e:=MatchingBracket(s, p);
+  if(e>0)then
+    Result:=Trim(Copy(s, p+1, e-p-1));
+end;
+
+procedure SQLiteTableChecks(const CreateSQL: string; Checks: TStrings);
+var s, part, rest, w, cname, expr: string;
+  p, e, k, n, m: integer;
+  Parts: TStringList;
+begin
+  Checks.Clear;
+  s:=StripSQLComments(CreateSQL);
+  p:=Pos('(', s);
+  if(p=0)then
+    Exit;
+  e:=MatchingBracket(s, p);
+  if(e=0)then
+    Exit;
+
+  Parts:=TStringList.Create;
+  try
+    SplitTopLevel(Copy(s, p+1, e-p-1), Parts);
+    for k:=0 to Parts.Count-1 do
+    begin
+      part:=Parts[k];
+      w:=UpperCase(FirstName(part, n));
+      if(w='CONSTRAINT')then
+      begin
+        //CONSTRAINT name CHECK (expr) of the table
+        rest:=TrimLeft(Copy(part, n+1, Length(part)));
+        cname:=FirstName(rest, m);
+        rest:=TrimLeft(Copy(rest, m+1, Length(rest)));
+        if(FindKeyword(rest, 'CHECK', 1)=1)then
+        begin
+          expr:=BracketAfter(rest, 6, e);
+          if(expr<>'')then
+            Checks.Add(cname+#9+expr);
+        end;
+      end
+      else if(w='CHECK')then
+      begin
+        expr:=BracketAfter(part, 6, e);
+        if(expr<>'')then
+          Checks.Add(#9+expr);
+      end
+      else if(w<>'PRIMARY')and(w<>'UNIQUE')and(w<>'FOREIGN')then
+      begin
+        //A column with CHECK constraints in its definition
+        p:=FindKeyword(part, 'CHECK', n+1);
+        while(p>0)do
+        begin
+          expr:=BracketAfter(part, p+5, e);
+          if(expr<>'')then
+          begin
+            Checks.Add(#9+expr);
+            p:=e+1;
+          end
+          else
+            p:=p+5;
+          p:=FindKeyword(part, 'CHECK', p);
+        end;
+      end;
+    end;
+  finally
+    Parts.Free;
+  end;
+
+  //One line per constraint
+  for k:=0 to Checks.Count-1 do
+    Checks[k]:=StringReplace(StringReplace(Checks[k], #13, ' ', [rfReplaceAll]),
+      #10, ' ', [rfReplaceAll]);
+end;
+
+procedure SQLiteTableFlags(const CreateSQL: string; var IsStrict, WithoutRowid: Boolean);
+var s, tail: string;
+  p, e: integer;
+begin
+  IsStrict:=False;
+  WithoutRowid:=False;
+  s:=StripSQLComments(CreateSQL);
+  p:=Pos('(', s);
+  if(p=0)then
+    Exit;
+  e:=MatchingBracket(s, p);
+  if(e=0)then
+    Exit;
+  //The options follow the column list: WITHOUT ROWID, STRICT
+  tail:=Copy(s, e+1, Length(s));
+  IsStrict:=(FindKeyword(tail, 'STRICT', 1)>0);
+  WithoutRowid:=(FindKeyword(tail, 'ROWID', 1)>0);
+end;
+
+//The statement without the ASC of the index columns, which is the default
+//order: (a ASC, b) is the same index as (a, b)
+function WithoutAscKeywords(const s: string): string;
+var p, k: integer;
+begin
+  Result:=s;
+  p:=FindKeyword(Result, 'ASC', 1, True);
+  while(p>0)do
+  begin
+    //Only ASC in front of the next column or the end of the key
+    k:=p+3;
+    while(k<=Length(Result))and(Result[k] in [' ', #9, #10, #13])do
+      inc(k);
+    if(k<=Length(Result))and(Result[k] in [',', ')'])then
+      Delete(Result, p, 3)
+    else
+      inc(p, 3);
+    p:=FindKeyword(Result, 'ASC', p, True);
+  end;
+end;
 
 procedure SQLiteSyncTables(EERModel: TEERModel; ModelTables: TList;
   DbTables: TStringList; Log: TStrings; SyncErrors: TStrings;
@@ -53,9 +470,11 @@ const
   TmpTbl = 'dbd4_sync_tmp';
 type
   TColInfo = record
-    Name, Typ, Dflt: string;
+    Name, Typ, Dflt,
+    GenExpr: string;  //normalised expression of a generated column
     NotNull: Boolean;
-    PK: integer;
+    PK,
+    Gen: integer;     //0: normal column, 2: generated virtual, 3: generated stored
   end;
   TColInfos = array of TColInfo;
 var
@@ -185,12 +604,17 @@ var
       Copy(CreateStmt, Length(prefix)+1, Length(CreateStmt)));
   end;
 
+  //The columns with the generated ones (pragma_table_xinfo, hidden 2 and 3);
+  //the expression of a generated column is only in the CREATE TABLE text
   procedure LoadCols(const tbl: string; var Cols: TColInfos);
   var n: integer;
+    tblSQL: string;
   begin
     SetLength(Cols, 0);
-    Q.SQL.Text:='SELECT name, type, "notnull", dflt_value, pk '+
-      'FROM pragma_table_info('+QuotedStr(tbl)+') ORDER BY cid';
+    tblSQL:=QueryStr('SELECT sql FROM sqlite_master WHERE type=''table'' '+
+      'AND lower(name)=lower('+QuotedStr(tbl)+')');
+    Q.SQL.Text:='SELECT name, type, "notnull", dflt_value, pk, hidden '+
+      'FROM pragma_table_xinfo('+QuotedStr(tbl)+') WHERE hidden<>1 ORDER BY cid';
     Q.Open;
     try
       while(Not(Q.EOF))do
@@ -202,11 +626,18 @@ var
         Cols[n].NotNull:=(StrToIntDef(Q.Fields[2].AsString, 0)<>0);
         Cols[n].Dflt:=Trim(Q.Fields[3].AsString);
         Cols[n].PK:=StrToIntDef(Q.Fields[4].AsString, 0);
+        Cols[n].Gen:=StrToIntDef(Q.Fields[5].AsString, 0);
+        Cols[n].GenExpr:='';
         Q.Next;
       end;
     finally
       Q.Close;
     end;
+
+    for n:=0 to High(Cols) do
+      if(Cols[n].Gen>=2)then
+        Cols[n].GenExpr:=NormSQL(StripOuterBrackets(
+          SQLiteGeneratedColumnExpr(tblSQL, Cols[n].Name)));
   end;
 
   //One sorted line per foreign key. ColMap (old=new) translates the
@@ -268,7 +699,7 @@ var
       while(Not(Q.EOF))do
       begin
         Names.Add(Q.Fields[0].AsString);
-        Defs.Add(NormSQL(Q.Fields[1].AsString));
+        Defs.Add(NormSQL(WithoutAscKeywords(Q.Fields[1].AsString)));
         Q.Next;
       end;
     finally
@@ -318,6 +749,48 @@ var
     end;
   end;
 
+  //The CHECK constraints of a table as one sorted text of their expressions
+  function NormChecks(const tbl: string): string;
+  var Checks, Exprs: TStringList;
+    k: integer;
+  begin
+    Checks:=TStringList.Create;
+    Exprs:=TStringList.Create;
+    try
+      SQLiteTableChecks(QueryStr('SELECT sql FROM sqlite_master WHERE type=''table'' '+
+        'AND lower(name)=lower('+QuotedStr(tbl)+')'), Checks);
+      for k:=0 to Checks.Count-1 do
+        Exprs.Add(NormSQL(StripOuterBrackets(Copy(Checks[k], Pos(#9, Checks[k])+1,
+          Length(Checks[k])))));
+      Exprs.Sort;
+      NormChecks:=Exprs.Text;
+    finally
+      Exprs.Free;
+      Checks.Free;
+    end;
+  end;
+
+  //STRICT and WITHOUT ROWID of a table, as text
+  function TableFlags(const tbl: string): string;
+  var st, wr: Boolean;
+  begin
+    SQLiteTableFlags(QueryStr('SELECT sql FROM sqlite_master WHERE type=''table'' '+
+      'AND lower(name)=lower('+QuotedStr(tbl)+')'), st, wr);
+    TableFlags:=IntToStr(Ord(st))+IntToStr(Ord(wr));
+  end;
+
+  //The only primary key column, of type INTEGER: the rowid, never NULL
+  //whether NOT NULL is written or not
+  function IsRowidAlias(const Cols: TColInfos; k: integer): Boolean;
+  var m, n: integer;
+  begin
+    n:=0;
+    for m:=0 to High(Cols) do
+      if(Cols[m].PK>0)then
+        inc(n);
+    IsRowidAlias:=(n=1)and(Cols[k].PK>0)and(Cols[k].Typ='INTEGER');
+  end;
+
   procedure SyncExistingTable(aTable: TEERTable);
   var X, CreateStmt, s, colList, selList: string;
     NewCols, OldCols: TColInfos;
@@ -347,8 +820,9 @@ var
 
       colList:='';
       selList:='';
+      //A generated column takes no values, it computes them
       for n:=0 to High(NewCols) do
-        if(Src[n]>=0)then
+        if(Src[n]>=0)and(NewCols[n].Gen=0)and(OldCols[Src[n]].Gen=0)then
         begin
           if(colList<>'')then
           begin
@@ -412,6 +886,26 @@ var
       Rebuilt:=True;
     end;
 
+    //The unique index of the statement is one of a UNIQUE constraint of the
+    //table: same columns, no condition, no order
+    function IsUniqueConstraint(const stmt: string): Boolean;
+    var Keys: TStringList;
+    begin
+      Result:=False;
+      if(Pos('UNIQUE', UpperCase(Copy(stmt, 1, 14)))=0)or
+        (SQLiteIndexCondition(stmt)<>'')then
+        Exit;
+      Keys:=TStringList.Create;
+      try
+        QueryList('SELECT (SELECT group_concat(name, '','') FROM '+
+          '(SELECT name FROM pragma_index_info(il.name) ORDER BY seqno)) '+
+          'FROM pragma_index_list('+QuotedStr(X)+') il WHERE il.origin=''u''', Keys);
+        Result:=(IndexOfText(Keys, NormSQL(SQLiteIndexKey(stmt)))>=0);
+      finally
+        Keys.Free;
+      end;
+    end;
+
     //Bring the indices of a table that was not rebuilt in line
     procedure SyncIndices;
     var n, m, p: integer;
@@ -439,6 +933,10 @@ var
       begin
         idxName:=IndexNameOf(IdxStmts[n]);
         p:=IndexOfText(OldIdxNames, idxName);
+        //A UNIQUE constraint of the table has these columns already: the
+        //reverse engineering made the index of the model from it
+        if(p=-1)and(IsUniqueConstraint(IdxStmts[n]))then
+          continue;
         if(p=-1)then
         begin
           Log.Add(DMMain.GetTranslatedMessage('Create index %s on table %s', 163,
@@ -447,9 +945,9 @@ var
           Exec(IdxStmts[n]);
         end
         //The table name in the statement may be written differently
-        else if(OldIdxDefs[p]<>NormSQL(IdxStmts[n]))and
-          (OldIdxDefs[p]<>NormSQL(StringReplace(IdxStmts[n],
-            ' ON '+aTable.GetSQLTableName+' ', ' ON '+X+' ', [])))then
+        else if(OldIdxDefs[p]<>NormSQL(WithoutAscKeywords(IdxStmts[n])))and
+          (OldIdxDefs[p]<>NormSQL(WithoutAscKeywords(StringReplace(IdxStmts[n],
+            ' ON '+aTable.GetSQLTableName+' ', ' ON '+X+' ', []))))then
         begin
           Log.Add(DMMain.GetTranslatedMessage('Update index %s on table %s', 162,
             idxName, X));
@@ -527,8 +1025,9 @@ var
 
           if(NewCols[k].PK>0)then
             PKChanged:=True;
-          //ADD COLUMN takes no NOT NULL column without a default
-          if(NewCols[k].NotNull)and(NewCols[k].Dflt='')then
+          //ADD COLUMN takes no NOT NULL column without a default and no
+          //stored generated column
+          if((NewCols[k].NotNull)and(NewCols[k].Dflt=''))or(NewCols[k].Gen>0)then
             NeedRebuild:=True;
         end
         else
@@ -542,8 +1041,11 @@ var
           end;
 
           if(NewCols[k].Typ<>OldCols[Src[k]].Typ)or
-            (NewCols[k].NotNull<>OldCols[Src[k]].NotNull)or
-            (NewCols[k].Dflt<>OldCols[Src[k]].Dflt)then
+            ((NewCols[k].NotNull<>OldCols[Src[k]].NotNull)and
+             Not(IsRowidAlias(NewCols, k) and IsRowidAlias(OldCols, Src[k])))or
+            (NewCols[k].Dflt<>OldCols[Src[k]].Dflt)or
+            (NewCols[k].Gen<>OldCols[Src[k]].Gen)or
+            (NewCols[k].GenExpr<>OldCols[Src[k]].GenExpr)then
           begin
             ColChanged:=True;
             NeedRebuild:=True;
@@ -595,6 +1097,19 @@ var
       if(NewFKs.Text<>OldFKs.Text)then
       begin
         Log.Add('Change foreign keys on table '+X);
+        NeedRebuild:=True;
+      end;
+
+      //CHECK constraints and the options STRICT and WITHOUT ROWID: SQLite
+      //has no ALTER for them
+      if(NormChecks(TmpTbl)<>NormChecks(X))then
+      begin
+        Log.Add('Change CHECK constraints on table '+X);
+        NeedRebuild:=True;
+      end;
+      if(TableFlags(TmpTbl)<>TableFlags(X))then
+      begin
+        Log.Add('Change STRICT / WITHOUT ROWID on table '+X);
         NeedRebuild:=True;
       end;
 
