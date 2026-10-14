@@ -326,6 +326,7 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Dialogs and palettes**
 
+- Help menu: "Check for New Versions" (German "Versionsüberprüfung") opens the [latest release](https://github.com/Teimue/dbdesigner-fork/releases/latest) of this GitHub project instead of the old SourceForge page.
 - Help menu: the item "Visit fabFORCE.net" is now "Visit GitHub Project" (German "GitHub Projekt besuchen") and opens this [GitHub project](https://github.com/Teimue/dbdesigner-fork) instead of fabforce.net.
 - Help menu: "Submit a bug / feature request" opens the [issues](https://github.com/Teimue/dbdesigner-fork/issues) of this GitHub project instead of the old SourceForge page.
 - Editors, floating palettes and dialogs no longer lie above other programs. Their forms were fsStayOnTop, which CLX took back while the program was not active; in the LCL it makes a window the topmost one of the desktop. They are owned by the main window (or by the dialog that opens them) now: above it, and in the background with it. Only the start picture and the drop target of the query mode stay topmost while they are shown.
