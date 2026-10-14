@@ -345,6 +345,10 @@ begin
     Result.Add('generated', U(Column.GeneratedExpr));
     Result.Add('generated_stored', Column.GeneratedStored);
   end;
+  if(Column.Collation<>'')then
+    Result.Add('collation', U(Column.Collation));
+  if(Column.NotNullConflict<>'')then
+    Result.Add('not_null_on_conflict', U(Column.NotNullConflict));
   if(Column.Comments<>'')then
     Result.Add('comments', U(Column.Comments));
 end;
@@ -353,6 +357,7 @@ function IndexToJSON(Table: TEERTable; Index: TEERIndex): TJSONObject;
 var Cols: TJSONArray;
   Column: TEERColumn;
   i: integer;
+  Coll: TJSONObject;
 begin
   Cols:=TJSONArray.Create;
   for i:=0 to Index.Columns.Count-1 do
@@ -384,6 +389,21 @@ begin
     Cols.Free;
   if(Index.Condition<>'')then
     Result.Add('condition', U(Index.Condition));
+  if(Index.IsConstraint)then
+    Result.Add('unique_constraint', True);
+  if(Index.OnConflict<>'')then
+    Result.Add('on_conflict', U(Index.OnConflict));
+  if(Index.ColumnCollations.Count>0)then
+  begin
+    Coll:=TJSONObject.Create;
+    for i:=0 to Index.ColumnCollations.Count-1 do
+    begin
+      Column:=Table.GetColumnByID(StrToIntDef(Index.ColumnCollations.Names[i], -1));
+      if(Column<>nil)then
+        Coll.Add(U(Column.ColName), U(Index.ColumnCollations.ValueFromIndex[i]));
+    end;
+    Result.Add('column_collations', Coll);
+  end;
 end;
 
 function RelationToJSON(Rel: TEERRel): TJSONObject;
@@ -608,6 +628,8 @@ begin
     Dest.Add('sqlite_strict', True);
   if(Table.TableOptions.Values['SQLiteWithoutRowid']='1')then
     Dest.Add('sqlite_without_rowid', True);
+  if(Table.TableOptions.Values['SQLitePKConflict']<>'')then
+    Dest.Add('sqlite_primary_key_on_conflict', U(Table.TableOptions.Values['SQLitePKConflict']));
   if(Table.CheckConstraints.Count>0)then
   begin
     Checks:=TJSONArray.Create;

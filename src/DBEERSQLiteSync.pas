@@ -63,6 +63,14 @@ procedure SQLiteTableChecks(const CreateSQL: string; Checks: TStrings);
 //The table options of a CREATE TABLE statement
 procedure SQLiteTableFlags(const CreateSQL: string; var IsStrict, WithoutRowid: Boolean);
 
+//COLLATE and ON CONFLICT of a CREATE TABLE statement. Cols: one line
+//column=collation TAB not-null-conflict for the columns that have one of
+//them. Uniques: the UNIQUE constraints of the table and of its columns,
+//name TAB columns (comma separated) TAB conflict. PKConflict: ON CONFLICT
+//of the primary key
+procedure SQLiteTableClauses(const CreateSQL: string; Cols, Uniques: TStrings;
+  var PKConflict: string);
+
 implementation
 
 uses DB, SQLDB, Dialogs, Controls, MainDM, DBDM;
@@ -446,6 +454,192 @@ begin
   WithoutRowid:=(FindKeyword(tail, 'ROWID', 1)>0);
 end;
 
+//The tokens of s outside of brackets: words, quoted names and texts, a
+//bracket with its content, single characters
+procedure TopTokens(const s: string; Tokens: TStrings);
+var p, start, e: integer;
+  q: char;
+begin
+  Tokens.Clear;
+  p:=1;
+  while(p<=Length(s))do
+  begin
+    if(s[p] in [' ', #9, #10, #13])then
+      inc(p)
+    else if(s[p] in ['''', '"', '`', '['])then
+    begin
+      if(s[p]='[')then
+        q:=']'
+      else
+        q:=s[p];
+      start:=p;
+      inc(p);
+      while(p<=Length(s))and(s[p]<>q)do
+        inc(p);
+      Tokens.Add(Copy(s, start, p-start+1));
+      inc(p);
+    end
+    else if(s[p]='(')then
+    begin
+      e:=MatchingBracket(s, p);
+      if(e=0)then
+        e:=Length(s);
+      Tokens.Add(Copy(s, p, e-p+1));
+      p:=e+1;
+    end
+    else if(s[p] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$', #128..#255])then
+    begin
+      start:=p;
+      while(p<=Length(s))and(s[p] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$', #128..#255])do
+        inc(p);
+      Tokens.Add(Copy(s, start, p-start));
+    end
+    else
+    begin
+      Tokens.Add(s[p]);
+      inc(p);
+    end;
+  end;
+end;
+
+//A name without its quotes
+function Unquoted(const s: string): string;
+var n: integer;
+begin
+  if(s<>'')and(s[1] in ['"', '`', '['])then
+    Unquoted:=FirstName(s, n)
+  else
+    Unquoted:=s;
+end;
+
+procedure SQLiteTableClauses(const CreateSQL: string; Cols, Uniques: TStrings;
+  var PKConflict: string);
+var s, part, w, colname, coll, nn, uname, ucols, uconfl: string;
+  p, e, k, i, m, n: integer;
+  Parts, T, Items: TStringList;
+
+  function Tok(k: integer): string;
+  begin
+    if(k<T.Count)then
+      Tok:=UpperCase(T[k])
+    else
+      Tok:='';
+  end;
+
+  //ON CONFLICT x at position i: x, and i behind it
+  function ConflictAt(var i: integer): string;
+  begin
+    Result:='';
+    if(Tok(i)='ON')and(Tok(i+1)='CONFLICT')then
+    begin
+      Result:=Tok(i+2);
+      inc(i, 3);
+    end;
+  end;
+
+begin
+  Cols.Clear;
+  Uniques.Clear;
+  PKConflict:='';
+  s:=StripSQLComments(CreateSQL);
+  p:=Pos('(', s);
+  if(p=0)then
+    Exit;
+  e:=MatchingBracket(s, p);
+  if(e=0)then
+    Exit;
+
+  Parts:=TStringList.Create;
+  T:=TStringList.Create;
+  Items:=TStringList.Create;
+  try
+    SplitTopLevel(Copy(s, p+1, e-p-1), Parts);
+    for k:=0 to Parts.Count-1 do
+    begin
+      part:=Parts[k];
+      TopTokens(part, T);
+      if(T.Count=0)then
+        continue;
+      w:=Tok(0);
+      if(w='CONSTRAINT')or(w='PRIMARY')or(w='UNIQUE')or(w='CHECK')or(w='FOREIGN')then
+      begin
+        //A constraint of the table
+        i:=0;
+        uname:='';
+        if(w='CONSTRAINT')then
+        begin
+          uname:=Unquoted(T[1]);
+          i:=2;
+        end;
+        if(Tok(i)='PRIMARY')and(Tok(i+1)='KEY')then
+        begin
+          i:=i+3;
+          PKConflict:=ConflictAt(i);
+        end
+        else if(Tok(i)='UNIQUE')and(i+1<T.Count)then
+        begin
+          //The names of the columns in the bracket
+          SplitTopLevel(Copy(T[i+1], 2, Length(T[i+1])-2), Items);
+          ucols:='';
+          for m:=0 to Items.Count-1 do
+          begin
+            if(m>0)then
+              ucols:=ucols+',';
+            ucols:=ucols+FirstName(Items[m], n);
+          end;
+          i:=i+2;
+          uconfl:=ConflictAt(i);
+          Uniques.Add(uname+#9+ucols+#9+uconfl);
+        end;
+      end
+      else
+      begin
+        //A column: name, type, constraints
+        colname:=Unquoted(T[0]);
+        coll:='';
+        nn:='';
+        i:=1;
+        while(i<T.Count)do
+        begin
+          w:=Tok(i);
+          if(w='CONSTRAINT')then
+            inc(i, 2)
+          else if(w='COLLATE')then
+          begin
+            coll:=Unquoted(T[i+1]);
+            inc(i, 2);
+          end
+          else if(w='NOT')and(Tok(i+1)='NULL')then
+          begin
+            inc(i, 2);
+            nn:=ConflictAt(i);
+          end
+          else if(w='PRIMARY')and(Tok(i+1)='KEY')then
+          begin
+            inc(i, 2);
+            if(Tok(i)='ASC')or(Tok(i)='DESC')then
+              inc(i);
+            PKConflict:=ConflictAt(i);
+          end
+          else if(w='UNIQUE')then
+          begin
+            inc(i);
+            Uniques.Add(#9+colname+#9+ConflictAt(i));
+          end
+          else
+            inc(i);
+        end;
+        if(coll<>'')or(nn<>'')then
+          Cols.Add(colname+'='+coll+#9+nn);
+      end;
+    end;
+  finally
+    Items.Free;
+    T.Free;
+    Parts.Free;
+  end;
+end;
+
 //The statement without the ASC of the index columns, which is the default
 //order: (a ASC, b) is the same index as (a, b)
 function WithoutAscKeywords(const s: string): string;
@@ -771,6 +965,51 @@ var
     finally
       Exprs.Free;
       Checks.Free;
+    end;
+  end;
+
+  //COLLATE, ON CONFLICT and the UNIQUE constraints of a table as one sorted
+  //text; ColMap (old=new) translates the names of renamed columns
+  function TableClauses(const tbl: string; ColMap: TStrings): string;
+  var Cols, Uniques, Lines, Names: TStringList;
+    pk, line: string;
+    k, m: integer;
+
+    function NewName(const c: string): string;
+    begin
+      NewName:=c;
+      if(ColMap<>nil)then
+        if(ColMap.IndexOfName(c)>=0)then
+          NewName:=ColMap.Values[c];
+    end;
+
+  begin
+    Cols:=TStringList.Create;
+    Uniques:=TStringList.Create;
+    Lines:=TStringList.Create;
+    Names:=TStringList.Create;
+    try
+      SQLiteTableClauses(QueryStr('SELECT sql FROM sqlite_master WHERE type=''table'' '+
+        'AND lower(name)=lower('+QuotedStr(tbl)+')'), Cols, Uniques, pk);
+      for k:=0 to Cols.Count-1 do
+        Lines.Add('C:'+UpperCase(NewName(Cols.Names[k])+'='+Cols.ValueFromIndex[k]));
+      for k:=0 to Uniques.Count-1 do
+      begin
+        //name TAB columns TAB conflict; the name does not count
+        line:=Copy(Uniques[k], Pos(#9, Uniques[k])+1, Length(Uniques[k]));
+        Names.CommaText:=Copy(line, 1, Pos(#9, line)-1);
+        for m:=0 to Names.Count-1 do
+          Names[m]:=NewName(Names[m]);
+        Lines.Add('U:'+UpperCase(Names.CommaText+'|'+Copy(line, Pos(#9, line)+1, Length(line))));
+      end;
+      Lines.Add('P:'+UpperCase(pk));
+      Lines.Sort;
+      TableClauses:=Lines.Text;
+    finally
+      Names.Free;
+      Lines.Free;
+      Uniques.Free;
+      Cols.Free;
     end;
   end;
 
@@ -1114,6 +1353,12 @@ var
       if(TableFlags(TmpTbl)<>TableFlags(X))then
       begin
         Log.Add('Change STRICT / WITHOUT ROWID on table '+X);
+        NeedRebuild:=True;
+      end;
+      //COLLATE of the columns, ON CONFLICT, UNIQUE constraints
+      if(TableClauses(TmpTbl, nil)<>TableClauses(X, Renames))then
+      begin
+        Log.Add('Change COLLATE / ON CONFLICT / UNIQUE constraints on table '+X);
         NeedRebuild:=True;
       end;
 

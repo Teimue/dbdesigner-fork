@@ -1231,6 +1231,16 @@ begin
   end;
 end;
 
+//The table has an index of that name
+function IndexNameUsed(theTable: TEERTable; const AName: string): Boolean;
+var k: integer;
+begin
+  Result:=False;
+  for k:=0 to theTable.Indices.Count-1 do
+    if(CompareText(TEERIndex(theTable.Indices[k]).IndexName, AName)=0)then
+      Result:=True;
+end;
+
 procedure TDMDBEER.EERSQLiteReverseEngineer(theModel: Pointer; DBConn: Pointer; theTables: TStringList; XCount: integer; BuildRelations: Boolean; BuildRelUsingPrimKey: Boolean; DatatypeSubst: TStringList; StatusLbl: TLabel = nil; CreateStdInserts: Boolean = False; limitStdIns: integer = 0);
 var EERModel: TEERModel;
   i, j: integer;
@@ -1244,8 +1254,10 @@ var EERModel: TEERModel;
   sqlcmd, quotedName, DeclType, DatatypeParams, DefVal,
     prevIndex, fkId, pkColName, fkColName: string;
   pkCount, pkColCount: integer;
-  ChecksList: TStringList;
+  ChecksList, ClauseCols, ClauseUniques: TStringList;
   IsStrict, WithoutRowid: Boolean;
+  PKConflict, s, effColl: string;
+  k: integer;
 begin
   EERModel:=theModel;
 
@@ -1391,6 +1403,24 @@ begin
         ChecksList.Free;
       end;
       SQLiteTableFlags(sqlcmd, IsStrict, WithoutRowid);
+
+      //COLLATE and NOT NULL ON CONFLICT of the columns, ON CONFLICT of the
+      //primary key and of the UNIQUE constraints (used with the indices)
+      ClauseCols:=TStringList.Create;
+      ClauseUniques:=TStringList.Create;
+      SQLiteTableClauses(sqlcmd, ClauseCols, ClauseUniques, PKConflict);
+      for j:=0 to theTable.Columns.Count-1 do
+      begin
+        theColumn:=TEERColumn(theTable.Columns[j]);
+        s:=ClauseCols.Values[theColumn.ColName];
+        if(s<>'')then
+        begin
+          theColumn.Collation:=Copy(s, 1, Pos(#9, s)-1);
+          theColumn.NotNullConflict:=Copy(s, Pos(#9, s)+1, Length(s));
+        end;
+      end;
+      if(PKConflict<>'')then
+        theTable.TableOptions.Values['SQLitePKConflict']:=PKConflict;
       if(IsStrict)then
         theTable.TableOptions.Values['SQLiteStrict']:='1';
       if(WithoutRowid)then
@@ -1411,7 +1441,7 @@ begin
       theIndex:=nil;
       DMDB.SchemaSQLQuery.SQL.Text:='SELECT il.seq AS idxseq, il.name AS idxname, '+
         'il."unique" AS idxunique, il.origin AS idxorigin, ii.seqno AS colseq, '+
-        'ii.name AS colname, ii."desc" AS coldesc, m.sql AS idxsql '+
+        'ii.name AS colname, ii."desc" AS coldesc, ii.coll AS colcoll, m.sql AS idxsql '+
         'FROM pragma_index_list('''+quotedName+''') il '+
         'JOIN pragma_index_xinfo(il.name) ii '+
         'LEFT JOIN sqlite_master m ON m.type=''index'' AND m.name=il.name '+
@@ -1434,6 +1464,8 @@ begin
             theIndex.IndexKind:=ik_INDEX;
           //Partial index
           theIndex.Condition:=SQLiteIndexCondition(DMDB.SchemaSQLQuery.FieldByName('idxsql').AsString);
+          //A UNIQUE constraint of the table stays one
+          theIndex.IsConstraint:=(DMDB.SchemaSQLQuery.FieldByName('idxorigin').AsString='u');
           theTable.Indices.Add(theIndex);
           theIndex.Pos:=theTable.Indices.Count-1;
         end;
@@ -1462,6 +1494,14 @@ begin
             theIndex.Columns.Add(IntToStr(theColumn.Obj_id));
             if(DMDB.SchemaSQLQuery.FieldByName('coldesc').AsInteger=1)then
               theIndex.DescColumns.Add(IntToStr(theColumn.Obj_id));
+            //COLLATE in the index, only when it is not the one of the column
+            effColl:=theColumn.Collation;
+            if(effColl='')then
+              effColl:='BINARY';
+            if(DMDB.SchemaSQLQuery.FieldByName('colcoll').AsString<>'')and
+              (CompareText(DMDB.SchemaSQLQuery.FieldByName('colcoll').AsString, effColl)<>0)then
+              theIndex.ColumnCollations.Values[IntToStr(theColumn.Obj_id)]:=
+                DMDB.SchemaSQLQuery.FieldByName('colcoll').AsString;
           end;
         end;
 
@@ -1469,6 +1509,39 @@ begin
         DMDB.SchemaSQLQuery.Next;
       end;
       DMDB.SchemaSQLQuery.Close;
+
+      //The UNIQUE constraints get their name (CONSTRAINT name) and their
+      //ON CONFLICT from the CREATE TABLE text, found by their columns
+      for j:=0 to theTable.Indices.Count-1 do
+        if(TEERIndex(theTable.Indices[j]).IsConstraint)then
+        begin
+          theIndex:=TEERIndex(theTable.Indices[j]);
+          s:='';
+          for k:=0 to theIndex.Columns.Count-1 do
+          begin
+            theColumn:=TEERColumn(theTable.GetColumnByID(StrToIntDef(theIndex.Columns[k], -1)));
+            if(theColumn<>nil)then
+            begin
+              if(s<>'')then
+                s:=s+',';
+              s:=s+theColumn.ColName;
+            end;
+          end;
+          for k:=0 to ClauseUniques.Count-1 do
+            if(CompareText(Copy(ClauseUniques[k], Pos(#9, ClauseUniques[k])+1,
+              Length(s)+1), s+#9)=0)then
+            begin
+              if(Copy(ClauseUniques[k], 1, Pos(#9, ClauseUniques[k])-1)<>'')and
+                (Not(IndexNameUsed(theTable, Copy(ClauseUniques[k], 1, Pos(#9, ClauseUniques[k])-1))))then
+                theIndex.IndexName:=Copy(ClauseUniques[k], 1, Pos(#9, ClauseUniques[k])-1);
+              theIndex.OnConflict:=Copy(ClauseUniques[k],
+                Pos(#9, ClauseUniques[k])+Length(s)+2, Length(ClauseUniques[k]));
+              ClauseUniques.Delete(k);
+              break;
+            end;
+        end;
+      ClauseUniques.Free;
+      ClauseCols.Free;
 
       theTable.RefreshObj;
     end;

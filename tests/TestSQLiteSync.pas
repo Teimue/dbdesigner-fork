@@ -10,9 +10,11 @@ program TestSQLiteSync;
 // 3.37 or newer, else the part is skipped): reverse engineering of generated
 // columns, indices on an expression, descending and partial indices, CHECK
 // constraints, STRICT, WITHOUT ROWID, text defaults and declared type
-// names; the model saved and loaded, its SQL script run in an empty
-// database, and the synchronisation, which rebuilds only the table with a
-// column without type and keeps everything, then has no changes.
+// names, COLLATE and ON CONFLICT; the model saved and loaded, its SQL
+// script run in an empty database, and the synchronisation, which rebuilds
+// only the table with a column without type and keeps everything, then has
+// no changes. At last two tables are rebuilt on purpose: COLLATE, ON
+// CONFLICT and the UNIQUE constraints have to stay.
 //
 // Needs the application infrastructure (data modules, LCL):
 //   lazbuild tests/TestSQLiteSync.lpi && bin/TestSQLiteSync
@@ -447,6 +449,18 @@ begin
           'artikel_schlagwort is WITHOUT ROWID');
         Check(Col(FindTable(Model3, 'adresse'), 'land').DefaultValue='''DE''',
           'text default keeps its quotes');
+        Check((Col(Kunde, 'email').Collation='NOCASE')and
+          (Col(FindTable(Model3, 'kategorie'), 'name').Collation='NOCASE'), 'COLLATE of columns');
+        Check(Col(Kunde, 'nachname').NotNullConflict='FAIL', 'NOT NULL ON CONFLICT FAIL');
+        Check((FindIndex(Kunde, 'uq_kunde_email')<>nil)and
+          FindIndex(Kunde, 'uq_kunde_email').IsConstraint, 'UNIQUE constraint with its name');
+        Idx:=nil;
+        for i:=0 to Artikel.Indices.Count-1 do
+          if(TEERIndex(Artikel.Indices[i]).IsConstraint)then
+            Idx:=TEERIndex(Artikel.Indices[i]);
+        Check((Idx<>nil)and(Idx.OnConflict='ABORT'), 'UNIQUE ON CONFLICT ABORT of artikelnr');
+        Check(FindIndex(Artikel, 'idx_artikel_bez_nocase').ColumnCollations.Values[
+          IntToStr(Col(Artikel, 'bezeichnung').Obj_id)]='NOCASE', 'COLLATE of an index column');
 
         T:=FindTable(Model3, 'datentypen');
         Check((ColType(Model3, T, 't_clob')='CLOB')and(ColType(Model3, T, 't_boolean')='BOOLEAN')and
@@ -489,7 +503,8 @@ begin
       Check(LogHas('Rebuild table datentypen'), 'datentypen rebuilt (column without type)');
       Check(Pos('Rebuild', StringReplace(Log.Text, 'Rebuild table datentypen', '', []))=0,
         'no other table rebuilt');
-      Check(Not(LogHas('Create index')), 'no index created (UNIQUE constraints kept)');
+      Check(Not(LogHas('Create index'))and(Not(LogHas('Update index'))),
+        'no index created or updated (UNIQUE constraints and COLLATE kept)');
       Check(SQLVal('SELECT count(*) FROM pragma_index_list(''kunde'')')='2',
         'kunde has its two UNIQUE constraints only');
       Check(SQLVal('SELECT count(*) FROM pragma_table_list WHERE name=''kunde'' AND strict=1')='1',
@@ -510,6 +525,27 @@ begin
       Check(SQLVal('SELECT t_clob FROM datentypen')='Ein langer Text', 'rows of the rebuilt table kept');
 
       Sync('14. no changes after the synchronisation');
+      CheckNoChanges;
+
+      //------------------------------------------------------------
+      //Another datatype rebuilds kunde and artikel
+      Col(Kunde, 'avatar').idDatatype:=TEERDatatype(Model3.GetDataTypeByName('TEXT')).id;
+      Col(Artikel, 'bild').idDatatype:=TEERDatatype(Model3.GetDataTypeByName('TEXT')).id;
+      Sync('15. rebuilt tables keep COLLATE, ON CONFLICT and UNIQUE constraints');
+      Check(LogHas('Rebuild table kunde')and LogHas('Rebuild table artikel'), 'kunde and artikel rebuilt');
+      s:=SQLVal('SELECT sql FROM sqlite_master WHERE name=''kunde''');
+      Check(Pos('COLLATE NOCASE', s)>0, 'COLLATE NOCASE of email kept');
+      Check(Pos('NOT NULL ON CONFLICT FAIL', s)>0, 'NOT NULL ON CONFLICT FAIL kept');
+      Check(SQLVal('SELECT count(*) FROM pragma_index_list(''kunde'') WHERE origin=''u''')='2',
+        'kunde has its two UNIQUE constraints, no index of its own');
+      Check(Pos('STRICT', s)>0, 'kunde still STRICT');
+      s:=SQLVal('SELECT sql FROM sqlite_master WHERE name=''artikel''');
+      Check(Pos('ON CONFLICT ABORT', s)>0, 'UNIQUE ON CONFLICT ABORT of artikelnr kept');
+      Check(Pos('COLLATE NOCASE', SQLVal('SELECT sql FROM sqlite_master WHERE name=''idx_artikel_bez_nocase'''))>0,
+        'COLLATE of the index column kept');
+      Check(SQLVal('SELECT count(*) FROM artikel')+'/'+SQLVal('SELECT count(*) FROM kunde')='4/3', 'rows kept');
+
+      Sync('16. no changes after the rebuild');
       CheckNoChanges;
 
       DMDB.SQLConn.Close;

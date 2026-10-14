@@ -1115,6 +1115,8 @@ type
     Comments: string;       //Comments
     GeneratedExpr: string;  //Expression of a generated (computed) column, '' for a normal column
     GeneratedStored: Boolean; //The generated column is stored (else computed when read)
+    Collation: string;      //COLLATE of the column (NOCASE), '' for the default
+    NotNullConflict: string; //SQLite: NOT NULL ON CONFLICT (ROLLBACK, ABORT, FAIL, IGNORE, REPLACE)
 
     tmp: string;
 
@@ -1146,6 +1148,9 @@ type
     Expression: string;        //Index on an expression: the key as SQL (lower(name)), no columns then
     DescColumns: TStringList;  //The idColumns sorted in descending order
     Condition: string;         //Partial index: the condition without WHERE, '' for all rows
+    ColumnCollations: TStringList; //idColumn=COLLATE of the column in the index, if not the one of the column
+    IsConstraint: Boolean;     //SQLite: a UNIQUE constraint of the table (written in CREATE TABLE)
+    OnConflict: string;        //SQLite: ON CONFLICT of that constraint
 
     //All columns descending (FireBird has the order for the whole index only)
     function AllDescending: Boolean;
@@ -9447,6 +9452,7 @@ var s, s1: string;
   LocalComment : string;
   IsFirebird : boolean;
   DescKeyword : string;
+  IsSQLiteUnique : boolean;
 
   //A name in quotes as the target database needs it
   function QN(const AName: string): string;
@@ -9596,6 +9602,13 @@ begin
     indexPortable := (PortableIndices or IsFirebird) and (TEERIndex(Indices[i]).IndexKind <> ik_PRIMARY);
     sIndex := '';
 
+    //SQLite: a UNIQUE constraint stays one, inside CREATE TABLE
+    IsSQLiteUnique:=(DatabaseType = 'SQLite')and(TEERIndex(Indices[i]).IsConstraint)and
+      (TEERIndex(Indices[i]).IndexKind=ik_UNIQUE_INDEX)and
+      (TEERIndex(Indices[i]).Expression='')and(TEERIndex(Indices[i]).Condition='');
+    if(IsSQLiteUnique)then
+      indexPortable:=False;
+
     if indexPortable then
     begin
       sIndex:= sIndex + 'CREATE ';
@@ -9620,7 +9633,10 @@ begin
       ik_INDEX:
         sIndex:=sIndex+DescKeyword+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
       ik_UNIQUE_INDEX:
-        sIndex:=sIndex+'UNIQUE '+DescKeyword+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
+        if(IsSQLiteUnique)then
+          sIndex:='CONSTRAINT '+QN(TEERIndex(Indices[i]).IndexName)+' UNIQUE ('
+        else
+          sIndex:=sIndex+'UNIQUE '+DescKeyword+'INDEX '+QN(TEERIndex(Indices[i]).IndexName)+indexOnTable+'(';
       ik_FULLTEXT_INDEX:
         //FULLTEXT is MySQL syntax; SQLite and FireBird get a plain index
         if(DatabaseType = 'SQLite')or(IsFirebird)then
@@ -9643,6 +9659,11 @@ begin
         (TEERIndex(Indices[i]).ColumnParams.Values[TEERIndex(Indices[i]).Columns[j]]<>'')then
         sIndex:=sIndex+'('+TEERIndex(Indices[i]).ColumnParams.Values[TEERIndex(Indices[i]).Columns[j]]+')';
 
+      //COLLATE of the column in the index (not in FireBird)
+      if(Not(IsFirebird))and
+        (TEERIndex(Indices[i]).ColumnCollations.Values[TEERIndex(Indices[i]).Columns[j]]<>'')then
+        sIndex:=sIndex+' COLLATE '+TEERIndex(Indices[i]).ColumnCollations.Values[TEERIndex(Indices[i]).Columns[j]];
+
       //The order of a column; FireBird has it in front of INDEX
       if(Not(IsFirebird))and(TEERIndex(Indices[i]).IndexKind<>ik_PRIMARY)and
         (TEERIndex(Indices[i]).DescColumns.IndexOf(TEERIndex(Indices[i]).Columns[j])>=0)then
@@ -9660,6 +9681,16 @@ begin
 
     if(TEERIndex(Indices[i]).Expression='')then
       sIndex:=sIndex+')';
+
+    //SQLite: ON CONFLICT of the primary key and of a UNIQUE constraint
+    if(DatabaseType = 'SQLite')then
+    begin
+      if(TEERIndex(Indices[i]).IndexKind=ik_PRIMARY)and
+        (TableOptions.Values['SQLitePKConflict']<>'')then
+        sIndex:=sIndex+' ON CONFLICT '+TableOptions.Values['SQLitePKConflict']
+      else if(IsSQLiteUnique)and(TEERIndex(Indices[i]).OnConflict<>'')then
+        sIndex:=sIndex+' ON CONFLICT '+TEERIndex(Indices[i]).OnConflict;
+    end;
 
     //Partial index: CREATE INDEX ... WHERE (not in MySQL and Oracle)
     if(indexPortable)and(Trim(TEERIndex(Indices[i]).Condition)<>'')and
@@ -9993,6 +10024,10 @@ begin
     s:=s+' ';
   end;
 
+  //COLLATE follows the type; FireBird has it at the end
+  if(TEERColumn(Columns[i]).Collation<>'')and(DatabaseType <> 'FireBird')then
+    s:=s+'COLLATE '+TEERColumn(Columns[i]).Collation+' ';
+
   //Datatype options ([UNSIGNED] [ZEROFILL])
   if DatabaseType = 'My SQL' then
   begin
@@ -10007,6 +10042,9 @@ begin
   if(TEERColumn(Columns[i]).NotNull) then
   begin
     NullTag:='NOT NULL';
+    //SQLite: what happens with a row that breaks it
+    if(DatabaseType = 'SQLite')and(TEERColumn(Columns[i]).NotNullConflict<>'')then
+      NullTag:=NullTag+' ON CONFLICT '+TEERColumn(Columns[i]).NotNullConflict;
   end
   else
   begin
@@ -10054,7 +10092,12 @@ begin
       //Only a single-column INTEGER PRIMARY KEY can auto-increment; the
       //PRIMARY KEY table constraint is then skipped in GetSQLCreateCode
       if(IsSQLiteAutoIncPK(i))then
-        s:=s+' PRIMARY KEY AUTOINCREMENT';
+      begin
+        s:=s+' PRIMARY KEY';
+        if(TableOptions.Values['SQLitePKConflict']<>'')then
+          s:=s+' ON CONFLICT '+TableOptions.Values['SQLitePKConflict'];
+        s:=s+' AUTOINCREMENT';
+      end;
       TableFieldGen := '';
     end else
     begin
@@ -10064,6 +10107,8 @@ begin
 
   {if(TEERColumn(Columns[i]).PrimaryKey)then
     s:=s+' PRIMARY KEY';}
+  if(TEERColumn(Columns[i]).Collation<>'')and(DatabaseType = 'FireBird')then
+    s:=s+' COLLATE '+TEERColumn(Columns[i]).Collation;
   ColComment := trim(TEERColumn(Columns[i]).Comments);
   ColComment := StringReplace (ColComment, '''', '''''', [rfReplaceAll]);
   if OutputComments and (Length(ColComment)>0) then
@@ -10496,6 +10541,10 @@ begin
     if(CO.IsGenerated)then
       s:=s+' GeneratedExpr="'+DMMain.EncodeText4XML(CO.GeneratedExpr)+'" '+
         'GeneratedStored="'+IntToStr(Ord(CO.GeneratedStored))+'"';
+    if(CO.Collation<>'')then
+      s:=s+' Collation="'+DMMain.EncodeText4XML(CO.Collation)+'"';
+    if(CO.NotNullConflict<>'')then
+      s:=s+' NotNullConflict="'+DMMain.EncodeText4XML(CO.NotNullConflict)+'"';
     s:=s+'>'+#13#10;
 
     //Selected Options
@@ -10543,6 +10592,10 @@ begin
         s:=s+' Expression="'+DMMain.EncodeText4XML(TEERIndex(Indices[j]).Expression)+'"';
       if(TEERIndex(Indices[j]).Condition<>'')then
         s:=s+' Condition="'+DMMain.EncodeText4XML(TEERIndex(Indices[j]).Condition)+'"';
+      if(TEERIndex(Indices[j]).IsConstraint)then
+        s:=s+' Constraint="1"';
+      if(TEERIndex(Indices[j]).OnConflict<>'')then
+        s:=s+' OnConflict="'+DMMain.EncodeText4XML(TEERIndex(Indices[j]).OnConflict)+'"';
       s:=s+'>'+#13#10;
 
       //Write Index Columns
@@ -10553,6 +10606,9 @@ begin
         //Only a descending column has it, other files stay as they were
         if(TEERIndex(Indices[j]).DescColumns.IndexOf(TEERIndex(Indices[j]).Columns[k])>=0)then
           s:=s+'Descending="1" ';
+        if(TEERIndex(Indices[j]).ColumnCollations.Values[TEERIndex(Indices[j]).Columns[k]]<>'')then
+          s:=s+'Collation="'+DMMain.EncodeText4XML(
+            TEERIndex(Indices[j]).ColumnCollations.Values[TEERIndex(Indices[j]).Columns[k]])+'" ';
         if(TEERIndex(Indices[j]).ColumnParams.Values[TEERIndex(Indices[j]).Columns[k]]<>'')then
           s:=s+'LengthParam="'+TEERIndex(Indices[j]).ColumnParams.Values[TEERIndex(Indices[j]).Columns[k]]+'" />'+#13#10
         else
@@ -10777,6 +10833,8 @@ var s: string;
           //Files of 2.1.0 and older have no generated columns
           theColumn.GeneratedExpr:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('GeneratedExpr'));
           theColumn.GeneratedStored:=(theXMLParser.CurAttr.Value('GeneratedStored')='1');
+          theColumn.Collation:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('Collation'));
+          theColumn.NotNullConflict:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('NotNullConflict'));
 
           Columns.Add(theColumn);
         end
@@ -10849,6 +10907,9 @@ var s: string;
           //Files of 2.1.0 and older have ascending indices only
           if(theXMLParser.CurAttr.Value('Descending')='1')then
             theIndex.DescColumns.Add(theXMLParser.CurAttr.Value('idColumn'));
+          if(theXMLParser.CurAttr.Value('Collation')<>'')then
+            theIndex.ColumnCollations.Values[theXMLParser.CurAttr.Value('idColumn')]:=
+              DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('Collation'));
 
           //Try to read Index Column Lengths
           try
@@ -10891,6 +10952,8 @@ var s: string;
           theIndex.Expression:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('Expression'));
           //and no partial indices
           theIndex.Condition:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('Condition'));
+          theIndex.IsConstraint:=(theXMLParser.CurAttr.Value('Constraint')='1');
+          theIndex.OnConflict:=DMMain.DecodeXMLText(theXMLParser.CurAttr.Value('OnConflict'));
 
           Indices.Add(theIndex);
 
@@ -14918,6 +14981,8 @@ begin
     Comments:=theSource.Comments;
     GeneratedExpr:=theSource.GeneratedExpr;
     GeneratedStored:=theSource.GeneratedStored;
+    Collation:=theSource.Collation;
+    NotNullConflict:=theSource.NotNullConflict;
   end
   else
     inherited Assign(Source);
@@ -14999,7 +15064,9 @@ begin
       (DefaultValue=TEERColumn(Source).DefaultValue)and
       (Comments=TEERColumn(Source).Comments)and
       (GeneratedExpr=TEERColumn(Source).GeneratedExpr)and
-      (GeneratedStored=TEERColumn(Source).GeneratedStored)then
+      (GeneratedStored=TEERColumn(Source).GeneratedStored)and
+      (Collation=TEERColumn(Source).Collation)and
+      (NotNullConflict=TEERColumn(Source).NotNullConflict)then
     begin
       ObjIsEqualTo:=True;
 
@@ -15022,6 +15089,7 @@ begin
   Columns:=TStringList.Create;
   ColumnParams:=TStringList.Create;
   DescColumns:=TStringList.Create;
+  ColumnCollations:=TStringList.Create;
 
   IndexKind:=ik_INDEX;
   FKRefDef_Obj_id:=-1;
@@ -15034,6 +15102,7 @@ begin
   Columns.Free;
   ColumnParams.Free;
   DescColumns.Free;
+  ColumnCollations.Free;
 
   inherited;
 end;
@@ -15056,6 +15125,9 @@ begin
     Expression:=TEERIndex(Source).Expression;
     DescColumns.Assign(TEERIndex(Source).DescColumns);
     Condition:=TEERIndex(Source).Condition;
+    ColumnCollations.Assign(TEERIndex(Source).ColumnCollations);
+    IsConstraint:=TEERIndex(Source).IsConstraint;
+    OnConflict:=TEERIndex(Source).OnConflict;
   end
   else
     inherited Assign(Source);
@@ -15076,7 +15148,10 @@ begin
       (FKRefDef_Obj_id=TEERIndex(Source).FKRefDef_Obj_id)and
       (Expression=TEERIndex(Source).Expression)and
       (DescColumns.Text=TEERIndex(Source).DescColumns.Text)and
-      (Condition=TEERIndex(Source).Condition)then
+      (Condition=TEERIndex(Source).Condition)and
+      (ColumnCollations.Text=TEERIndex(Source).ColumnCollations.Text)and
+      (IsConstraint=TEERIndex(Source).IsConstraint)and
+      (OnConflict=TEERIndex(Source).OnConflict)then
       ObjIsEqualTo:=True;
   end;
 end;
