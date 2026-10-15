@@ -42,7 +42,7 @@ uses
   EERReverseEngineering, EERSynchronisation, EERStoreInDatabase,
   EERPlaceModel, EditorString, EditorDatatype, EditorTableFieldParam,
   Tips, Splash, EditorQueryDragTarget, EditorImage, UIScale, PaletteModel,
-  PaletteTools, PaletteNav;
+  PaletteTools, PaletteNav, UIDocImages;
 
 {$IFDEF MSWINDOWS}
 function PrintWindow(hwnd: HWND; hdcBlt: HDC; nFlags: UINT): BOOL; stdcall;
@@ -72,7 +72,8 @@ var i: integer;
 begin
   Result:='';
   for i:=1 to ParamCount-1 do
-    if(CompareText(ParamStr(i), '--screenshots')=0)then
+    if(CompareText(ParamStr(i), '--screenshots')=0)or
+      (CompareText(ParamStr(i), '--docimages')=0)then
       Result:=IncludeTrailingPathDelimiter(ExpandFileName(ParamStr(i+1)));
 end;
 
@@ -567,6 +568,13 @@ var i, k, Open: integer;
   PrevZoom: double;
   t: QWord;
 begin
+  //--docimages <directory>: the pictures of the documentation instead
+  if(HasDocImagesParam)then
+  begin
+    SaveDocImages(AMainForm, ScreenshotDir);
+    Exit;
+  end;
+
   OutDir:=ScreenshotDir;
   ForceDirectories(OutDir);
 
