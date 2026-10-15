@@ -11,9 +11,9 @@
 
 <table border=0 cellpadding=0 cellspacing=0 width="100%">
   <tr>
-    <td><img src="images/fabforce.gif" width="154" height="23"><br>
+    <td><span class="DocBrand">DBDesigner Fork</span><br>
     </td>
-    <td valign="center" align="right"><img src="images/dbtools.gif" width="167" height="23"></td>
+    <td valign="center" align="right"><span class="DocBrandSub">Online Documentation</span></td>
   </tr>
   <tr>
     <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
@@ -27,11 +27,13 @@ Database Creation and Maintenance
 <a name="tradsqlexport">Traditional SQL Export</a>
 </h4>
 <p class="Body">
-Like any other database modelling tool DBDesigner 4 can export the model as a SQL script file
-which can be executed by any database maintenance tool, like the MySql command line tool.<br>
+Like any other database modelling tool DBDesigner Fork can export the model as a SQL script file
+which can be executed by any database maintenance tool, like the command line tools mysql, sqlite3 or
+isql of Firebird.<br>
 <br>
 All SQL CREATE TABLE statements and the Standard Inserts can be written to the SQL script file
-depending on user settings.<br>
+depending on user settings. The script can be written for MySQL, SQLite, Firebird, Oracle, PostgreSQL and
+SQL Server.<br>
 <br>
 It is also possible to output all SQL DROP TABLE statements.
 </p>
@@ -39,18 +41,32 @@ It is also possible to output all SQL DROP TABLE statements.
 <a name="whatisdbsync">What is Database Synchronisation?</a>
 </h4>
 <p class="Body">
-With DBDesigner 4 you can simplify the task of creating and maintaining your database.
-DBDesigner 4 offers the ability to connect to a MySQL server and to create and
-synchronize a database with the designed model.<br>
+With DBDesigner Fork you can simplify the task of creating and maintaining your database.
+DBDesigner Fork can connect to a MySQL, SQLite or Firebird database and create and
+synchronize it with the designed model.<br>
 <br>
-Synchronisation means that DBDesigner 4 scans all tables in the existing database and checkes
+Synchronisation means that DBDesigner Fork scans all tables in the existing database and checks
 for differences. If a table is present in the model but not in the database, the according
 SQL CREATE TABLE statement is executed.<br>
 If the table is not present in the model but in the database it can be deleted depending on
 user settings.<br>
-If the table exists in the model and the database as well, all fields are compared and if there is
+If the table exists in the model and the database as well, all fields, indices and foreign keys are compared and if there is
 a difference, the appropriate SQL ALTER TABLE statements are executed.
 </p>
+<p class="Body">
+The databases differ in what ALTER TABLE can do:
+</p>
+<ul>
+  <li><b>SQLite</b> can rename, add and drop columns only. Every other change rebuilds the table: a new table is created,
+      the rows are copied, the old table is dropped and the new one renamed; indices and triggers are created again.
+      Every table is rebuilt in a transaction of its own. A rebuild is refused while <code>PRAGMA foreign_keys</code> is
+      switched on for the connection.</li>
+  <li><b>Firebird</b> cannot rename a table; the table is created with the new name, the rows are copied and the old
+      table is dropped. An existing column cannot be turned into an identity column. Every DDL statement is committed on
+      its own; a failing statement is reported in the Progress List and the synchronisation goes on.</li>
+  <li>The model keeps its datatypes. For Firebird they are mapped to the types of the database
+      (e.g. DATETIME to TIMESTAMP, TEXT to BLOB SUB_TYPE TEXT, AUTO_INCREMENT to an identity column).</li>
+</ul>
 <h4 class="Heading3">
 <a name="whatisreverse">What is Reverse Engineering?</a>
 </h4>
@@ -58,15 +74,14 @@ a difference, the appropriate SQL ALTER TABLE statements are executed.
 To reverse engineer a database means to connect to a database server, take an existing database
 and automatically build a database model based on the meta information in the database.<br>
 <br>
-Within DBDesigner 4 all table information is extracted from the meta information and relation between
-the tables are rendered based on table and field names. The tables are placed on the model in alphabetical order 
+Within DBDesigner Fork all table information is extracted from the meta information: columns with their datatypes and
+defaults, primary keys, indices, foreign keys and comments. The tables are placed on the model in alphabetical order
 following a grid scheme defined by the user.
 <br>
-The process of reverse engineering is possible with MySQL, Oracle and any database
-which is accessable by ODBC.<br>
-<br>
-The extraction of all table information is only possible using a MySQL database. All other databases are limited
-to the bottleneck of ODBC.
+The process of reverse engineering is possible with MySQL, SQLite and Firebird databases.
+For SQLite and Firebird it also keeps generated or computed columns, indices on an expression, descending and partial indices,
+CHECK constraints and the table options of the database (e.g. STRICT and WITHOUT ROWID for SQLite, global temporary tables for Firebird),
+so that a following synchronisation does not change the database.
 </p>
 
 
@@ -85,7 +100,7 @@ Export SQL Creates dialog
 </p>
 <br>
 <p class="Body">
-To export the SQL Creates to a file, press the [Save script to file] button. You will be promted
+To export the SQL Creates to a file, press the [Save script to file] button. You will be prompted
 for the file's name and destination. Press [Save] to write the script to disk.<br>
 <br>
 When a sql shell is open, it can be useful to copy the script to the clipboard and execute it directly
@@ -95,13 +110,15 @@ from the sql shell. To copy the SQL script to the clipboard press the [Copy Scri
 <a name="sqlexportoptions">SQL Create Options</a>
 </h4>
 <p class="Body">
-The output can be customised using the following General Settings and the SQL Creates Settings.
+The output can be customised using the following General Settings, the SQL Creates Settings and the
+Advanced SQL Settings. The settings are remembered for the next export.
 </p>
 <h5 class="Heading4">
 Export selected tables only
 </h5>
 <p class="Body">
 Check this flag to export the selected tables only. All other tables will not be created by the script file.
+The list below the flag can be used to export the tables of single regions only.
 </p>
 <h5 class="Heading4">
 Order Tables by Foreign Keys
@@ -110,7 +127,7 @@ Order Tables by Foreign Keys
 Use this flag to change the creation order. By default the tables are created in alphabetical order.
 When you are using foreign keys it is necessary to change the order the tables are created.<br>
 <br>
-Tables with no relations pointing to them have to be created first. Every other table can only be 
+Tables with no relations pointing to them have to be created first. Every other table can only be
 created when all source tables already exist.<br>
 If there is a collection of cyclic relations, the tables cannot be created. An error message is displayed.
 Note that you still can export the tables in alphabetical order.
@@ -125,15 +142,16 @@ Check this flag if you want to enable the creation of primary keys.
 Create Indices
 </h5>
 <p class="Body">
-Check this flag if you want to enable the creation of indices. This does not include the primary keys. 
+Check this flag if you want to enable the creation of indices. This does not include the primary keys.
 Check the Define Primary Keys flag to create primary keys.
 </p>
 <h5 class="Heading4">
-Define Foreign Key Reference
+Define Foreign Key References when enabled in Relations' Editors
 </h5>
 <p class="Body">
-Use this option to enable the foreign key reference in the SQL CREATE TABLE statements. Note that you have
-to enable the Order Tables by Foreign Keys option to make the SQL script work.
+Use this option to enable the foreign key reference in the SQL CREATE TABLE statements. A reference is written
+for every relation whose Reference Definition is activated in the <a href="editors.html#relation">Relation Editor</a>.
+Note that you have to enable the Order Tables by Foreign Keys option to make the SQL script work.
 </p>
 <h5 class="Heading4">
 Output Table Options
@@ -149,6 +167,41 @@ Output Standard Inserts
 Use this option to export the Standard Inserts within the SQL create script. This is only necessary if you
 have specified Standard Inserts for a table in the model.
 </p>
+<h5 class="Heading4">
+Output Comments
+</h5>
+<p class="Body">
+Writes the comments of the tables and columns into the script, in the form the target database uses
+(e.g. COMMENT for MySQL, COMMENT ON for Firebird).
+</p>
+<h5 class="Heading4">
+Output Drop Tables
+</h5>
+<p class="Body">
+Writes a DROP TABLE statement in front of every CREATE TABLE statement, so the script can be run
+against a database which already contains the tables.
+</p>
+<h5 class="Heading4">
+<a name="sqlexportadvanced">Advanced SQL Settings</a>
+</h5>
+<p class="Body">
+Select the <b>Target Data Base</b> first: FireBird, My SQL, Oracle, PostgreSQL, SQL Server or SQLite. The
+datatypes, the quoting of names and the form of the statements follow the target. Some of the other options are
+fixed by the target and are shown disabled:
+</p>
+<ul>
+  <li><b>Hide NULL Field Option</b> and <b>Portable Indexes</b> are used for every target except MySQL.</li>
+  <li><b>Hide On Delete/Update No Action</b> leaves out these rules for Oracle, PostgreSQL and SQL Server.</li>
+  <li><b>Generate Indexes for FKs</b> creates an index for every foreign key; it is preselected for Oracle,
+      PostgreSQL and SQL Server.</li>
+  <li><b>GO Statement</b> (SQL Server) and <b>Commit Statement</b> (Oracle, PostgreSQL, Firebird) separate the statements.</li>
+  <li><b>DEFAULT before NOT NULL</b> is the order of the column options Oracle, PostgreSQL and Firebird expect.</li>
+  <li><b>Auto Increment Triggers</b> (Oracle, Firebird) write a sequence or generator and a trigger for every
+      auto increment column. Without this option an auto increment column becomes an identity column for Firebird.</li>
+  <li><b>Last change date/user column &amp; trigger</b> and <b>Last delete table &amp; triggers</b> (Oracle, Firebird,
+      SQL Server) add columns and triggers which record the time and the user of the last change and of deleted rows.
+      The names of the columns, tables and triggers can be entered next to the options.</li>
+</ul>
 
 
 
@@ -166,7 +219,7 @@ Export SQL Drops dialog
 </p>
 <br>
 <p class="Body">
-To export the SQL Drops to a file, press the [Save script to file] button. You will be promted
+To export the SQL Drops to a file, press the [Save script to file] button. You will be prompted
 for the file's name and destination. Press [Save] to write the script to disk.<br>
 <br>
 When a sql shell is open, it can be useful to copy the script to the clipboard and execute it directly
@@ -176,7 +229,7 @@ from the sql shell. To copy the SQL script to the clipboard press the [Copy Scri
 <a name="sqlexportoptionsdrops">SQL Drop Options</a>
 </h4>
 <p class="Body">
-The output can be customised using the following General Settings and the SQL Creates Settings.
+The output can be customised using the following General Settings.
 </p>
 <h5 class="Heading4">
 Export selected tables only
@@ -188,11 +241,11 @@ Check this flag to export the selected tables only. All other tables will not be
 Order Tables by Foreign Keys
 </h5>
 <p class="Body">
-Use this flag to change the creation order. By default the tables are dropped in alphabetical order.
+Use this flag to change the order. By default the tables are dropped in alphabetical order.
 When you are using foreign keys it is necessary to change the order the tables are dropped.<br>
 <br>
 The tables will be dropped the reversed order they have been created.<br>
-If there is a collection of cyclic relations, the tables cannot be created. An error message is displayed.
+If there is a collection of cyclic relations, the tables cannot be dropped in this order. An error message is displayed.
 Note that you still can export the tables in alphabetical order.
 </p>
 
@@ -202,8 +255,13 @@ Note that you still can export the tables in alphabetical order.
 <a name="dbconn">Database Connections</a>
 </h3>
 <p class="Body">
-Several functions in DBDesigner 4 use Database Connections. They are used to establish a connection
+Several functions in DBDesigner Fork use Database Connections: the Database Synchronisation, the Reverse Engineering,
+the Query Mode, the storage of models in a database and the plugins. They are used to establish a connection
 to a database by selecting the appropriate server and database.
+</p>
+<p class="Body">
+Connections can be made to <b>MySQL 8</b>, <b>SQLite 3</b> and <b>Firebird 3</b> or newer databases. The drivers Oracle,
+MSSQL and ODBC are still listed, but there are no connectors for them in this version.
 </p>
 <h5 class="Heading4">
 Create a new Database Connection
@@ -213,7 +271,7 @@ A new Database Connection is created in the Database Connection Dialog.
 </p>
 <p class="Body">
 To create a new Database Connection, click the New Database Connection button. The Connection Parameter Dialog is shown.
-Specify all needed information an click OK to add the connection to the connection list.
+Specify all needed information and click OK to add the connection to the connection list.
 </p>
 <h5 class="Heading4">
 Connect to a database
@@ -222,7 +280,7 @@ Connect to a database
 Like creating a new Database Connection, the Database Connection Dialog is used to connect to a database.
 </p>
 <p class="Body">
-Select the appropriate connection from the connection list. Enter a username and the password and press the 
+Select the appropriate connection from the connection list. Enter a username and the password and press the
 Connect button to establish the connection.
 </p>
 <h5 class="Heading4">
@@ -230,11 +288,11 @@ Please notice
 </h5>
 <p class="Body">
 To make changes to meta information in a database it is necessary to connect as an user with the required rights.
-Within MySQL the database administrator is called root. He has got all rights and is allowed to create a new database 
-or make changes to any database. Every other user is allowed to access and modify only the tables he has got the
-appropriate rights for.<br>
+Within MySQL the database administrator is called root, within Firebird SYSDBA. The administrator has got all rights and
+is allowed to create a new database or make changes to any database. Every other user is allowed to access and modify
+only the tables he has got the appropriate rights for. SQLite has no users; the rights on the database file count.<br>
 <br>
-To avoid problems while synchronizing or quering a database make sure the user which is used to build the connection
+To avoid problems while synchronizing or querying a database make sure the user which is used to build the connection
 to the database has the required rights.
 </p>
 <h4 class="Heading3">
@@ -247,17 +305,17 @@ Database Connection Dialog
 </p>
 <br>
 <p class="Body">
-The Database Connection Dialog is seperated into three areas, the Network Hosts Tree, the Connection List and 
-the User/Password Section.
+The Database Connection Dialog is seperated into three areas, the Network Hosts Tree, the Connection List and
+the User/Password Section. The dialog can be resized.
 </p>
 <h4 class="Heading3">
 <a name="dbconnhosts">Network Hosts Tree</a>
 </h4>
 <p class="Body">
-The Network Hosts Tree displays all entered hosts and their databases. It is used to filter the displayed connections 
+The Network Hosts Tree displays all entered hosts and their databases. It is used to filter the displayed connections
 and to create new connections to a host's databases.<br>
 <br>
-When the first node named [All Connecions] is selected, all entered connections are displayed in the Connection List.<br>
+When the first node named [All Connections] is selected, all entered connections are displayed in the Connection List.<br>
 <br>
 To display all connections to the local MySQL host select [MySQL]-[Local Host].<br>
 <br>
@@ -265,13 +323,14 @@ To display all connections to MySQL host located on the network select [MySQL]-[
 <br>
 To display all connections to a specific MySQL network host select the hosts name beneath the [MySQL]-[Network Hosts] node.<br>
 <br>
-Connections to Oracle or ODBC databases can be filtered like the MySQL connections.
+Connections to SQLite and Firebird databases are listed beneath the [SQLite] and [Firebird] nodes. Click on the node
+below them to create a new connection of this type.
 </p>
 <h5 class="Heading4">
 Display a Host's databases
 </h5>
 <p class="Body">
-To display the databases of a entered Host click on the [+] icon left to the Host's name. DBDesigner 4 prompts for the
+To display the databases of a entered MySQL Host click on the [+] icon left to the Host's name. DBDesigner Fork prompts for the
 user's name and password which will be used to log in. Note that the specified user has to have the appropriated rights
 to execute a SQL SHOW DATABASES command.
 </p>
@@ -279,7 +338,7 @@ to execute a SQL SHOW DATABASES command.
 <a name="dbconnnewhost">Enter a new Host</a>
 </h5>
 <p class="Body">
-After the installation of DBDesigner 4 it is possible only to connect to the local MySQL host. To add a new network 
+After the installation of DBDesigner Fork it is possible only to connect to the local MySQL host. To add a new network
 host obey the following.<br>
 <br>
 To enter a new Host, click onto the [...] node listed beneath the [Network Hosts] node beneath of the wanted database type.
@@ -295,7 +354,7 @@ Add new Host Dialog
 Enter the node's name followed by a slash and it's IP address. In place of the IP address the host's network name can be
 specified also, e.g. webserver or www.theserver.com.<br>
 <br>
-Press return to create the append the new Host to the Network Hosts Tree.
+Press return to append the new Host to the Network Hosts Tree.
 </p>
 <h5 class="Heading4">
 Change Host parameters
@@ -322,15 +381,19 @@ To delete a Host select [Delete Host] from the popup menu.
 Create a new database
 </h5>
 <p class="Body">
-It is possible to create a new database from within the Database Connection Dialog. To create a new database
+It is possible to create a new MySQL database from within the Database Connection Dialog. To create a new database
 display the Host's databases like descibed above. Click the last node below the Host's node which is labeled [...].
 The New Database Dialog will apear. Enter the database name and press return. The database will be created.
+</p>
+<p class="Body">
+SQLite and Firebird databases are files. A connection to a SQLite database file which does not exist creates the file.
+A Firebird connection without a host name uses the embedded engine and creates a missing database file, too.
 </p>
 <h5 class="Heading4">
 Drop a database
 </h5>
 <p class="Body">
-It is possible to drop a database from within the Database Connection Dialog. To drop a database
+It is possible to drop a MySQL database from within the Database Connection Dialog. To drop a database
 show the Host's databases like descibed above. Click the database's node with the right mouse button to
 display the popup menu. Select [Drop Database].<br>
 <br>
@@ -350,38 +413,38 @@ Creating a new connection
 To create a new connection select the Host to connect to in the Network Hosts Tree. Display the Host's databases.
 Now drag the database to connect to onto the Connection List. A new connection is created.<br>
 <br>
-Instead of dragging the database you can select the database with the left mouse button and press the 
-[New Connecion to selected Database] button.
+Instead of dragging the database you can click the [New Database Connection] button, or right click on
+the list and select [Add Connection].
 <br>
 </p>
 <h5 class="Heading4">
 The list's columns
 </h5>
 <p class="Body">
-The list has got six columns. The connecion name displays the name of the connection. Double click on the name to
-change it.<br>
-<br>
-The type displays the type of database the connection is refering to. Doubleclick the type to change it.<br>
-<br>
-Click on the [...] button to display the connection parameters.
+The list has got five columns: Connection, Type, Host, Database and Description.
+Double click on a connection or select [Edit Connection] from the popup menu to change its parameters in the
+<a href="#dbconnparamdlg">Connection Parameter Dialog</a>. Select [Delete Connection] to remove it from the list.
 </p>
 <h4 class="Heading3">
 <a name="dbconnuser">The User Section</a>
 </h4>
 <p class="Body">
 When a database connection is selected in the Connection List the connection's name is displayed in the
-User Section and DBDesigner 4 prompts for the user's password. The password is never stored with the 
-database connection because of security issues.<br>
+User Section and DBDesigner Fork prompts for the user's password.<br>
 <br>
-Press enter or click the [Connect] button to establish the database connection. If the connection was 
-successfully build the connection dialog is closed. If an error occured, e.g. the password was wrong, 
-a the error message is displayed.
+On Windows the password can be stored with the connection: check [Save password] before you connect. The password
+is encrypted for the Windows user account (Windows Data Protection API) and can only be read by this user on this
+computer. Without the check mark the password is never stored. On Linux the option is not available.<br>
+<br>
+Press enter or click the [Connect] button to establish the database connection. If the connection was
+successfully build the connection dialog is closed. If an error occured, e.g. the password was wrong,
+the error message is displayed.
 </p>
 <h4 class="Heading3">
 <a name="dbconnparamdlg">Connection Parameter Dialog</a>
 </h4>
 <p class="Body">
-The Connection Parameter Dialog is used to change.<br>
+The Connection Parameter Dialog (Database Connection Editor) is used to enter or change the parameters of a connection.<br>
 </p>
 <br>
 <p align="center" class="ImageSubTitle">
@@ -398,44 +461,41 @@ Each Database Connection is identified by a unique name.
 </p>
 
 <h5 class="Heading4">
-Host Caption
-</h5>
-<p class="Body">
-Enter a caption for the database server. Only needed for MySQL connections.
-</p>
-
-<h5 class="Heading4">
-Host IP
-</h5>
-<p class="Body">
-Enter the database server's IP address or network name. Only needed for MySQL connections.
-</p>
-
-<h5 class="Heading4">
-Database name
-</h5>
-<p class="Body">
-Enter the name of the database. When using the MySQL Driver this is the name which was used in the CREATE DATABASE SQL statement.
-</p>
-<p class="Body">
-When the ODBC Driver is selected enter the ODBC Data Source Name (DNS).
-</p>
-<p class="Body">
-When using the Oracle Driver enter the connection name.
-</p>
-
-<h5 class="Heading4">
 Driver
 </h5>
 <p class="Body">
-Select a database driver from the dropdown list. When a new database driver is selected all values are set to their initial state.
+Select a database driver from the dropdown list: MySQL, SQLite or Firebird. When a new database driver is selected
+all values are set to their initial state.
+</p>
+
+<h5 class="Heading4">
+Hostname and Port
+</h5>
+<p class="Body">
+Enter the database server's IP address or network name and its port. They are needed for MySQL (port 3306) and Firebird
+(port 3050). Leave the host name of a Firebird connection empty to use the embedded engine of the client library; no
+Firebird server has to be installed then. SQLite has no server, the fields are disabled.
+</p>
+
+<h5 class="Heading4">
+Database Name / Database File
+</h5>
+<p class="Body">
+When using the MySQL driver enter the name of the database, the name which was used in the CREATE DATABASE SQL statement.
+</p>
+<p class="Body">
+When using the SQLite driver enter the path of the database file.
+</p>
+<p class="Body">
+When using the Firebird driver enter the path of the database file on the server (or on this computer for the embedded
+engine), or an alias defined on the server.
 </p>
 
 <h5 class="Heading4">
 Username
 </h5>
 <p class="Body">
-Specify the username used to connect to the database.
+Specify the username used to connect to the database. SQLite does not need a username.
 </p>
 
 <h5 class="Heading4">
@@ -462,18 +522,12 @@ The [Reset to Defaults] can be used to reset the connection parameters to their 
 To add or delete a parameter use the according buttons.
 </p>
 <p class="Body">
-The default parameters can be modified by editing the file DBDesigner4_DBDefaultSettings.ini located
-in the DBDesigner 4 data directory.
+The parameter <code>VendorLib</code> names the client library of the database. For Firebird it can be the full path of
+<code>fbclient.dll</code>; otherwise the library is looked for next to the program and then in an installed Firebird server.
 </p>
 <p class="Body">
-The host column displayes the entered IP or network name of the host. Double click on the host's IP/network name to
-change it.
-</p>
-<p class="Body">
-The database column displays the database the connection is build to. It can be changed using a double click.
-</p>
-<p class="Body">
-The description column displays additional information about the connection. It can be changed using a double click.
+The default parameters can be modified by editing the file DBConn_DefaultSettings.ini located
+in the DBDesigner Fork data directory.
 </p>
 
 
@@ -482,8 +536,8 @@ The description column displays additional information about the connection. It 
 <a name="dbsync">Database Synchronisation</a>
 </h3>
 <p class="Body">
-To synchronise the model with a database select [Database]->[Database Syncronsiation] from the main menu.
-The synchronisation can also be called by pressing the [Sync] button in the Tools palette. Note that
+To synchronise the model with a database select [Database]->[Database Synchronisation] from the main menu.
+The synchronisation can also be called by pressing the [Sync] button in the Toolbar. Note that
 an empty model cannot be synchronised.<br>
 <br>
 The Database Connection Dialog will be shown. Select the connection to the database which should
@@ -493,13 +547,13 @@ be synchronised. Enter the user's password and press [Connect] to establish the 
 Synchronise with a new database
 </h5>
 <p class="Body">
-The synchronise function can be run against an empty database. All tables will be created and the 
+The synchronise function can be run against an empty database. All tables will be created and the
 Standard Inserts will be inserted into the tables.<br>
 <br>
-To synchronise the model with a new database call the Database Synchronisation. The Database Connection Dialog is
-displayed. To create a new database display the Host's databases and click the node labeled [...] like explained 
+To synchronise the model with a new MySQL database call the Database Synchronisation. The Database Connection Dialog is
+displayed. To create a new database display the Host's databases and click the node labeled [...] like explained
 above. Name the database an create a new connection by dragging the database's node onto the Connection List.
-Connect to the new database.
+Connect to the new database. For SQLite and Firebird create a connection to a database file that does not exist yet.
 </p>
 <br>
 <p align="center" class="ImageSubTitle">
@@ -518,7 +572,7 @@ Database Connection
 </h5>
 <p class="Body">
 The name of the database connection is displayed at the top. To connect to a different database click the
-button right to the connection's name. The Database Connection Dialog is displayed again and a different 
+button right to the connection's name. The Database Connection Dialog is displayed again and a different
 connection can be selected.
 </p>
 <h5 class="Heading4">
@@ -532,14 +586,10 @@ The model will be unchanged when the synchronising function is executed.
 Apply changes to Model
 </h5>
 <p class="Body">
-To modify the model instead of the database select this option. The database will be unchanged when the
-synchronising function is executed.<br>
-<br>
-This function will be enabled in upcoming versions of DBDesigner 4. At the moment use the Reverse Engineering 
-functions instead.
+This option is disabled. To take changes of the database into the model use the Reverse Engineering function instead.
 </p>
 <h5 class="Heading4">
-Don't delete exisiting Tables
+Don't delete existing Tables
 </h5>
 <p class="Body">
 Check this option to keep tables in the database which are not present in the model. If this option
@@ -550,7 +600,7 @@ Execute Standard Inserts when Creating New Tables
 </h5>
 <p class="Body">
 If this option is activated the Standard Inserts will be inserted into the new created table. This option
-is selected by default. 
+is selected by default.
 </p>
 <h5 class="Heading4">
 Synchronise Standard Inserts
@@ -561,10 +611,10 @@ compared using the primary key fields. If a row in the database matches with a r
 all the values entered in the Standard Inserts will be compared. Values not present in the Standard Inserts
 will be ignored. Appropriate changes are made to the database table rows.<br>
 <br>
-Database table rows with a primary key value which is not matched by and primary key value in the 
+Database table rows with a primary key value which is not matched by and primary key value in the
 Standard Inserts are kept unchanged. Because of that manually entered rows will stay in the table even
-when this option is used. If a Standard Insert is deleted in the model the it has to be removed from the
-according row in the database table has to be deleted manually.
+when this option is used. If a Standard Insert is deleted in the model the according row in the database
+table has to be deleted manually.
 </p>
 <h4 class="Heading3">
 <a name="dbsyncexec">Executing the synchronisation</a>
@@ -576,7 +626,8 @@ The connection info will be printed like this [user@database], e.g. [root@websho
 <br>
 To execute the synchronisation press the [Execute] button at the bottom of the dialog.<br>
 <br>
-The execution can be monitored through the Progress List. All checks and changes are listed.
+The execution can be monitored through the Progress List. All checks and changes are listed. If the synchronisation
+is aborted by an error, the error message is shown and written to the Progress List.
 </p>
 
 
@@ -586,7 +637,7 @@ The execution can be monitored through the Progress List. All checks and changes
 </h3>
 <p class="Body">
 To call the Reverse Engineering function select [Database]->[Reverse Engineering] from the main menu.
-The function can also be called by clicking the [Rev.] button in the Tools Palette.<br>
+The function can also be called by clicking the [Rev.] button in the Toolbar.<br>
 <br>
 Normally the Reverse Engineering function is called with an empty model. It is also possible
 to add the tables to an existing model. If the database tables should be created within a new model
@@ -610,7 +661,7 @@ Database Connection
 </h5>
 <p class="Body">
 The name of the database connection is displayed at the top. To connect to a different database click the
-button right to the connection's name. The Database Connection Dialog is displayed again and a different 
+button right to the connection's name. The Database Connection Dialog is displayed again and a different
 connection can be selected.
 </p>
 <h5 class="Heading4">
@@ -618,61 +669,56 @@ Tables
 </h5>
 <p class="Body">
 Select all database tables which should be created in the model. All tables are selected by default.
-To select all tables when some of them have been deselected press the [Select all Tables] button. To 
-deselect all tables press the [Deselect all Tables] button.
-</p>
-<p class="Body">
-When an MS Access Database is selected the MS Access' system tables are deselected automatically.
+To select all tables when some of them have been deselected press the [Select All Tables] button. To
+deselect all tables press the [Unselect All Tables] button.
 </p>
 
 <h4 class="Heading3">
 <a name="revoptions">General Options</a>
 </h4>
 <h5 class="Heading4">
-Use MySQL specific functions
+Database specific functions
 </h5>
 <p class="Body">
-Check this option when a MySQL database is reverse engineered. MySQL specific functions like DESCRIBE TABLE
-will be used to generate the most accurate copy of the table's structure. Do not use this option with any other
-database.
+The dropdown list selects how the meta information is read. It is set according to the driver of the connection:
+Use MySQL specific functions, Use SQLite specific functions or Use Firebird specific functions. They read the
+most accurate copy of the table's structure. Do not change this setting.
 </p>
 <h5 class="Heading4">
-Use general functions
+Tables placed in a Row
 </h5>
 <p class="Body">
-Use this option when any other than a MySQL database is reverse engineered.
-</p>
-<h5 class="Heading4">
-Number of tabels in a row
-</h5>
-<p class="Body">
-When the database is reverse engineered all the selected database tabels are placed in a grid on the models
+When the database is reverse engineered all the selected database tables are placed in a grid on the models
 canvas. This option specifies the number of tables in a row.
+</p>
+<p class="Body">
+The options Import Schema as Table Prefixes and Put Default Values in Quotes are only used for Oracle databases.
 </p>
 
 <h4 class="Heading3">
 <a name="revoptrel">Build Relations</a>
 </h4>
 <p class="Body">
-Use these options to let DBDesigner 4 create the relations between the tables automatically. Please note that
-this may lead to incorrect results. So always check the relations after the database has been reverse engineered.
+Check Build Relations to let DBDesigner Fork create the relations between the tables. First a relation is
+created for every foreign key of the database, with its ON UPDATE and ON DELETE rules; a foreign key which refers
+to its own table becomes a relation of the table to itself. The following options add relations for columns
+which have no foreign key in the database. Please note that this may lead to incorrect results. So always check
+the relations after the database has been reverse engineered.
 </p>
 <h5 class="Heading4">
 Build Relations based on Primary Keys
 </h5>
 <p class="Body">
-Check this option to build relations between the tables in the model automatically. The relation will be build
-upon the table primary key fields. When the PK fields of a table are present in another table a 1:n relation is
-created.
+The relation will be built upon the table primary key fields. When the PK fields of a table are present in another
+table a 1:n relation is created.
 </p>
 <h5 class="Heading4">
-Build Relations based on Tablenames
+Based on Tablenames and ID-Fieldnames
 </h5>
 <p class="Body">
-Check this option to build relations between the tables in the model automatically. The relation will be build
-upon the table's and primary key field's names. The following naming principle is assumed. The primary key of
-a table is named ID + Tablename. If the primary key name is present in a different table a one-to-many between the
-two tables is created.
+The relation will be built upon the table's and primary key field's names. The following naming principle is assumed.
+The primary key of a table is named ID + Tablename. If the primary key name is present in a different table a
+one-to-many between the two tables is created.
 </p>
 
 <h4 class="Heading3">
@@ -686,8 +732,8 @@ By default the Datatype Substitution [MySQL Standard] is selected. This substitu
 abbreviations [int] and [dec] with the [INTEGER] and [DECIMAL] datatypes.
 <br>
 <br>
-To change a datatype's name enable this option, change the Datatype Substitution to [User defined] and 
-add a line to the Datatype Substitution List. Use the following format. 
+To change a datatype's name enable this option, change the Datatype Substitution to [User defined] and
+add a line to the Datatype Substitution List. Use the following format.
 [OldDataypeName=NewDatatypeName], e.g. [int=INTEGER] will replace all [int] datatypes with [INTEGER] datatypes.
 </p>
 <h4 class="Heading3">
@@ -722,10 +768,10 @@ testing purposes.<br>
     <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
   </tr>
   <tr>
-    <td style="FONT-SIZE: 10px"><img src="images/fabforce.gif" width="154" height="23"><br>
-      Copyright 2003 fabFORCE.net. All rights reserved.
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
+      DBDesigner 4 &copy; 2003 fabFORCE.net &middot; DBDesigner Fork &copy; 2006-2026 the contributors &middot; GNU GPL
     </td>
-    <td valign="top" align="right"><img src="images/dbtools.gif" width="167" height="23"></td>
+    <td valign="top" align="right"><span class="DocBrandSub">Online Documentation</span></td>
   </tr>
 </table>
 

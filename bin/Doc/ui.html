@@ -13,9 +13,9 @@
 
 <table border=0 cellpadding=0 cellspacing=0 width="100%">
   <tr>
-    <td style="FONT-SIZE: 10px"><img src="images/fabforce.gif" width="154" height="23"><br>
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
     </td>
-    <td valign="center" align="right"><img src="images/dbtools.gif" width="167" height="23"></td>
+    <td valign="center" align="right"><span class="DocBrandSub">Online Documentation</span></td>
   </tr>
   <tr>
     <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
@@ -32,8 +32,8 @@ The User Interface
 <a name="mainmenu">The Main Menu</a>
 </h4>
 <p class="Body">
-Through the main menu you gain access to general functions of the program. There are seven main menu items,
-File, Edit, Display, Database, Options, Windows and Help.
+Through the main menu you gain access to general functions of the program. There are eight main menu items,
+File, Edit, Display, Database, Plugins, Options, Windows and Help. The Plugins menu is shown only when plugins are installed.
 </p>
 <h4 class="Heading3">
 <a name="filemenu">File Menu</a>
@@ -76,11 +76,16 @@ new model is opened it is added to the list. If there are more than 10 entries i
 automatically.
 </p>
 <h5 class="Heading4">
-File - Add Model ...
+File - Add/Link Model
 </h5>
 <p class="Body">
-File - Add Model ... lets you add an existing model to the currently opened model. After the model has been imported
-all new objects are selected so the can be moved to an appropriate position.
+File - Add/Link Model lets you place an existing model into the currently opened model, either from a file
+(Add/Link Model from File) or from a model stored in a database (Add/Link Model from Database). The Place / Link Model
+window shows the objects of the other model. Select the objects you want and choose [Place]-&gt;[Add selected Objects] to
+copy them or [Place]-&gt;[Link selected Objects] to link them, then click on the canvas where they should be placed. Linked
+objects stay connected to the other model and can be updated with Refresh Linked Objects; Show Linked Models lists the
+models the current model is linked to. The entry Add/Link Model from Online Library is disabled, the online library of
+fabFORCE.net does not exist anymore.
 </p>
 <h5 class="Heading4">
 File - Save
@@ -115,6 +120,12 @@ File - Close
 File - Close closes the current active model.
 </p>
 <h5 class="Heading4">
+File - Close All
+</h5>
+<p class="Body">
+File - Close All closes all open models. You are asked to save every model that has been changed.
+</p>
+<h5 class="Heading4">
 File - Export-SQL Create Script ...
 </h5>
 <p class="Body">
@@ -131,12 +142,37 @@ drop the desired tables.
 You can use the database synchronise function instead which will create and update your database automatically.
 </p>
 <h5 class="Heading4">
+File - Export-SQL Optimize Table Script ... / SQL Repair Table Script
+</h5>
+<p class="Body">
+These menu items write the MySQL statements OPTIMIZE TABLE and REPAIR TABLE for the tables of the model.
+They are only useful for MySQL databases.
+</p>
+<h5 class="Heading4">
 File - Export-Export Model as Image ...
 </h5>
 <p class="Body">
 Select this function to export the whole model as an image file. The image can be saved in the PNG or BMP file format.
-The PNG Format is recommended. Please note that using the BMP file format will result in very large images, 
-approximatly 20 MB at default size.
+The PNG Format is recommended. The picture has the size of the area covered by the objects of the model.
+</p>
+<h5 class="Heading4">
+File - Export-Export selected Objects as Image ...
+</h5>
+<p class="Body">
+Like Export Model as Image, but only the selected objects are drawn.
+</p>
+<h5 class="Heading4">
+File - Export-Export Model as MDB XML File ...
+</h5>
+<p class="Body">
+Writes the tables, columns, indices and Standard Inserts of the model to an XML schema file (*.schema)
+in the format of the PEAR MDB database abstraction layer for PHP.
+</p>
+<h5 class="Heading4">
+File - Import-ERwin 4.1 XML Model ...
+</h5>
+<p class="Body">
+The import of ERwin&reg; 4.1 XML models is disabled in this version.
 </p>
 <h5 class="Heading4">
 File - Page &amp; Printer Setup ...
@@ -197,6 +233,13 @@ Edit - Cut selected
 This command is similar to Edit-Copy selected but the objects will also be deleted from the model.
 </p>
 <h5 class="Heading4">
+Edit - Copy selected Object(s) as Image
+</h5>
+<p class="Body">
+Copies a picture of the selected objects to the clipboard, so it can be pasted into a word processor or
+an image editor.
+</p>
+<h5 class="Heading4">
 Edit - Paste
 </h5>
 <p class="Body">
@@ -216,6 +259,12 @@ Edit - Select All
 </h5>
 <p class="Body">
 Use Edit - Select All to select all objects from the model.
+</p>
+<h5 class="Heading4">
+Edit - Center Model
+</h5>
+<p class="Body">
+Edit - Center Model moves all objects of the model to the center of the canvas.
 </p>
 
 <h4 class="Heading3">
@@ -266,7 +315,13 @@ Display - Notation - Traditional
 </h5>
 <p class="Body">
 Display - Notation - Traditional will change to a notation which will be 
-familia to Erwin© users.
+familiar to ERwin&reg; users.
+</p>
+<h5 class="Heading4">
+Display - Notation - Crows Foot
+</h5>
+<p class="Body">
+Display - Notation - Crows Foot draws the relations in the Crow's Foot notation.
 </p>
 
 
@@ -343,17 +398,38 @@ The Database Menu
 </p>
 <br>
 <h5 class="Heading4">
+Database - Connect to Database
+</h5>
+<p class="Body">
+Opens the <a href="db.html#dbconn">Database Connection Dialog</a> and connects to a database. The connection
+is used in Query Mode and by the plugins.
+</p>
+<h5 class="Heading4">
+Database - Disconnect from Database
+</h5>
+<p class="Body">
+Closes the current database connection. The menu item is enabled only while a connection is open.
+</p>
+<h5 class="Heading4">
 Database - Database Synchronisation
 </h5>
 <p class="Body">
-Use this function to synchronise your model with a database. This function can also
-be used with a clear database to create all the tables.
+Use this function to synchronise your model with a MySQL, SQLite or Firebird database. This function can also
+be used with an empty database to create all the tables.
 </p>
 <h5 class="Heading4">
 Database - Reverse Engineering
 </h5>
 <p class="Body">
 Use this function to create a model based on an existing database.
+</p>
+<h5 class="Heading4">
+Database - Run UI Tests
+</h5>
+<p class="Body">
+Runs the automated self-test of the user interface: menu items and buttons are clicked one after another
+and errors are reported. It is meant for developers; it never opens a database connection and leaves
+your settings untouched, but it creates and closes models, so save your work first.
 </p>
 
 
@@ -368,8 +444,9 @@ The Plugins Menu
 </p>
 <br>
 <p class="Body">
-The Plugins Menu lists a number of DBDesigner 4 plugins available
-in the program's directory.
+The Plugins Menu lists the DBDesigner Fork plugins found in the program's directory
+(the programs named DBDplugin_*). It is shown only when at least one plugin is installed.
+The plugins are described on the page <a href="plugins.html">Plugins</a>.
 </p>
 
 
@@ -421,33 +498,9 @@ Windows - Tile
 Use this command if you have opened several models and want to arrange the windows
 beside each other.
 </p>
-<h5 class="Heading4">
-Windows - Style - Standard
-</h5>
 <p class="Body">
-The Windows-Style menu items can be used to change the overall appearance of the program.
-</p>
-<p class="Body">
-Select Windows - Style - Standard to set the style to Windows default.
-</p>
-<h5 class="Heading4">
-Windows - Style - Motif
-</h5>
-<p class="Body">
-Select Windows - Style - Motif to set the style to the Motif style.
-</p>
-<h5 class="Heading4">
-Windows - Style - SGI
-</h5>
-<p class="Body">
-Select Windows - Style - Motif to set the style to the SGI style.
-</p>
-<h5 class="Heading4">
-Windows - Style - Platinum
-</h5>
-<p class="Body">
-Select Windows - Style - Platinum to set the style to the Platinum style. This is the default
-window style.
+The window styles of DBDesigner 4 (Standard, Motif, SGI, Platinum) do not exist anymore;
+the program uses the look of the operating system.
 </p>
 
 <h5 class="Heading4">
@@ -456,7 +509,7 @@ Windows - Toolbar
 <p class="Body">
 Checked this menu item to display the Toolbar which is docked to the left of the main window.</p>
 <h5 class="Heading4">
-Windows - Tools (MS Windows only)
+Windows - Tools Palette (MS Windows only)
 </h5>
 <p class="Body">
 If this menu item is checked the Tool-Palette becomes visible. It can be used instead of the
@@ -510,28 +563,39 @@ The Help Menu
 </p>
 <br>
 <h5 class="Heading4">
-Help - About
+Help - About DBDesigner Fork ...
 </h5>
 <p class="Body">
-Displays the splash screen.
+Displays the splash screen with the version of the program.
 </p>
 <h5 class="Heading4">
-Help - Online Documentation
+Help - HTML Documentation
 </h5>
 <p class="Body">
-Lauches an explorer with this documents.
+Opens this documentation in the web browser. The browser can be chosen in the DBDesigner Options
+(Use other HTML Browser). Press F1 in a dialog to open the page about this dialog.
 </p>
 <h5 class="Heading4">
-Help - Visit fabFORCE.net
+Help - Visit GitHub Project
 </h5>
 <p class="Body">
-Lauches an explorer and navigates to http://www.fabFORCE.net.
+Opens the page of the project, <a href="https://github.com/Teimue/dbdesigner-fork" target="_blank">https://github.com/Teimue/dbdesigner-fork</a>,
+in the web browser.
 </p>
 <h5 class="Heading4">
 Help - Check for New Versions
 </h5>
 <p class="Body">
-Lauches an explorer, navigates to http://www.fabFORCE.net/downloads.
+Asks GitHub for the latest release and compares it with the installed version. If a newer version is available,
+you are asked whether the download page should be opened. If GitHub cannot be reached, you can open the
+releases page instead.
+</p>
+<h5 class="Heading4">
+Help - Submit a bug / feature request
+</h5>
+<p class="Body">
+Opens the issue tracker of the project, <a href="https://github.com/Teimue/dbdesigner-fork/issues" target="_blank">https://github.com/Teimue/dbdesigner-fork/issues</a>,
+in the web browser.
 </p>
 
 <h3 class="Heading2">
@@ -653,7 +717,7 @@ Add to Common Datatypes to add a Datatype to the Common-Tab.
 <p class="Body">
 If you want to replace a datatype or change a parameter in several tables then you can use
 the Replace Datatypes in Tables function from the palette's popup menu. It works just like
-the Search and Replace function in Word©.
+the Search and Replace function in Word&reg;.
 </p>
 <br>
 <p align="center" class="ImageSubTitle">
@@ -727,10 +791,10 @@ in a Database.
     <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
   </tr>
   <tr>
-    <td style="FONT-SIZE: 10px"><img src="images/fabforce.gif" width="154" height="23"><br>
-      Copyright 2003 fabFORCE.net. All rights reserved.
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
+      DBDesigner Fork &copy; 2003 fabFORCE.net &middot; DBDesigner Fork &copy; 2006-2026 the contributors &middot; GNU GPL
     </td>
-    <td valign="top" align="right"><img src="images/dbtools.gif" width="167" height="23"></td>
+    <td valign="top" align="right"><span class="DocBrandSub">Online Documentation</span></td>
   </tr>
 </table>
 

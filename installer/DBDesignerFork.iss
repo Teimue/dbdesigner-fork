@@ -167,13 +167,13 @@ Type: dirifempty; Name: "{app}\Examples"
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"
-Name: "{group}\{cm:ManualName}"; Filename: "{app}\Doc\DBDesigner4_manual_1.0.42.pdf"
+Name: "{group}\{cm:ManualName}"; Filename: "{app}\Doc\DBDesignerFork_manual.pdf"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [CustomMessages]
-english.ManualName=DBDesigner 4 Manual
-german.ManualName=DBDesigner 4 Handbuch
+english.ManualName=DBDesigner Fork Manual
+german.ManualName=DBDesigner Fork Handbuch
 english.McpGroup=AI assistants (Model Context Protocol):
 german.McpGroup=KI-Assistenten (Model Context Protocol):
 english.McpServer=Install the MCP server (an AI assistant can read and change models with it)

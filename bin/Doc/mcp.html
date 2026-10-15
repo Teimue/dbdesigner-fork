@@ -1,0 +1,143 @@
+<html>
+
+<head>
+<title>MCP Server</title>
+<link rel="StyleSheet" href="document.css" type="text/css" media="screen" />
+<script src="std_js.js" type="text/javascript">
+</script>
+</head>
+
+<body>
+
+<table border=0 cellpadding=0 cellspacing=0 width="100%">
+  <tr>
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
+    </td>
+    <td valign="center" align="right"><span class="DocBrandSub">Online Documentation</span></td>
+  </tr>
+  <tr>
+    <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
+  </tr>
+</table>
+
+<h2 class="Heading1">
+MCP Server for AI Assistants
+</h2>
+<p class="Body">
+The MCP server <code>DBDesignerMCP</code> lets an AI assistant such as Claude work with DBDesigner Fork models through the
+Model Context Protocol (MCP). The assistant can read and change models, write the SQL script, reverse engineer a database
+and compare a model with a database. The server uses the same model classes as DBDesigner Fork, so it reads and writes the
+model files and the SQL exactly like the program.
+</p>
+<p class="Body">
+The server is a console program without a window. The AI assistant starts it and talks to it on its standard input and
+output; it is not started by hand.
+</p>
+
+<h3 class="Heading2">
+<a name="install">Installation</a>
+</h3>
+<p class="Body">
+The MCP server is an optional part of the Windows setup program (task <i>Install the MCP server</i>, not preselected). It is
+installed next to the program as <code>DBDesignerMCP.exe</code>. Two more tasks register it in <b>Claude Code</b> (for the
+current user, all projects) and in <b>Claude Desktop</b>. The uninstaller removes the registrations again.
+</p>
+<p class="Body">
+The registration can also be done later from a command prompt:
+</p>
+<table border=0 cellpadding=2 cellspacing=4>
+  <tr><td valign="top"><code>DBDesignerMCP --register-claude-code</code></td>
+      <td>registers the server in Claude Code under the name <code>dbdesigner</code>
+          (the <code>claude</code> command must be installed)</td></tr>
+  <tr><td valign="top"><code>DBDesignerMCP --register-claude-desktop</code></td>
+      <td>adds the server to <code>claude_desktop_config.json</code> of Claude Desktop</td></tr>
+  <tr><td valign="top"><code>DBDesignerMCP --unregister-claude-code</code><br>
+      <code>DBDesignerMCP --unregister-claude-desktop</code></td>
+      <td>remove the registrations</td></tr>
+  <tr><td valign="top"><code>DBDesignerMCP --version</code></td>
+      <td>shows the version of the server, which is the version of the program</td></tr>
+</table>
+<p class="Body">
+Restart Claude Desktop after the registration. Other MCP clients can start <code>DBDesignerMCP.exe</code> without
+arguments as a local (stdio) server.
+</p>
+
+<h3 class="Heading2">
+<a name="tools">Tools</a>
+</h3>
+<p class="Body">
+The assistant first opens a model file (<code>open_model</code>) or starts a new one (<code>new_model</code>). All other tools
+work on this open model. Changes are kept in memory until <code>save_model</code> writes the model to its file or to another one.
+</p>
+<table border=0 cellpadding=2 cellspacing=4 width="100%">
+  <tr>
+    <td valign="top" width="200px"><b>Models</b></td>
+    <td>open_model, new_model, save_model, get_model_settings, change_model_settings</td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Tables and columns</b></td>
+    <td>list_tables, describe_table, add_table, rename_table, change_table, delete_table,
+        add_column, change_column, delete_column, get_standard_inserts, set_standard_inserts</td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Indices and relations</b></td>
+    <td>add_index, delete_index, list_relations, add_relation, delete_relation</td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Diagram</b></td>
+    <td>move_table, arrange_tables, list_regions, add_region, change_region, delete_region,
+        list_notes, add_note, change_note, delete_note, list_images, add_image, change_image, delete_image,
+        export_model_image (PNG, JPG or BMP)</td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Datatypes</b></td>
+    <td>list_datatypes, add_datatype, change_datatype, delete_datatype</td>
+  </tr>
+  <tr>
+    <td valign="top"><b>SQL</b></td>
+    <td>export_sql: the SQL create script for a target database, with the options of the
+        <a href="db.html#sqlexport">Export SQL Creates</a> dialog</td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Databases</b></td>
+    <td>list_connections, connect_database, disconnect_database, list_database_tables,
+        reverse_engineer, sync_database</td>
+  </tr>
+</table>
+
+<h3 class="Heading2">
+<a name="databases">Databases</a>
+</h3>
+<p class="Body">
+The database tools work with MySQL, SQLite and Firebird. <code>list_connections</code> shows the
+<a href="db.html#dbconn">database connections</a> stored in DBDesigner Fork; a connection is best used by its name (its stored password is used). Otherwise the driver, the database, the
+host, the port and the user are given directly; for SQLite and Firebird without host the database is a file. One connection
+is open at a time. The server reads the settings of the program but never changes them.
+</p>
+<p class="Body">
+<code>sync_database</code> changes the database. Called without its <code>apply</code> parameter it only lists the
+statements it would execute, so the assistant (and you) can check them first. Tables that exist only in the database
+are kept.
+</p>
+<p class="Body">
+Message boxes the program would show are not displayed by the server; their text is returned to the assistant
+as part of the result.
+</p>
+
+
+<br><br>
+<table border=0 cellpadding=0 cellspacing=0 width="100%">
+  <tr>
+    <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
+  </tr>
+  <tr>
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
+      DBDesigner 4 &copy; 2003 fabFORCE.net &middot; DBDesigner Fork &copy; 2006-2026 the contributors &middot; GNU GPL
+    </td>
+    <td valign="top" align="right"><span class="DocBrandSub">Online Documentation</span></td>
+  </tr>
+</table>
+
+</body>
+
+</html>
