@@ -148,6 +148,9 @@ const
 
 var
   DMDB: TDMDB;
+  //The connection GetUserSelectedDBConn gives in the test modes, where
+  //nobody can choose one (set by UIDocImages)
+  PresetDBConn: TDBConn = nil;
 
 implementation
 
@@ -472,7 +475,10 @@ begin
   //to answer the selector; if the modal-close timer was already consumed the
   //selector (or the failed-connect retry loop) blocks the self-test forever.
   if(SettingsReadOnly)then
+  begin
+    GetUserSelectedDBConn:=PresetDBConn;
     Exit;
+  end;
 
   s:=-1;
   for i:=0 to DBConnections.Count-1 do
