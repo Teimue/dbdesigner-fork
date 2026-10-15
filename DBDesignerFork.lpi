@@ -47,7 +47,7 @@
         <PackageName Value="LCL"/>
       </Item4>
     </RequiredPackages>
-    <Units Count="51">
+    <Units Count="52">
       <Unit0>
         <Filename Value="DBDesignerFork.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -289,6 +289,10 @@
         <Filename Value="src/EERSQLScript.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit50>
+      <Unit51>
+        <Filename Value="src/VersionCheck.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit51>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

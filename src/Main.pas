@@ -80,7 +80,7 @@ uses
 const
   INIVersion_DBDesigner4_Settings=4;
   INIVersion_DBDesigner4_DatabaseInfo=8;
-  INIVersion_DBDesigner4_Translations=23;
+  INIVersion_DBDesigner4_Translations=24;
   INIVersion_DBConn_DefaultSettings=5;
 
 type
@@ -513,7 +513,7 @@ uses MainDM, ZoomSel, IniFiles,
   EERDM, EditorTable, EditorRelation, EditorRegion, EditorNote,
   EditorImage, GUIDM, DBDM, EditorQuery, EditorQueryDragTarget,
   Tips, EERPlaceModel, DBEERDM, EERExportImportDM, Math, UIScale,
-  UITestRunner, PaletteTabs, UIScreenshots, GlobalSysFunctions;
+  UITestRunner, PaletteTabs, UIScreenshots, GlobalSysFunctions, VersionCheck;
 
 procedure TMainForm.AppException(Sender: TObject; E: Exception);
 const
@@ -1717,9 +1717,41 @@ begin
   DMMain.BrowsePage('https://github.com/Teimue/dbdesigner-fork');
 end;
 
+//Asks GitHub for the latest release and compares it with the version of
+//the program; the page of the release is opened only when the user wants
 procedure TMainForm.CheckfornewversionsMIClick(Sender: TObject);
+var
+  Release: TReleaseInfo;
+  ErrorMsg: string;
+  Found: Boolean;
 begin
-  DMMain.BrowsePage('https://github.com/Teimue/dbdesigner-fork/releases/latest');
+  Screen.Cursor:=crHourGlass;
+  try
+    Found:=GetLatestRelease(Release, ErrorMsg);
+  finally
+    Screen.Cursor:=crDefault;
+  end;
+
+  if(Not(Found))then
+  begin
+    if(MessageDlg(DMMain.GetTranslatedMessage(
+      'The latest version could not be determined:\n%s\n\n'+
+      'Do you want to open the download page?', 300, ErrorMsg),
+      mtWarning, [mbYes, mbNo], 0)=mrYes)then
+      DMMain.BrowsePage(GitHubLatestReleaseURL);
+  end
+  else if(Version='')or(CompareVersions(Release.Version, Version)>0)then
+  begin
+    if(MessageDlg(DMMain.GetTranslatedMessage(
+      'A new version is available: %s\nInstalled version: %s\n\n'+
+      'Do you want to open the download page?', 301, Release.Version, Version),
+      mtInformation, [mbYes, mbNo], 0)=mrYes)then
+      DMMain.BrowsePage(Release.URL);
+  end
+  else
+    MessageDlg(DMMain.GetTranslatedMessage(
+      'You are using the latest version (%s).', 302, Version),
+      mtInformation, [mbOK], 0);
 end;
 
 procedure TMainForm.SaveinDatabaseMIClick(Sender: TObject);

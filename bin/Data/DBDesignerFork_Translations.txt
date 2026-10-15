@@ -1195,6 +1195,18 @@ en_Message_Nr0299_TEditorQueryForm=Changes applied. %s pending change(s).
 de_Message_Nr0299_TEditorQueryForm=Änderungen übernommen. %s ausstehende Änderung(en).
 fr_Message_Nr0299_TEditorQueryForm=Changes applied. %s pending change(s).
 xx_Message_Nr0299_TEditorQueryForm=Changes applied. %s pending change(s).
+en_Message_Nr0300_TMainForm=The latest version could not be determined:\n%s\n\nDo you want to open the download page?
+de_Message_Nr0300_TMainForm=Die neueste Version konnte nicht ermittelt werden:\n%s\n\nMöchten Sie die Download-Seite öffnen?
+fr_Message_Nr0300_TMainForm=Impossible de déterminer la dernière version :\n%s\n\nVoulez-vous ouvrir la page de téléchargement ?
+xx_Message_Nr0300_TMainForm=The latest version could not be determined:\n%s\n\nDo you want to open the download page?
+en_Message_Nr0301_TMainForm=A new version is available: %s\nInstalled version: %s\n\nDo you want to open the download page?
+de_Message_Nr0301_TMainForm=Eine neue Version ist verfügbar: %s\nInstallierte Version: %s\n\nMöchten Sie die Download-Seite öffnen?
+fr_Message_Nr0301_TMainForm=Une nouvelle version est disponible : %s\nVersion installée : %s\n\nVoulez-vous ouvrir la page de téléchargement ?
+xx_Message_Nr0301_TMainForm=A new version is available: %s\nInstalled version: %s\n\nDo you want to open the download page?
+en_Message_Nr0302_TMainForm=You are using the latest version (%s).
+de_Message_Nr0302_TMainForm=Sie verwenden die neueste Version (%s).
+fr_Message_Nr0302_TMainForm=Vous utilisez la dernière version (%s).
+xx_Message_Nr0302_TMainForm=You are using the latest version (%s).
 
 [Languages]
 English=en
