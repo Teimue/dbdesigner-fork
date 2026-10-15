@@ -11,9 +11,9 @@
 
 <table border=0 cellpadding=0 cellspacing=0 width="100%">
   <tr>
-    <td style="FONT-SIZE: 10px"><img src="images/fabforce.gif" width="154" height="23"><br>
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
     </td>
-    <td valign="center" align="right"><img src="images/dbtools.gif" width="167" height="23"></td>
+    <td valign="center" align="right"><span class="DocBrandSub">Online Documentation</span></td>
   </tr>
   <tr>
     <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
@@ -24,24 +24,67 @@
 General Information
 </h2>
 <p class="Body">
-DBDesigner 4 is a free available database design system that integrates 
+DBDesigner Fork is a free database design system that integrates
 database design, modelling, creation and maintenance into a single, seamless environment.
 </p>
 <p class="Body">
-It is written for 
-Microsoft© Windows 2k/XP© and Linux KDE/Gnome to support both, the Windows and the
-Linux platform.
+It is a community fork of DBDesigner 4, written by fabFORCE.net. The fork was started in 2006;
+since version 2.0 it is built with Free Pascal and Lazarus instead of Delphi and Kylix.
+</p>
+
+<h3 class="Heading2">
+<a name="platforms">Platforms and Databases</a>
+</h3>
+<p class="Body">
+DBDesigner Fork runs on
+</p>
+<ul>
+  <li>Windows 10 and Windows 11, 64 bit. The program is DPI aware and scales its dialogs,
+      symbols and the model with the display.</li>
+  <li>Linux with GTK2 (built from the source code).</li>
+</ul>
+<p class="Body">
+The following databases can be connected to, for the reverse engineering, the synchronisation,
+the Query Mode and the plugins:
+</p>
+<ul>
+  <li><b>MySQL 8</b> (client library <code>libmysql.dll</code> / <code>libmysqlclient.so.21</code>)</li>
+  <li><b>SQLite 3</b> (client library <code>sqlite3.dll</code> / <code>libsqlite3.so.0</code>)</li>
+  <li><b>Firebird 3 or newer</b>, as a server or with the embedded engine
+      (client library <code>fbclient.dll</code>)</li>
+</ul>
+<p class="Body">
+Oracle, MS SQL Server and ODBC are still listed as drivers in the connection dialogs, but there
+are no connectors for them yet. The SQL script can be written for more databases than can be
+connected to (see <a href="db.html#sqlexport">Export SQL Creates</a>).
+</p>
+
+<h3 class="Heading2">
+<a name="install">Installation</a>
+</h3>
+<p class="Body">
+On Windows the setup program from the
+<a href="https://github.com/Teimue/dbdesigner-fork/releases" target="_blank">releases page</a>
+installs the program, the plugins, this documentation and the client libraries for SQLite, MySQL and
+Firebird (with the embedded engine); nothing else has to be installed. The example models and the
+example databases are copied to <code>Documents\DBDesigner</code>. Optionally the setup program installs the
+<a href="mcp.html">MCP server</a> and registers it in Claude Code and Claude Desktop.
 </p>
 <p class="Body">
-DBDesigner 4 is developed and optimized for the 
-<a href="http://www.mysql.com" target="_blank">MySQL-Database</a>.
+The settings, the list of database connections (<code>DBConn.ini</code>) and the list of recent files are stored in
+<code>%APPDATA%\DBDesigner4\</code> on Windows and in <code>~/.DBDesigner4/</code> on Linux.
 </p>
+<p class="Body">
+The user interface is available in English and German. The language is chosen in
+[Options]-&gt;[DBDesigner Options].
+</p>
+
 <h3 class="Heading2">
 <a name="license">License</a>
 </h3>
 <p class="Body">
-DBDesigner is available for free download and is published under the GNU GPL 
-License.
+DBDesigner Fork is available for free download and is published under the GNU GPL
+License, version 2.
 </p>
 <p class="Body">
 Click here to read through the <a href="license.html">GNU GPL License</a>.
@@ -50,16 +93,17 @@ Click here to read through the <a href="license.html">GNU GPL License</a>.
 <a name="support">Support</a>
 </h3>
 <p class="Body">
-Free support is available during beta test phase. Please navigate to
-<a href="http://www.fabforce.net/service.php" target="_blank">fabforce.net</a>.
+The source code, the releases and the issue tracker are on GitHub:
+<a href="https://github.com/Teimue/dbdesigner-fork" target="_blank">github.com/Teimue/dbdesigner-fork</a>.
+Select [Help]-&gt;[Visit GitHub Project] to open the page from the program.
 </p>
 <h3 class="Heading2">
 <a name="bugs">Bug submission</a>
 </h3>
 <p class="Body">
-If you have found a bug or got an idea for new 
-functions and features please visit <a href="http://www.fabforce.net/service.php" target="_blank">
-fabforce.net</a>.
+If you have found a bug or got an idea for new functions and features please open an issue at
+<a href="https://github.com/Teimue/dbdesigner-fork/issues" target="_blank">github.com/Teimue/dbdesigner-fork/issues</a>,
+or select [Help]-&gt;[Submit a bug / feature request].
 </p>
 
 
@@ -69,10 +113,10 @@ fabforce.net</a>.
     <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
   </tr>
   <tr>
-    <td style="FONT-SIZE: 10px"><img src="images/fabforce.gif" width="154" height="23"><br>
-      Copyright 2003 fabFORCE.net. All rights reserved.
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
+      DBDesigner 4 &copy; 2003 fabFORCE.net &middot; DBDesigner Fork &copy; 2006-2026 the contributors &middot; GNU GPL
     </td>
-    <td valign="top" align="right"><img src="images/dbtools.gif" width="167" height="23"></td>
+    <td valign="top" align="right"><span class="DocBrandSub">Online Documentation</span></td>
   </tr>
 </table>
 

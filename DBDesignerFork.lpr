@@ -95,7 +95,8 @@ uses
   // RegExpr, // using system regexpr
   GlobalSysFunctions in 'src/GlobalSysFunctions.pas',
   UITestRunner in 'src/UITestRunner.pas',
-  UIScreenshots in 'src/UIScreenshots.pas';
+  UIScreenshots in 'src/UIScreenshots.pas',
+  UIDocImages in 'src/UIDocImages.pas';
 
 //The icon and the manifest
 {$R src/AppResources.res}

@@ -1,0 +1,133 @@
+<html>
+
+<head>
+<title>Plugins</title>
+<link rel="StyleSheet" href="document.css" type="text/css" media="screen" />
+<script src="std_js.js" type="text/javascript">
+</script>
+</head>
+
+<body>
+
+<table border=0 cellpadding=0 cellspacing=0 width="100%">
+  <tr>
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
+    </td>
+    <td valign="center" align="right"><span class="DocBrandSub">Online Documentation</span></td>
+  </tr>
+  <tr>
+    <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
+  </tr>
+</table>
+
+<h2 class="Heading1">
+Plugins
+</h2>
+<p class="Body">
+Plugins are separate programs which work on the current model. They are started from the
+<a href="ui.html#pluginsmenu">Plugins Menu</a>. DBDesigner Fork saves the model to a temporary file and starts the
+plugin with this file. While the plugin runs, the main window is disabled. When the plugin has changed the model, the
+changed model is loaded again and you are asked whether it should be saved.
+</p>
+<p class="Body">
+The plugins use the stored database connections, the language and the font of DBDesigner Fork; a connection opened in
+DBDesigner Fork is offered to the plugin. The following plugins are
+installed with the program.
+</p>
+
+<h3 class="Heading2">
+<a name="databrowser">Data Browser</a>
+</h3>
+<p class="Body">
+The Data Browser shows the rows of the tables in a connected database. Click [Connect ...] to choose a database
+connection. The list on the left shows the tables of the model, or all tables of the database when
+[All tables of the database] is checked.
+</p>
+<ul>
+  <li>Enter a condition in [Filter (WHERE)] to see only some rows; [Clear filter] removes it.</li>
+  <li>Click on a column title to sort the rows by this column.</li>
+  <li>[Max. rows] limits the number of rows that are read.</li>
+  <li>Double click on a value of a foreign key column to jump to the referenced row of the other table,
+      following the relations of the model.</li>
+</ul>
+<p class="Body">
+The Data Browser only reads; it does not change the database. The rows are copied into the grid, so no lock stays
+on the database while the window is open.
+</p>
+
+<h3 class="Heading2">
+<a name="testdatagenerator">Test Data Generator</a>
+</h3>
+<p class="Body">
+The Test Data Generator fills the tables of the model with plausible rows: names, addresses, dates, numbers and texts
+that fit the names and datatypes of the columns. Foreign keys refer to existing rows, the lengths of the columns are kept.
+</p>
+<ul>
+  <li>Select the tables and the number of rows per table ([Set for all] sets the same number for all tables).</li>
+  <li>Choose the target database, the language of the data, the share of NULL values and a seed. The same seed gives the same script.</li>
+  <li>Options: delete the existing rows first, leave auto increment columns to the database, COMMIT at the end.</li>
+  <li>[Generate] writes the script of INSERT statements. It can be copied, saved, or executed in a database with
+      [Execute in database ...]; the execution runs in one transaction and is rolled back on an error.</li>
+</ul>
+
+<h3 class="Heading2">
+<a name="dataimporter">Data Importer</a>
+</h3>
+<p class="Body">
+The Data Importer imports text files into a table of a connected database: text with a separator (tabulator,
+semicolon, comma, space or another character, e.g. CSV files) or text in a fixed length format. On the Column Mapping page
+the fields of the file are assigned to the columns of the destination table; [Auto-Mapping] assigns fields with the
+same names. The settings can be stored as a preset and used again.
+</p>
+
+<h3 class="Heading2">
+<a name="htmlreport">HTML Report</a>
+</h3>
+<p class="Body">
+The HTML Report writes a description of the model as an HTML page: the tables with their columns, and optionally the
+regions, the indices and the table options. The tables can be sorted by position or by name.
+</p>
+
+<h3 class="Heading2">
+<a name="simplewebfront">Simple Web Front</a>
+</h3>
+<p class="Body">
+The Simple Web Front creates PHP web pages for the tables of the model: lists of the rows, forms to enter and change
+them, with joins along the relations. The pages are grouped into views; the layout, the title and the output directory
+can be chosen. The database connection of the pages is entered on the first page of the plugin.
+</p>
+
+<h3 class="Heading2">
+<a name="demo">Demo</a>
+</h3>
+<p class="Body">
+The Demo plugin shows how a plugin reads the model; it writes the SQL create statements of the selected tables. It is
+meant as a starting point for developers who want to write their own plugin.
+</p>
+
+<h3 class="Heading2">
+<a name="own">Writing a Plugin</a>
+</h3>
+<p class="Body">
+A plugin is a program named <code>DBDplugin_&lt;Name&gt;</code> (<code>DBDplugin_&lt;Name&gt;.exe</code> on Windows) in
+the directory of DBDesigner Fork. It is called with the file name of the model as its first parameter. The source code
+of the plugins in the directory <code>Plugins</code> of the project shows how the model classes of DBDesigner Fork are used.
+</p>
+
+
+<br><br>
+<table border=0 cellpadding=0 cellspacing=0 width="100%">
+  <tr>
+    <td height="1px" bgcolor="#cccccc" colspan=2><img src="images/1ptrans.gif" width="1" height="1"></td>
+  </tr>
+  <tr>
+    <td style="FONT-SIZE: 10px"><span class="DocBrand">DBDesigner Fork</span><br>
+      DBDesigner 4 &copy; 2003 fabFORCE.net &middot; DBDesigner Fork &copy; 2006-2026 the contributors &middot; GNU GPL
+    </td>
+    <td valign="top" align="right"><span class="DocBrandSub">Online Documentation</span></td>
+  </tr>
+</table>
+
+</body>
+
+</html>

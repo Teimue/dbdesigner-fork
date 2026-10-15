@@ -240,3 +240,8 @@ body, textarea {
           
         .ImageSubTitle
           { font-size: 9px; vertical-align: super }
+/* Brand line in the header and footer of the pages */
+        .DocBrand
+          { color: #003366; font-size: 16px; font-weight: bold; white-space: nowrap }
+        .DocBrandSub
+          { color: #666666; font-size: 11px; white-space: nowrap }

@@ -1917,6 +1917,7 @@ end;
 
 procedure TDMMain.LoadLanguageFromIniFile;
 var theIni: TMemIniFile;
+  i: integer;
 begin
   //Open IniFile
   theIni:=TMemIniFile.Create(SettingsPath+'Language.ini');
@@ -1927,6 +1928,12 @@ begin
   finally
     theIni.Free;
   end;
+
+  //--lang <code> on the command line (the pictures of the documentation are
+  //made in English, whatever the user has chosen)
+  for i:=1 to ParamCount-1 do
+    if(CompareText(ParamStr(i), '--lang')=0)then
+      LanguageCode:=LowerCase(ParamStr(i+1));
 end;
 
 procedure TDMMain.SaveLanguageToIniFile;
@@ -2956,7 +2963,9 @@ begin
     if (CompareText(ParamStr(i), '--selftest')=0) or
        (CompareText(ParamStr(i), '-selftest')=0) or
        //a picture of every dialog (UIScreenshots), nothing is to be stored
-       (CompareText(ParamStr(i), '--screenshots')=0) then
+       (CompareText(ParamStr(i), '--screenshots')=0) or
+       //the pictures of the documentation (UIDocImages)
+       (CompareText(ParamStr(i), '--docimages')=0) then
       Exit(True);
 end;
 
