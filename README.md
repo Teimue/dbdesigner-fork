@@ -9,7 +9,7 @@
 
 ## Download
 
-**Windows (64 bit):** the setup program of [DBDesigner Fork 2.1.2](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.1.2) is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases). It installs the program, the plugins and the client libraries for SQLite, MySQL and Firebird (with the embedded engine); nothing else has to be installed. New in 2.1.0 and optional in the setup: an **MCP server**, with which an AI assistant such as Claude can read and change models, write the SQL script and compare a model with a database; the setup can register it in Claude Code and Claude Desktop. The setup program is not code signed, so Windows SmartScreen asks before it is started.
+**Windows (64 bit):** the setup program of [DBDesigner Fork 2.1.3](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.1.3) is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases). It installs the program, the plugins and the client libraries for SQLite, MySQL and Firebird (with the embedded engine); nothing else has to be installed. New in 2.1.0 and optional in the setup: an **MCP server**, with which an AI assistant such as Claude can read and change models, write the SQL script and compare a model with a database; the setup can register it in Claude Code and Claude Desktop. The setup program is not code signed, so Windows SmartScreen asks before it is started.
 
 **Linux:** build from source, see [Building with Lazarus](#building-with-lazarus).
 
@@ -118,7 +118,7 @@ An automated **UI Test Runner** ([`src/UITestRunner.pas`](src/UITestRunner.pas))
 xvfb-run -a ./bin/DBDesignerFork --selftest
 ```
 
-**Current baseline: 93 PASS, 0 FAIL, 78 SKIP.** The skips are the deliberately unsafe items (exit, save, open, print, database operations, browser links), separators, submenu parents and items that are disabled without a model. The self-test never opens a database connection and leaves the user's settings and `DBConn.ini` untouched.
+**Current baseline: 104 PASS, 0 FAIL, 81 SKIP** (Windows, 2.1.3). The skips are the deliberately unsafe items (exit, save, open, print, database operations, browser links), separators, submenu parents and items that are disabled without a model. The self-test never opens a database connection and leaves the user's settings and `DBConn.ini` untouched.
 
 The self-test covers:
 - ✅ Application launch and UI rendering
@@ -289,6 +289,8 @@ The port had only been compiled and run on Linux. Since October 2026 it is built
 
 **Build and start**
 
+- Release: version 2.1.3 is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.1.3) (tag `v2.1.3`, setup program 2.1.3.8), built with the same client libraries and Firebird zip kit as 2.1.2 (the libraries taken from the installed 2.1.2). It can be installed over 2.0.0 to 2.1.2. New since 2.1.2: the help menu says "Visit GitHub Project", *Check for New Versions* asks GitHub for the latest release, the HTML help and the PDF manual (`tools/make-manual-pdf.ps1`) describe DBDesigner Fork, with pictures the program makes itself (`--docimages`).
+- Version 2.1.3: the revision is set in `DBDesignerFork.lpi`, the build number counts on (8 after a second build); the release build is 2.1.3.8. The UI self-test skips *Check for New Versions*, which asks GitHub and shows a message box. The MCP server reports 2.1.3.
 - Release: version 2.1.2 is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.1.2) (tag `v2.1.2`, setup program 2.1.2.7), built with the same client libraries and Firebird zip kit as 2.1.1. It can be installed over 2.0.0 to 2.1.1. New since 2.1.1: the help menu opens the GitHub project ("Visit Homepage") and its issues ("Submit a bug / feature request"), see *Dialogs and palettes*.
 - Version 2.1.2: the revision is set in `DBDesignerFork.lpi`, the build number stays at 7 (lazbuild does not count it on); the first build is 2.1.2.7. The MCP server reports 2.1.2.
 - MCP server, registration in Claude Desktop: "Claude Desktop was not found" although it is installed and running, with a character outside of ASCII (an umlaut) in the user name. The server read `APPDATA` and `LOCALAPPDATA` with the ANSI function, so the path of the configuration came out wrong, depending on the code page of Windows. `ClaudeDesktopConfig` (`mcp/DBDesignerMCP.pas`) reads them as Unicode now (`GetEnvironmentVariableUTF8`). Checked with user directories with umlauts, `ß` and `ł`, for Claude Desktop as a packaged app and installed the classic way, registering and unregistering, also with the server itself below such a directory. The setup program 2.1.0.6 still has the server without this change; the server built from the source can be copied over the installed one. The setup program 2.1.1.7 has it.

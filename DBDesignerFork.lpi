@@ -19,9 +19,9 @@
       <AutoIncrementBuild Value="True"/>
       <MajorVersionNr Value="2"/>
       <MinorVersionNr Value="1"/>
-      <RevisionNr Value="2"/>
-      <BuildNr Value="7"/>
-      <StringTable FileDescription="DBDesigner Fork" ProductName="DBDesigner Fork" ProductVersion="2.1.2"/>
+      <RevisionNr Value="3"/>
+      <BuildNr Value="8"/>
+      <StringTable FileDescription="DBDesigner Fork" ProductName="DBDesigner Fork" ProductVersion="2.1.3"/>
     </VersionInfo>
     <BuildModes Count="1">
       <Item1 Name="Default" Default="True"/>
