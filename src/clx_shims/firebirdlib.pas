@@ -126,6 +126,9 @@ begin
     //5. the library search path
     Candidates.Add(LibName);
     {$IFNDEF MSWINDOWS}
+    //the versioned name the distributions install without the -dev package
+    if(LibName<>DefaultLibName)then
+      Candidates.Add(DefaultLibName);
     Candidates.Add('libfbclient.so');
     {$ENDIF}
 

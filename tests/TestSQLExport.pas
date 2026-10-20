@@ -5,7 +5,7 @@ uses
   {$IFDEF UNIX}cthreads,{$ENDIF}
   Interfaces, // LCL
   Classes, SysUtils, Forms, Controls, Graphics,
-  EERModel, EERDM, LibXmlParser;
+  MainDM, EERModel, EERDM, LibXmlParser;
 
 var
   Model: TEERModel;
@@ -30,6 +30,10 @@ begin
   // Create a parent form (TEERModel inherits from TPanel, needs a parent)
   ParentForm := TForm.Create(nil);
   try
+    // TEERModel.Create reads the translations and the display settings
+    DMMain := TDMMain.Create(ParentForm);
+    DMEER := TDMEER.Create(ParentForm);
+
     Model := TEERModel.Create(ParentForm);
     Model.Parent := ParentForm;
 

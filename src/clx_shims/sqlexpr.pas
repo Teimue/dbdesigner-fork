@@ -2,8 +2,8 @@
 unit SqlExpr;
 {$mode delphi}
 interface
-uses Classes, DB, SQLDB, SysUtils, DBXpress, SQLite3Conn, SQLiteLib, MySQL80Conn, MySQLLib,
-  IBConnection, FirebirdLib
+uses Classes, DB, SQLDB, SysUtils, DBXpress, SQLite3Conn, SQLiteLib, MySQL80Conn, MySQLLib, MySQLClientConn,
+  IBConnection, FirebirdLib, FirebirdConn
   {$IFDEF LINUX}, ctypes, mysql80dyn{$ENDIF};
 
 {$IFDEF LINUX}
