@@ -186,7 +186,7 @@ Areas still requiring manual or integration testing:
 | `tests/sqlite-roundtrip.sh` | Loads an exported SQL script into sqlite3 and prints a schema summary |
 | `tests/mysql-roundtrip.sh` | Same for MySQL (drops and recreates the given database) |
 
-The tests without a `.lpi` compile with plain `fpc` (see the header of each file); those with one are built with `lazbuild`, since they need the data modules of the application, and are run from the project directory (`./bin/<Name>`).
+The tests without a `.lpi` compile with plain `fpc` (see the header of each file); those with one are built with `lazbuild`, since they need the data modules of the application, and are run from the project directory (`./bin/<Name>`). Like `--selftest` they run with read-only settings (`SettingsReadOnly`), so the stored connections (`DBConn.ini`) and the settings in the settings directory stay untouched.
 
 ### Bug catalogs
 

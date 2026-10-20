@@ -75,6 +75,10 @@ end;
 
 begin
   Application.Initialize;
+  //A test must leave the settings of the user alone: without this the data
+  //modules rewrite DBConn.ini (with no connections) and leave a
+  //<TestName>_Settings.ini in the settings directory when they are freed
+  SettingsReadOnly:=True;
 
   WriteLn('--- 1. the statements');
   CheckEq(BrowserSelect('t', dbtSQLite, '', '', False, 100),

@@ -93,6 +93,10 @@ end;
 
 begin
   Application.Initialize;
+  //A test must leave the settings of the user alone: without this the data
+  //modules rewrite DBConn.ini (with no connections) and leave a
+  //<TestName>_Settings.ini in the settings directory when they are freed
+  SettingsReadOnly:=True;
 
   DBPath:=GetTempDir+'dbdesigner_testdata_test.db';
   if(FileExists(DBPath))then
