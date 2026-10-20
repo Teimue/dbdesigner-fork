@@ -61,6 +61,7 @@ function GetProgramVersionStr: string;
 implementation
 
 uses
+  Classes,
   // the version info of the program and the readers of its resources
   fileinfo, winpeimagereader, elfreader, machoreader;
 
@@ -122,6 +123,43 @@ begin
 end;
 {$ENDIF}
 
+{$IFNDEF MSWINDOWS}
+//At the first start with the new settings dir the files of the former one
+//are copied (the connections, the settings, the recent files); the former
+//dir is left as it is
+procedure CopyFormerSettings(const FormerPath, SettingsPath: string);
+var Found: TSearchRec;
+  Source, Target: TFileStream;
+begin
+  if(Not(DirectoryExists(FormerPath)))then
+    Exit;
+  if(Not(ForceDirectories(SettingsPath)))then
+    Exit;
+  if(FindFirst(FormerPath+'*', faAnyFile, Found)=0)then
+  begin
+    repeat
+      if((Found.Attr and faDirectory)=0)then
+      try
+        Source:=TFileStream.Create(FormerPath+Found.Name, fmOpenRead or fmShareDenyWrite);
+        try
+          Target:=TFileStream.Create(SettingsPath+Found.Name, fmCreate);
+          try
+            Target.CopyFrom(Source, 0);
+          finally
+            Target.Free;
+          end;
+        finally
+          Source.Free;
+        end;
+      except
+        //a file that cannot be copied is left out
+      end;
+    until(FindNext(Found)<>0);
+    FindClose(Found);
+  end;
+end;
+{$ENDIF}
+
 function GetGlobalSettingsPath: string;
 var SettingsPath: string;
 {$IFDEF MSWINDOWS}
@@ -148,8 +186,12 @@ begin
   if(Not(DirectoryExists(SettingsPath)))then
     SettingsPath:=ExtractFilePath(Application.ExeName)+'Data'+PathDelim;
 {$ELSE}
-    //the settings are stored in a dir '.DBDesigner4' in the users home dir
-  SettingsPath:=GetEnvironmentVariable('HOME')+PathDelim+'.DBDesigner4'+PathDelim;
+  //the settings are stored in a dir '.DBDesigner-Fork' in the users home dir;
+  //up to 2.1.3 it was '.DBDesigner4', the dir of the original DBDesigner 4
+  SettingsPath:=GetEnvironmentVariable('HOME')+PathDelim+'.DBDesigner-Fork'+PathDelim;
+  if(Not(DirectoryExists(SettingsPath)))then
+    CopyFormerSettings(GetEnvironmentVariable('HOME')+PathDelim+'.DBDesigner4'+PathDelim,
+      SettingsPath);
 {$ENDIF}
 
   //Create the directory if it doesn't already exist
@@ -158,11 +200,49 @@ begin
   GetGlobalSettingsPath:=SettingsPath;
 end;
 
+{$IFNDEF MSWINDOWS}
+//The documents directory of the user (XDG_DOCUMENTS_DIR of
+//~/.config/user-dirs.dirs, e.g. ~/Dokumente), ~/Documents without it
+function GetDocumentsDir: string;
+var Lines: TStringList;
+  Home, s: string;
+  i: Integer;
+begin
+  Home:=GetEnvironmentVariable('HOME');
+  Result:=Home+PathDelim+'Documents';
+  s:=GetEnvironmentVariable('XDG_CONFIG_HOME');
+  if(s='')then
+    s:=Home+PathDelim+'.config';
+  s:=s+PathDelim+'user-dirs.dirs';
+  if(Not(FileExists(s)))then
+    Exit;
+  Lines:=TStringList.Create;
+  try
+    try
+      Lines.LoadFromFile(s);
+      for i:=0 to Lines.Count-1 do
+      begin
+        s:=Trim(Lines[i]);
+        if(Copy(s, 1, 18)='XDG_DOCUMENTS_DIR=')then
+        begin
+          s:=AnsiDequotedStr(Copy(s, 19, MaxInt), '"');
+          s:=StringReplace(s, '$HOME', Home, []);
+          if(s<>'')then
+            Result:=ExcludeTrailingPathDelimiter(s);
+          break;
+        end;
+      end;
+    except
+    end;
+  finally
+    Lines.Free;
+  end;
+end;
+{$ENDIF}
+
 function GetDefaultModelDir: string;
 var ExamplesDir: string;
-{$IFDEF MSWINDOWS}
   s: string;
-{$ENDIF}
 begin
   //Next to the program (source tree, unpacked archive)
   ExamplesDir:=ExtractFilePath(Application.ExeName)+'Examples'+PathDelim;
@@ -186,6 +266,12 @@ begin
       GetDefaultModelDir:=s;
   except
   end;
+{$ELSE}
+  //The installation script puts the examples into the documents of the
+  //user: below /opt they could not be saved
+  s:=GetDocumentsDir+PathDelim+'DBDesigner'+PathDelim;
+  if(DirectoryExists(s))then
+    GetDefaultModelDir:=s;
 {$ENDIF}
 end;
 

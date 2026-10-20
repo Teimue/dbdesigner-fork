@@ -11,7 +11,7 @@
 
 **Windows (64 bit):** the setup program of [DBDesigner Fork 2.1.3](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.1.3) is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases). It installs the program, the plugins and the client libraries for SQLite, MySQL and Firebird (with the embedded engine); nothing else has to be installed. New in 2.1.0 and optional in the setup: an **MCP server**, with which an AI assistant such as Claude can read and change models, write the SQL script and compare a model with a database; the setup can register it in Claude Code and Claude Desktop. The setup program is not code signed, so Windows SmartScreen asks before it is started.
 
-**Linux:** build from source, see [Building with Lazarus](#building-with-lazarus).
+**Linux:** build from source, see [Building with Lazarus](#building-with-lazarus), and make the installation package from it, see [Installing on Linux](#installing-on-linux).
 
 ## Overview
 
@@ -90,7 +90,7 @@ All binaries are output to the `bin/` directory (they are not tracked in git). N
 - `libsqlite3.so.0` for SQLite connections
 - `libmysqlclient.so.21` (MySQL 8.0 client library) or `libmysqlclient.so.24` (MySQL 8.4, the package `libmysqlclient24` from Ubuntu 26.04 on) for MySQL connections
 
-Both libraries are loaded on demand by their versioned name, so no `-dev` package or symlink is needed. Settings, the connection list (`DBConn.ini`) and recent files are stored in `~/.DBDesigner4/`.
+Both libraries are loaded on demand by their versioned name, so no `-dev` package or symlink is needed. Settings, the connection list (`DBConn.ini`) and recent files are stored in `~/.DBDesigner-Fork/`. Up to 2.1.3 this was `~/.DBDesigner4/`, the directory of the original DBDesigner 4; at the first start without `~/.DBDesigner-Fork/` its files are copied over, and the old directory is left as it is.
 
 **Runtime requirements (Windows, 64 bit):**
 - `sqlite3.dll` for SQLite connections
@@ -104,6 +104,23 @@ The 64-bit libraries are looked for next to the program (`bin\`); they are not p
 ./bin/DBDesignerFork                       # empty model
 ./bin/DBDesignerFork bin/Examples/order.xml
 ```
+
+### Installing on Linux
+
+The counterpart of the Windows setup program is a package with an installation script. After building the program, the plugins and the MCP server:
+
+```bash
+sh installer/linux/make-package.sh
+```
+
+writes `installer/Output/dbdesigner-fork-<version>-linux-<arch>.tar.gz` (the programs with their debug information stripped, `Data`, `Gfx`, `Doc`, the licence, the examples). Unpacked, it is installed with:
+
+```bash
+./install.sh            # for the current user: ~/.local/opt/dbdesigner-fork, ~/.local/bin
+sudo ./install.sh       # for all users: /opt/dbdesigner-fork, /usr/local/bin
+```
+
+The script installs the program with the plugins and the MCP server into one directory (the program looks for `Data`, `Gfx`, `Doc` and the plugins next to itself), the commands `dbdesigner-fork` and `dbdesigner-fork-mcp`, an entry with icon in the application menu, and the examples into `DBDesigner` in the documents of the user (`XDG_DOCUMENTS_DIR`, e.g. `~/Dokumente`; only files that are not there yet), where the open dialog starts. With `sudo` the examples go to the user who called it. `--register-claude-code` and `--register-claude-desktop` register the MCP server, `--prefix DIR` installs into `DIR/dbdesigner-fork`. The client libraries are not in the package: the script names the distribution packages that are missing (`libgtk2.0-0` is needed, `libsqlite3-0`, `libmysqlclient24` and `libfbclient2` only for their databases). An installation over an earlier one replaces the program; `<program directory>/uninstall.sh` removes it again and keeps the settings and the examples.
 
 ## Testing
 
