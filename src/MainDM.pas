@@ -331,7 +331,7 @@ var
   DMMain: TDMMain;
   // True when started with --selftest: every settings/ini writer must skip
   // UpdateFile so an automated run never persists its state (WorkMode,
-  // window positions, recent files...) into the user's ~/.DBDesigner4.
+  // window positions, recent files...) into the user's ~/.DBDesigner-Fork.
   SettingsReadOnly: Boolean = False;
 
 // Flush a settings/ini writer. With SettingsReadOnly the file is redirected to

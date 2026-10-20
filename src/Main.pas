@@ -401,8 +401,6 @@ type
     procedure DesignModeMIClick(Sender: TObject);
     procedure ConnectionSBtnClick(Sender: TObject);
 
-    procedure CheckLinuxDesktopFile;
-
     procedure DoApplicationEvent(Sender: QObjectH; Event: QEventH; var Handled: Boolean);
     {$IFDEF FPC}
     procedure LCLAppKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -664,10 +662,6 @@ begin
   //Restore original size of ToolsPnls
   DesignToolsPnl.Height:=ScaleCur(487);
   QueryToolsPnl.Height:=ScaleCur(254);
-
-{$IFDEF LINUX}
-  CheckLinuxDesktopFile;
-{$ENDIF}
 
   ActivateDeactivateCounter:=0;
   ApplicationIsDeactivated:=False;
@@ -3173,39 +3167,6 @@ end;
 procedure TMainForm.ConnectionSBtnClick(Sender: TObject);
 begin
   DMDB.DisconnectFromDB;
-end;
-
-procedure TMainForm.CheckLinuxDesktopFile;
-var theDesktopFile: TStringList;
-  fname: string;
-begin
-  //Replace the stored Icon path with the real path
-  fname:=ExtractFilePath(Application.ExeName)+'startdbd.desktop';
-  if(FileExists(fname))then
-  begin
-    theDesktopFile:=TStringList.Create;
-    try
-      theDesktopFile.LoadFromFile(fname);
-
-      //Replace Script Position
-      if(CompareText(ExtractFilePath(Application.ExeName), '/home/mike/DBDesigner4/')<>0)then
-        theDesktopFile.Text:=DMMain.ReplaceText(theDesktopFile.Text,
-          '$HOME/DBDesigner4/startdbd',
-          ExtractFilePath(Application.ExeName)+'startdbd');
-
-      //Replace Icon Position
-      theDesktopFile.Text:=DMMain.ReplaceText(theDesktopFile.Text,
-        '/home/mike/DBDesigner4/Gfx/Icon48.xpm',
-        ExtractFilePath(Application.ExeName)+'Gfx/Icon48.xpm');
-
-      try
-        theDesktopFile.SaveToFile(fname);
-      except
-      end;
-    finally
-      theDesktopFile.Free;
-    end;
-  end;
 end;
 
 procedure TMainForm.DoApplicationEvent(Sender: QObjectH; Event: QEventH; var Handled: Boolean);

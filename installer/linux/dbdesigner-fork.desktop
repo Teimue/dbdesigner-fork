@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=DBDesigner Fork
+GenericName=Database Designer
+GenericName[de]=Datenbank-Designer
+Comment=Design databases as entity relationship diagrams
+Comment[de]=Datenbanken als Entity-Relationship-Diagramm entwerfen
+Exec="@APPDIR@/DBDesignerFork" %f
+TryExec=@APPDIR@/DBDesignerFork
+Icon=@ICON@
+Terminal=false
+Categories=Development;Database;
+Keywords=database;ER;EER;diagram;SQL;MySQL;SQLite;Firebird;
+StartupWMClass=DBDesignerFork
