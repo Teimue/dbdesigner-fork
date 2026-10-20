@@ -11,7 +11,7 @@
 
 **Windows (64 bit):** the setup program of [DBDesigner Fork 2.1.3](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.1.3) is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases). It installs the program, the plugins and the client libraries for SQLite, MySQL and Firebird (with the embedded engine); nothing else has to be installed. New in 2.1.0 and optional in the setup: an **MCP server**, with which an AI assistant such as Claude can read and change models, write the SQL script and compare a model with a database; the setup can register it in Claude Code and Claude Desktop. The setup program is not code signed, so Windows SmartScreen asks before it is started.
 
-**Linux:** build from source, see [Building with Lazarus](#building-with-lazarus), and make the installation package from it, see [Installing on Linux](#installing-on-linux).
+**Linux (x86_64):** the package of [DBDesigner Fork 2.1.4](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.1.4) (a pre-release, the first one for Linux) is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases): unpack it and run `./install.sh`, see [Installing on Linux](#installing-on-linux). It needs glibc 2.34 or newer (e.g. Ubuntu 22.04, Debian 12) and GTK 2; the client libraries of the databases come from the distribution. It can also be built from source, see [Building with Lazarus](#building-with-lazarus).
 
 ## Overview
 
@@ -314,6 +314,8 @@ The port was first written and tested on Linux, then on Windows 11. In October 2
 
 **Build and start**
 
+- Release: version 2.1.4 is on the [releases page](https://github.com/Teimue/dbdesigner-fork/releases/tag/v2.1.4) as a pre-release with the Linux package `dbdesigner-fork-2.1.4-linux-x86_64.tar.gz` only, built on Ubuntu 26.04 (needs glibc 2.34). It is a pre-release so that *Check for New Versions* of the Windows version (which asks for the latest release) does not offer it while there is no Windows setup program 2.1.4; 2.1.3 stays the latest release.
+- Version 2.1.4: revision 4 and build 9 in `DBDesignerFork.lpi`, the MCP server reports 2.1.4, the start page and the version history of the help name it. The PDF manual is not made again (`tools/make-manual-pdf.ps1` runs on Windows).
 - Installation package: `installer/linux/make-package.sh` and `install.sh`, the counterpart of the Windows setup program, see [Installing on Linux](#installing-on-linux).
 - Settings in `~/.DBDesigner-Fork` instead of `~/.DBDesigner4`, the directory of the original DBDesigner 4; at the first start the files of the former directory are copied (`GetGlobalSettingsPath`, `src/GlobalSysFunctions.pas`). The open dialog also starts in `DBDesigner` in the documents of the user, where the installation puts the examples.
 - Removed `TMainForm.CheckLinuxDesktopFile`, left from Kylix: it adjusted a `startdbd.desktop` that is no longer in the project.
