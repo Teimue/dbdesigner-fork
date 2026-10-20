@@ -88,7 +88,7 @@ All binaries are output to the `bin/` directory (they are not tracked in git). N
 **Runtime requirements (Linux):**
 - GTK2 libraries
 - `libsqlite3.so.0` for SQLite connections
-- `libmysqlclient.so.21` (MySQL 8 client library) for MySQL connections
+- `libmysqlclient.so.21` (MySQL 8.0 client library) or `libmysqlclient.so.24` (MySQL 8.4, the package `libmysqlclient24` from Ubuntu 26.04 on) for MySQL connections
 
 Both libraries are loaded on demand by their versioned name, so no `-dev` package or symlink is needed. Settings, the connection list (`DBConn.ini`) and recent files are stored in `~/.DBDesigner4/`.
 
