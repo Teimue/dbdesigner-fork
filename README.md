@@ -26,7 +26,7 @@ DBDesigner Fork provides a full-featured graphical environment for designing and
 | **Original** | DBDesigner 4 (v4.0.2.92) by fabFORCE |
 | **Fork versions** | Fork 1.0 (Sep 2006) → Fork 1.5 (Oct 2010) → Lazarus port (2026) |
 | **Original platforms** | Windows (Delphi 7) and Linux (Kylix 3) |
-| **Current platforms** | Linux (Lazarus/FPC, GTK2) and Windows (64 bit, see [Windows Version](#windows-version)) — macOS possible but untested |
+| **Current platforms** | Linux (Lazarus/FPC, GTK2, see [Linux Version](#linux-version)) and Windows (64 bit, see [Windows Version](#windows-version)) — macOS possible but untested |
 | **Databases** | MySQL 8, SQLite 3 and Firebird 3+ (others not ported yet) |
 | **Codebase size** | ~150,000 lines of Pascal source code (main app + plugins) |
 
@@ -70,6 +70,8 @@ lazbuild Plugins/DataBrowser/DBDplugin_DataBrowser.lpi
 lazbuild mcp/DBDesignerMCP.lpi
 ```
 
+After an upgrade of Lazarus, `lazbuild` may stop with *Invalid Lazarus directory*: `~/.lazarus/environmentoptions.xml` still names the directory of the former version. Set the new one in the IDE (*Tools > Options > Environment > Files*, e.g. `/usr/share/lazarus/4.8.0`) or pass `--lazarusdir=...` to `lazbuild`.
+
 On Windows `lazbuild` is not on the path; call it as `C:\lazarus\lazbuild.exe` (or wherever Lazarus is installed).
 
 All binaries are output to the `bin/` directory (they are not tracked in git). Note that `lazbuild` does not rebuild after a change to a `.lfm` file alone; touch the matching `.pas` file.
@@ -89,8 +91,9 @@ All binaries are output to the `bin/` directory (they are not tracked in git). N
 - GTK2 libraries
 - `libsqlite3.so.0` for SQLite connections
 - `libmysqlclient.so.21` (MySQL 8.0 client library) or `libmysqlclient.so.24` (MySQL 8.4, the package `libmysqlclient24` from Ubuntu 26.04 on) for MySQL connections
+- `libfbclient.so.2` (package `libfbclient2`, Firebird 3 or newer) for Firebird connections; for the embedded engine (no host name) also the engine of the distribution (`firebird4.0-server-core` on Ubuntu 26.04)
 
-Both libraries are loaded on demand by their versioned name, so no `-dev` package or symlink is needed. Settings, the connection list (`DBConn.ini`) and recent files are stored in `~/.DBDesigner-Fork/`. Up to 2.1.3 this was `~/.DBDesigner4/`, the directory of the original DBDesigner 4; at the first start without `~/.DBDesigner-Fork/` its files are copied over, and the old directory is left as it is.
+The libraries are loaded on demand by their versioned name, so no `-dev` package or symlink is needed. Settings, the connection list (`DBConn.ini`) and recent files are stored in `~/.DBDesigner-Fork/`. Up to 2.1.3 this was `~/.DBDesigner4/`, the directory of the original DBDesigner 4; at the first start without `~/.DBDesigner-Fork/` its files are copied over, and the old directory is left as it is.
 
 **Runtime requirements (Windows, 64 bit):**
 - `sqlite3.dll` for SQLite connections
@@ -135,7 +138,7 @@ An automated **UI Test Runner** ([`src/UITestRunner.pas`](src/UITestRunner.pas))
 xvfb-run -a ./bin/DBDesignerFork --selftest
 ```
 
-**Current baseline: 104 PASS, 0 FAIL, 81 SKIP** (Windows, 2.1.3). The skips are the deliberately unsafe items (exit, save, open, print, database operations, browser links), separators, submenu parents and items that are disabled without a model. The self-test never opens a database connection and leaves the user's settings and `DBConn.ini` untouched.
+**Current baseline: 104 PASS, 0 FAIL, 81 SKIP** (Windows, 2.1.3); **93 PASS, 0 FAIL, 80 SKIP** on Linux (Ubuntu 26.04, GTK2, after 2.1.3; the Windows-only items are not there). The skips are the deliberately unsafe items (exit, save, open, print, database operations, browser links), separators, submenu parents and items that are disabled without a model. The self-test never opens a database connection and leaves the user's settings and `DBConn.ini` untouched.
 
 The self-test covers:
 - ✅ Application launch and UI rendering
@@ -175,14 +178,15 @@ Areas still requiring manual or integration testing:
 | `DBDesignerFork --screenshots <dir>` | Saves a picture of every dialog with every page (`src/UIScreenshots.pas`) to check the layout after a change of fonts, translations or scaling; runs with read-only settings like `--selftest` |
 | `DBDesignerFork --docimages <dir> --lang en` | Makes the pictures of the HTML documentation (`src/UIDocImages.pas`): menus, palettes, dialogs, editors and the steps of the tutorial on the order example, with their labels and arrows, as `ui/`, `db/`, `editors/`, `designmode/`, `querymode/` and `fundamentals/` PNGs named like those in `bin/Doc/images/docs`, plus the report `docimages.txt` (name, width, height). Windows only; it takes about a minute and moves the mouse pointer for one picture. `--lang` picks the language of the program for this run |
 | `tests/TestSQLiteSync.pas` | Database synchronisation against SQLite on the order example: create, ALTER TABLE changes, table rebuild, renamed table, reverse engineering of the result with a self-referencing foreign key; then the example database `bin/Examples/beispiel_sqlite.sql`: reverse engineering (generated columns, indices on an expression, descending and partial indices, CHECK, STRICT, WITHOUT ROWID, text defaults, declared type names), model saved and loaded, its SQL script run in an empty database, synchronisation without changes, three tables rebuilt on purpose keep COLLATE, ON CONFLICT, their UNIQUE constraints and DEFERRABLE (needs SQLite 3.37, else skipped) (`lazbuild tests/TestSQLiteSync.lpi`) |
-| `tests/TestFirebirdSync.pas` | Firebird on the order example, embedded engine or server: create, column / index / primary key / foreign key changes, renamed table, reverse engineering of the result (also with a self-referencing foreign key, its table renamed and its primary key changed), SQL create script loaded with isql; then the example database `bin/Examples/beispiel_firebird.sql`, made with isql and the embedded engine: reverse engineering (computed columns, indices on an expression, descending and partial indices, global temporary tables, text defaults, Firebird types, CHECK constraints), model saved and loaded, its SQL script loaded with isql, synchronisation without changes and with changed CHECK constraints (`lazbuild tests/TestFirebirdSync.lpi`, needs the Firebird client library) |
+| `tests/TestFirebirdSync.pas` | Firebird on the order example, embedded engine or server: create, column / index / primary key / foreign key changes, renamed table, reverse engineering of the result (also with a self-referencing foreign key, its table renamed and its primary key changed), SQL create script loaded with isql; then the example database `bin/Examples/beispiel_firebird.sql`, made with isql and the embedded engine: reverse engineering (computed columns, indices on an expression, descending and partial indices, global temporary tables, text defaults, Firebird types, CHECK constraints), model saved and loaded, its SQL script loaded with isql, synchronisation without changes and with changed CHECK constraints (`lazbuild tests/TestFirebirdSync.lpi`, needs the Firebird client library; on Linux the system `libfbclient.so.2` with the engine of the distribution is found without `DBD_FBCLIENT`) |
+| `tests/TestSQLExport.pas` | Loads the order example and writes the CREATE script of every table (`lazbuild tests/TestSQLExport.lpi`) |
 | `tests/TestTestDataGen.pas` | The test data generator on the order example: the script is executed in a SQLite database created from the model (row counts, foreign keys, column lengths, same seed = same script), execution in one transaction with rollback on an error (`lazbuild tests/TestTestDataGen.lpi`) |
 | `tests/TestDataBrowser.pas` | The SELECT statements of the data browser for every database type (limit of rows, filter, sort order, names, values) and those for SQLite executed in a database file (`lazbuild tests/TestDataBrowser.lpi`) |
 | `tests/TestPasswordStore.pas` | The protection of stored database passwords: round trip, the protected text does not contain the password, a damaged or foreign text gives nothing (plain `fpc`, see the header) |
 | `tests/sqlite-roundtrip.sh` | Loads an exported SQL script into sqlite3 and prints a schema summary |
 | `tests/mysql-roundtrip.sh` | Same for MySQL (drops and recreates the given database) |
 
-The Pascal tests compile with plain `fpc` (see the header of each file). `TestSQLExport.pas` needs the full application infrastructure and is not run standalone.
+The tests without a `.lpi` compile with plain `fpc` (see the header of each file); those with one are built with `lazbuild`, since they need the data modules of the application, and are run from the project directory (`./bin/<Name>`).
 
 ### Bug catalogs
 
@@ -213,6 +217,8 @@ DBDesignerFork/
 │   └── EmbeddedPDF/           # Built-in PDF document generation library
 ├── mcp/                   # MCP server for AI assistants (models, SQL export, database sync)
 ├── tests/                 # Standalone test programs and round-trip scripts
+├── installer/             # Windows setup (DBDesignerFork.iss) and Linux package (linux/)
+├── tools/                 # Example databases, PDF manual, manifest
 ├── docs/                  # Documentation
 │   ├── *-bug-catalog.md       # Test rounds: findings, fixes, verification
 │   ├── notes-to-myself.md     # Working notes: causes, gotchas, tooling
@@ -248,14 +254,14 @@ The port uses a **compatibility shim layer** ([`src/clx_shims/`](src/clx_shims/)
 
 - **CLX → LCL shims**: units like `QForms.pas`, `QControls.pas` that re-export LCL equivalents
 - **Qt shim** (`qt.pas`): maps Qt widget types and key constants to LCL equivalents
-- **Database shims** (`sqlexpr.pas`, `dbclient.pas`, `provider.pas`): wrap FPC's SQLDB (SQLite3 and MySQL 8 connectors) behind Delphi DBExpress-compatible interfaces; `sqlitelib.pas` and `mysqllib.pas` load the client libraries by their versioned names, `firebirdlib.pas` looks for the Firebird client library (VendorLib of the connection, next to the program, an installed server)
+- **Database shims** (`sqlexpr.pas`, `dbclient.pas`, `provider.pas`): wrap FPC's SQLDB (SQLite3 and MySQL 8 connectors) behind Delphi DBExpress-compatible interfaces; `sqlitelib.pas` and `mysqllib.pas` load the client libraries by their versioned names, `firebirdlib.pas` looks for the Firebird client library (VendorLib of the connection, next to the program, an installed server); `firebirdconn.pas` and `mysqlclientconn.pas` replace the SQLDB connections of FPC 3.2.2 where they fail (the character set lookup of text blobs with Firebird 4+, the MySQL 8.4 client library)
 - **XML shims** (`xmlintf.pas`, `xmldoc.pas`, `xmldom.pas`): wrap `laz2_DOM` behind Delphi XML DOM interfaces
 
 The bundled Delphi-era SynEdit was replaced by the SynEdit package that ships with Lazarus.
 
 ### Progress
 
-All seven projects (main application and six plugins) compile and run on Windows; the main application and the four original plugins also on Linux (the Test Data Generator and the Data Browser were written on Windows and have not been built on Linux yet). Of the porting task list, 228 of 244 items are checked; the remaining ones are the untested areas listed under [Project Status](#project-status), the macOS build and the final clean-up (removing the shim layer in favour of direct LCL units). See [`docs/port-to-lazarus.md`](docs/port-to-lazarus.md) for the porting guide and [`docs/port-to-lazarus-task-list.md`](docs/port-to-lazarus-task-list.md) for the checklist.
+All seven projects (main application and six plugins) and the MCP server compile and run on Windows and on Linux (the Test Data Generator and the Data Browser were written on Windows; on Linux they are built and their tests pass, their dialogs were not used by hand yet). Of the porting task list, 228 of 244 items are checked; the remaining ones are the untested areas listed under [Project Status](#project-status), the macOS build and the final clean-up (removing the shim layer in favour of direct LCL units). See [`docs/port-to-lazarus.md`](docs/port-to-lazarus.md) for the porting guide and [`docs/port-to-lazarus-task-list.md`](docs/port-to-lazarus-task-list.md) for the checklist.
 
 ### AI-Assisted Porting
 
@@ -268,6 +274,8 @@ This project serves as a real-world benchmark of how far AI-assisted software en
 The port builds, launches and has been through eleven rounds of run-and-click testing on Linux (GTK2), each block of rounds followed by a combined regression pass on a single build (rounds 6-9b on d0fbc19, rounds 10-11 on 920a93c: no regressions, self-test 93 PASS / 0 FAIL both times). Treat the Linux build as an **early beta**: it is usable for modeling and for MySQL 8 / SQLite 3 work, but it has not been used in production.
 
 The **Windows version is no longer a beta**: it is built, run and used on Windows 11 (64 bit), including Firebird, high DPI displays and the German user interface. What was done for it is listed under [Windows Version](#windows-version).
+
+After the work on Windows the Linux build was checked again in October 2026 on Ubuntu 26.04 (build, self-test, the database tests, an installation package); what had to be changed for it is listed under [Linux Version](#linux-version).
 
 **Works and has been verified on a real display:**
 
@@ -286,7 +294,7 @@ The **Windows version is no longer a beta**: it is built, run and used on Window
 **Known limitations:**
 
 - Only the **MySQL**, **SQLite** and **Firebird** connectors are linked. Oracle, MS SQL Server and ODBC still appear in the driver list but cannot connect.
-- **Firebird** (`src/DBEERFirebird.pas`, Firebird 3 or newer) has only been run through `tests/TestFirebirdSync.pas` (Firebird 5, embedded and over TCP), not through the dialogs. A connection without host name uses the embedded engine of the client library and creates a missing database file; `VendorLib` may hold the full path of `fbclient.dll`. The model keeps its MySQL datatypes, the synchronisation maps them (DATETIME to TIMESTAMP, TEXT to BLOB SUB_TYPE TEXT, AUTO_INCREMENT to an identity column, ...). Every DDL statement is committed on its own, a failing one is logged and the sync goes on. Firebird cannot rename a table (it is created anew, the rows are copied, the old one is dropped) and cannot turn an existing column into an identity column. The SQL export for the FireBird target uses the same datatype mapping and names (`src/FirebirdSQL.pas`): `CONSTRAINT ... FOREIGN KEY`, `CREATE INDEX` statements, `COMMENT ON`, reserved words in quotes, no `DROP TABLE IF EXISTS`. Without the generator-and-trigger option an auto increment column is written as an identity column (Firebird 3). The test loads both script variants into a fresh database with `isql`.
+- **Firebird** (`src/DBEERFirebird.pas`, Firebird 3 or newer) has only been run through `tests/TestFirebirdSync.pas` (Firebird 5 on Windows, embedded and over TCP; Firebird 4.0.6 embedded on Linux), not through the dialogs. A connection without host name uses the embedded engine of the client library and creates a missing database file; `VendorLib` may hold the full path of `fbclient.dll`. The model keeps its MySQL datatypes, the synchronisation maps them (DATETIME to TIMESTAMP, TEXT to BLOB SUB_TYPE TEXT, AUTO_INCREMENT to an identity column, ...). Every DDL statement is committed on its own, a failing one is logged and the sync goes on. Firebird cannot rename a table (it is created anew, the rows are copied, the old one is dropped) and cannot turn an existing column into an identity column. The SQL export for the FireBird target uses the same datatype mapping and names (`src/FirebirdSQL.pas`): `CONSTRAINT ... FOREIGN KEY`, `CREATE INDEX` statements, `COMMENT ON`, reserved words in quotes, no `DROP TABLE IF EXISTS`. Without the generator-and-trigger option an auto increment column is written as an identity column (Firebird 3). The test loads both script variants into a fresh database with `isql`.
 - **Synchronisation against SQLite** (`src/DBEERSQLiteSync.pas`) has only been run through `tests/TestSQLiteSync.pas`, not through the dialog. SQLite has no ALTER COLUMN: renamed, appended and plainly dropped columns use ALTER TABLE, every other change rebuilds the table (copy the rows, drop, rename, recreate indices and triggers) in one transaction per table. A rebuild is refused while `PRAGMA foreign_keys` is on for the connection.
 - Dragging a datatype from the palette onto the Table Editor grid does nothing while the editor is modal (it would need a non-modal Table Editor); use the "Set Datatype" popup submenu of the column grid instead.
 - SQL export writes no `ENGINE` clause for MyISAM tables (MySQL's default engine applies).
@@ -299,6 +307,29 @@ The **Windows version is no longer a beta**: it is built, run and used on Window
 - One GLib-CRITICAL warning on stderr remains (Return in the Table Editor grid followed by Return in the name editor; harmless).
 
 Every finding, fix and verification is recorded in the bug catalogs under `docs/` (see [Testing](#testing)).
+
+## Linux Version
+
+The port was first written and tested on Linux, then on Windows 11. In October 2026 it was built again on Linux (Ubuntu 26.04, Lazarus 4.8, FPC 3.2.2, GTK2), and this is the list of what was changed for it. **New entries are added at the top of each block with every change that is pushed.**
+
+**Build and start**
+
+- Installation package: `installer/linux/make-package.sh` and `install.sh`, the counterpart of the Windows setup program, see [Installing on Linux](#installing-on-linux).
+- Settings in `~/.DBDesigner-Fork` instead of `~/.DBDesigner4`, the directory of the original DBDesigner 4; at the first start the files of the former directory are copied (`GetGlobalSettingsPath`, `src/GlobalSysFunctions.pas`). The open dialog also starts in `DBDesigner` in the documents of the user, where the installation puts the examples.
+- Removed `TMainForm.CheckLinuxDesktopFile`, left from Kylix: it adjusted a `startdbd.desktop` that is no longer in the project.
+- `.gitignore`: the Linux binaries of the Test Data Generator and the Data Browser.
+
+**Databases**
+
+- Firebird: the synchronisation crashed in `TIBConnection` or hung in its first step. `TIBConnection.AddFieldDefs` of FPC 3.2.2 looks up the character set of every `BLOB SUB_TYPE TEXT` column with a buffer of 32 bytes for the global field name, and Firebird 4 and newer write up to 253 bytes there, which overwrote the stack. `TFirebirdConnection` (`src/clx_shims/firebirdconn.pas`) does the lookup with a big enough buffer and is registered as connector type `Firebird`. The overflow does not depend on the platform; on Windows with Firebird 5 it had not shown.
+- Firebird: a library path in the connection that does not exist falls back to `libfbclient.so.2` before the bare `libfbclient.so`, which only the `-dev` package installs (`firebirdlib.pas`).
+- MySQL: Ubuntu 26.04 ships only `libmysqlclient.so.24` (MySQL 8.4). `mysqllib.pas` loads it, and `TMySQLClientConnection` (`src/clx_shims/mysqlclientconn.pas`) lets `TMySQL80Connection` accept an 8.4 client library, which FPC 3.2.2 refused ("Expected (8.0), got (8.4.11)"); other versions keep the check.
+
+**Checked on Linux**
+
+- All projects built; `--selftest` (0 failures), `tests/TestSQLExport`, `TestSQLiteSync`, `TestFirebirdSync` (embedded, Firebird 4.0.6), `TestTestDataGen`, `TestDataBrowser`; the package installed for the user, the installed program with `--selftest`, the uninstaller.
+- `TestSQLExport` creates the data modules it needs (it stopped with an access violation).
+- Not part of these checks: MySQL against a server (only the loading of the 8.4 library), the installation for all users with `sudo`, the MCP registration from `install.sh`, the dialogs of the Test Data Generator and the Data Browser.
 
 ## Windows Version
 
